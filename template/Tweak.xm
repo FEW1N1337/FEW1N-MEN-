@@ -238,7 +238,12 @@ static int   g_pvOwnerOff = 0;         // Owner (Player*) byte offset @0x80 (isi
 // ==== GODMODE (HR_PlayerHandler.canCrash=false -> hic kaza yapma) ====
 static void* g_playerHandlerType = NULL;   // typeof(HR_PlayerHandler)
 static void* g_myPlayerHandler = NULL;     // benim handler (PhotonView@0xB8.IsMine)
+static void* g_myRccp = NULL;              // RCCP_CarController (handler@0x20) - ucus girdi (throttle@0x168 steer@0x170)
 static bool  isGodmode = false;
+// ==== UCUS SURUS (RCCP girdi + forward + acisal hiz) ====
+static void* g_mTransGetFwd = NULL;        // Transform.get_forward -> Vector3
+static void* g_mRbSetAngVel = NULL;        // Rigidbody.set_angularVelocity(Vector3)
+static float flyDriveSpeed = 45.0f;        // ucusta ileri itme hizi
 // ==== SELEKTOR (RCCP_Lights.highBeamHeadlights@0x41 hizli ac/kapat) ====
 static void* g_rccpLightsType = NULL;      // typeof(RCCP_Lights)
 static void* g_myLights = NULL;            // benim RCCP_Lights (g_rb'ye en yakin)
@@ -422,6 +427,7 @@ static void few1n_initIl2cpp(void) {
                 }
                 g_mRbGetPos = i_class_get_method_from_name(rbClass, "get_position", 0);
                 g_mRbSetPos = i_class_get_method_from_name(rbClass, "set_position", 1);
+                g_mRbSetAngVel = i_class_get_method_from_name(rbClass, "set_angularVelocity", 1);  // ucus donme
                 g_mRbSetDetect = i_class_get_method_from_name(rbClass, "set_detectCollisions", 1);  // no-clip
                 g_mRbUseGrav   = i_class_get_method_from_name(rbClass, "set_useGravity", 1);        // anti-grav
                 g_rbTypeObj = few1n_typeObjOf(rbClass);   // FindObjectsOfType(Rigidbody) yedek yolu icin
@@ -447,7 +453,8 @@ static void few1n_initIl2cpp(void) {
         if (!g_mTransGetPos) {
             void* tr = i_class_from_name(img, "UnityEngine", "Transform");
             if (tr) { g_mTransGetPos = i_class_get_method_from_name(tr, "get_position", 0);
-                      g_mTransSetScale = i_class_get_method_from_name(tr, "set_localScale", 1); }
+                      g_mTransSetScale = i_class_get_method_from_name(tr, "set_localScale", 1);
+                      g_mTransGetFwd = i_class_get_method_from_name(tr, "get_forward", 0); }
         }
         if (!g_mSetRichText) {
             void* tmpClass = i_class_from_name(img, "TMPro", "TMP_Text");
@@ -536,6 +543,11 @@ static void rbSetVelIl(void* rb, Vec3* v) {
         return;
     }
     if (rb_setVel) rb_setVel(rb, v);     // yedek: ham Injected
+}
+static void rbSetAngVelIl(void* rb, Vec3* v) {   // acisal hiz (ucusta yaw donme)
+    if (!rb || !i_runtime_invoke || !g_mRbSetAngVel) return;
+    void* params[1] = { v };
+    i_runtime_invoke(g_mRbSetAngVel, rb, params, NULL);
 }
 
 // Rigidbody position - il2cpp runtime_invoke (ham cagri yedek)
@@ -681,6 +693,7 @@ static void  (*lobby_leaveRoom)(void* self) = NULL;    // HR_PhotonLobbyManager.
 static bool  (*pn_createRoom)(void* name, void* opts, void* lobby, void* users) = NULL; // PhotonNetwork.CreateRoom
 static bool  (*pn_joinRoom)(void* name, void* users) = NULL;   // PhotonNetwork.JoinRoom 0x593A64C (goz at)
 static void* (*pn_getNickName)(void) = NULL;                   // PhotonNetwork.get_NickName 0x59338C0 (isim kaydet)
+static bool  (*pn_leaveRoom)(bool) = NULL;                     // PhotonNetwork.LeaveRoom 0x593B2D8 (goz at cikis)
 // ==== ODADAKI OYUNCULAR (script.json dogrulandi) ====
 static void* (*pn_getPlayerList)(void) = NULL;      // PhotonNetwork.get_PlayerList -> Player[]  0x59339D0
 static void* (*ply_getNickName)(void*) = NULL;      // Player.get_NickName          0x5924574
@@ -992,6 +1005,19 @@ static bool few1n_objPos(void* obj, Vec3* out) {
         return true;
     } @catch (...) { return false; }
 }
+// Bir Component'in ileri yonu (transform.forward) - ucus icin
+static bool few1n_fwd(void* obj, Vec3* out) {
+    *out = (Vec3){0,0,0};
+    if (!ptrOk(obj) || !g_mCompGetTransform || !g_mTransGetFwd || !i_runtime_invoke) return false;
+    @try {
+        void* tr = i_runtime_invoke(g_mCompGetTransform, obj, NULL, NULL);
+        if (!ptrOk(tr)) return false;
+        void* box = i_runtime_invoke(g_mTransGetFwd, tr, NULL, NULL);
+        if (!ptrOk(box)) return false;
+        *out = *(Vec3*)((uintptr_t)box + 0x10);
+        return true;
+    } @catch (...) { return false; }
+}
 // YEDEK: CarDriveSystem bulunamazsa kameraya en yakin Rigidbody = oyuncunun araci.
 // Boylece zipla/isinlan/ucus g_rb'siz kalmaz (hiz/nitro yine CarDriveSystem ister).
 // KESIN: PhotonView.IsMine=true olan = SENIN araban. Pozisyonundan Rigidbody'ni bul.
@@ -1260,8 +1286,8 @@ static void few1n_applyColor(void) {
 // ===== GODMODE: HR_PlayerHandler.canCrash=false -> hic kaza yapma (sonsuz surus) =====
 // Benim handler'im: PhotonView(@0xB8).IsMine=true. canCrash@0x38, damage@0x3C.
 static void few1n_applyGodmode(void) {
-    if (!isGodmode) return;
-    if (g_myPlayerHandler && !unityAlive(g_myPlayerHandler)) g_myPlayerHandler = NULL;
+    if (!isGodmode && !isFlyEnabled) return;   // godmode VEYA ucus icin handler+rccp lazim
+    if (g_myPlayerHandler && !unityAlive(g_myPlayerHandler)) { g_myPlayerHandler = NULL; g_myRccp = NULL; }
     if (!unityAlive(g_myPlayerHandler)) {
         static int gmTick = 0;
         if ((gmTick++ % 20) != 0) return;   // ~her 20 frame'de bir ara (FindObjects ucuz degil)
@@ -1277,15 +1303,15 @@ static void few1n_applyGodmode(void) {
                 void* h = hs[i]; if (!unityAlive(h)) continue;
                 void* pv = *(void**)((uintptr_t)h + 0xB8);   // HR_PlayerHandler.PhotonView
                 bool mine = unityAlive(pv) ? *(bool*)((uintptr_t)pv + g_isMineOff) : false;
-                if (mine) { g_myPlayerHandler = h; break; }
+                if (mine) { g_myPlayerHandler = h; g_myRccp = *(void**)((uintptr_t)h + 0x20); break; }
             }
         } @catch (...) {}
         return;
     }
-    @try {
+    if (isGodmode) { @try {
         *(unsigned char*)((uintptr_t)g_myPlayerHandler + 0x38) = 0;   // canCrash = false
         *(float*)((uintptr_t)g_myPlayerHandler + 0x3C) = 0.0f;        // damage = 0
-    } @catch (...) {}
+    } @catch (...) {} }
 }
 
 // ===== SELEKTOR: RCCP_Lights.highBeamHeadlights@0x41 hizli ac/kapat (g_rb'ye en yakin) =====
@@ -1641,7 +1667,7 @@ static void h_addMoney(void* self, int amount) {
     title.font = [UIFont systemFontOfSize:17 weight:UIFontWeightBlack];
     [header addSubview:title];
     UILabel *ver = [[UILabel alloc] initWithFrame:CGRectMake(42,37,pw-90,16)];
-    ver.text = [NSString stringWithFormat:@"v30.2  •  Base 0x%lX", (unsigned long)global_base];
+    ver.text = [NSString stringWithFormat:@"v30.6  •  Base 0x%lX", (unsigned long)global_base];
     ver.textColor = [UIColor colorWithWhite:1 alpha:0.82];
     ver.font = [UIFont fontWithName:@"Menlo-Bold" size:8] ?: [UIFont systemFontOfSize:8 weight:UIFontWeightBold];
     [header addSubview:ver];
@@ -1694,8 +1720,7 @@ static void h_addMoney(void* self, int amount) {
     y += 22;
 
     y = [self header:@"\U0001F3CE  ARAC" atY:y];
-    y = [self toggle:@"\U0001F4A8  Sonsuz Nitro" sub:@"Nitro hic bitmez" key:@"nitro" atY:y action:@selector(tapNitro)];
-    y = [self toggle:@"\U0001F681  Ucus (Hover)"  sub:@"Havada asili kal, surerek uc" key:@"fly" atY:y action:@selector(tapFly)];
+    y = [self toggle:@"\U0001F681  Ucus (Havada Surus)"  sub:@"Gaz=ileri it, direksiyon=havada don" key:@"fly" atY:y action:@selector(tapFly)];
     y = [self toggle:@"\U0001FAB6  Dusuk Yercekimi" sub:@"Dusus yavas, floaty" key:@"lowgrav" atY:y action:@selector(tapLowGrav)];
     y = [self toggle:@"\U0001F47B  No-Clip (Hayalet)" sub:@"Duvardan/araclardan gec (ucus ac!)" key:@"noclip" atY:y action:@selector(tapNoClip)];
     y = [self toggle:@"\U0001F319  Anti-Gravity (Ay modu)" sub:@"Yercekimi kapali, suzul" key:@"antigrav" atY:y action:@selector(tapAntiGrav)];
@@ -1712,13 +1737,8 @@ static void h_addMoney(void* self, int amount) {
     y = [self actionRow:@"\U0001F3AF  Oyuncuya Isinlan (yanina git)" color:C_ON atY:y action:@selector(teleportToPlayer)];
 
     y = [self header:@"\U0001F4AC  CHAT" atY:y];
-    y = [self toggle:@"\U0001F3A8  Renkli Chat" sub:@"[FEW1N] prefix + cyan" key:@"colorchat" atY:y action:@selector(tapColorChat)];
     y = [self toggle:@"\U0001F4E2  Chat Spam" sub:@"50ms araligla mesaj" key:@"chatspam" atY:y action:@selector(tapChatSpam)];
     y = [self actionRow:@"✏️  Spam Yazisini Duzenle" color:C_CYAN atY:y action:@selector(editSpam)];
-    y = [self actionRow:@"\U0001F3A8  Chat ASCII Sanat (herkes gorur)" color:C_ON atY:y action:@selector(chatArt)];
-    y = [self toggle:@"\U0001F4E2  Chat Oto-Duyuru" sub:@"Donen mesaj, herkes gorur" key:@"announce" atY:y action:@selector(tapAnnounce)];
-    y = [self actionRow:@"✏️  Duyuru Mesajlarini Ayarla" color:C_CYAN atY:y action:@selector(editAnnounce)];
-    y = [self actionRow:@"\U0001F4E1  Sahte SERVER Mesaji (troll)" color:C_RED atY:y action:@selector(fakeServerMsg)];
     y = [self actionRow:@"\U0001F3A8  Spam Rengi Sec" color:C_CYAN atY:y action:@selector(pickSpamColor)];
     {
         UIView *ssrow = [[UIView alloc] initWithFrame:CGRectMake(12,y,pw-24,44)];
@@ -1771,7 +1791,7 @@ static void h_addMoney(void* self, int amount) {
     y = [self actionRow:@"\U0001F465  Odadaki Oyuncular (isim kopyala)" color:C_CYAN atY:y action:@selector(showPlayers)];
     y = [self actionRow:@"\U0001F441  Odaya Goz At (isimsiz anlik gir-cik)" color:C_GOLD atY:y action:@selector(peekRoom)];
     y = [self actionRow:@"\U0001F3E0  Ozel Isimli Oda Kur" color:C_GOLD atY:y action:@selector(createOneRoom)];
-    y = [self actionRow:@"\U0001F4A5  300 ODA AC (tek tus, 0.04sn)" color:C_RED atY:y action:@selector(spam300Rooms)];
+    y = [self actionRow:@"\U0001F4A5  300 ODA AC (tek tus, 0.02sn)" color:C_RED atY:y action:@selector(spam300Rooms)];
     y = [self toggle:@"\U0001F4E5  Fake Oda Spam" sub:@"Kalici odalar birikir" key:@"roomspam" atY:y action:@selector(tapRoomSpam)];
     y = [self toggle:@"\U0001F504  Surekli Mod" sub:@"Kapatana kadar spam" key:@"roomcont" atY:y action:@selector(tapRoomContinuous)];
     y = [self actionRow:@"✏️  Oda Ismini Ayarla" color:C_CYAN atY:y action:@selector(editRoomName)];
@@ -1959,12 +1979,9 @@ static void h_addMoney(void* self, int amount) {
         b.layer.shadowRadius = on ? 6 : 0;
         b.layer.shadowOpacity = on ? 0.45 : 0.0;
     }
-    [self setToggle:@"nitro"     on:isInfiniteNitroEnabled];
     [self setToggle:@"fly"       on:isFlyEnabled];
     [self setToggle:@"lowgrav"   on:isLowGravEnabled];
-    [self setToggle:@"colorchat" on:isColorChatEnabled];
     [self setToggle:@"chatspam"  on:isSpamEnabled];
-    [self setToggle:@"announce"  on:isAnnounceEnabled];
     [self setToggle:@"asciianim" on:isAsciiAnimEnabled];
     [self setToggle:@"bypass"    on:isBypassPasswordEnabled];
     [self setToggle:@"roomspam"  on:isRoomSpamEnabled];
@@ -2016,16 +2033,36 @@ static void h_addMoney(void* self, int amount) {
     few1n_applyColor();      // arac rengini uygula (onbellek materyaller - ucuz)
     few1n_applyGodmode();    // godmode: canCrash=false (hic kaza yapma)
     few1n_applySelektor();   // selektor: RCCP high/low beam hizli cakma
-    // Ucus (hover) ve dusuk yercekimi - Rigidbody dikey hizini ayarla
-    if ((isFlyEnabled || isLowGravEnabled || isNoClip) && unityAlive(g_rb)) {
+    // ===== UCUS: havada GERCEK surus (gaz=ileri, fren=geri, direksiyon=don) - PURUZSUZ =====
+    // Hepsi hiz/acisal-hiz (fizik) ile -> Photon dogal senkronlar -> baskalarinda titremez.
+    if (isFlyEnabled && unityAlive(g_rb)) {
         @try {
-            Vec3 v = {0,0,0};
-            rbGetVelIl(g_rb, &v);
-            if (isFlyEnabled || isNoClip) {
-                v.y = 0.0f;                       // havada asili kal - no-clip'te de dusme yok
-            } else if (isLowGravEnabled && v.y < 0.0f) {
-                v.y *= 0.25f;                     // dususu yavaslat (floaty)
+            Vec3 v = {0,0,0}; rbGetVelIl(g_rb, &v);
+            Vec3 fwd; bool haveFwd = few1n_fwd(g_rb, &fwd);
+            float thr = 0.0f, brk = 0.0f, str = 0.0f;
+            if (unityAlive(g_myRccp)) {
+                thr = *(float*)((uintptr_t)g_myRccp + 0x168);   // throttleInput_V
+                brk = *(float*)((uintptr_t)g_myRccp + 0x16C);   // brakeInput_V (geri)
+                str = *(float*)((uintptr_t)g_myRccp + 0x170);   // steerInput_V
             }
+            float drive = thr - brk;   // gaz ileri, fren geri (-1..1)
+            if (haveFwd && fabsf(drive) > 0.05f) {
+                float tx = fwd.x * drive * flyDriveSpeed, tz = fwd.z * drive * flyDriveSpeed;
+                v.x += (tx - v.x) * 0.35f;   // yumusak gecis (ani degil -> titremez)
+                v.z += (tz - v.z) * 0.35f;
+            } else {
+                v.x *= 0.90f; v.z *= 0.90f;   // gaz yoksa yumusak dur
+            }
+            v.y *= 0.80f;   // dikey yumusak asili kal (sert sifir degil -> titreme yok)
+            rbSetVelIl(g_rb, &v);
+            Vec3 av = {0.0f, str * 2.2f, 0.0f};   // direksiyon -> yaw donme (fizik, puruzsuz)
+            rbSetAngVelIl(g_rb, &av);
+        } @catch (...) {}
+    } else if ((isLowGravEnabled || isNoClip || isAntiGrav) && unityAlive(g_rb)) {
+        @try {
+            Vec3 v = {0,0,0}; rbGetVelIl(g_rb, &v);
+            if (isNoClip || isAntiGrav) v.y *= 0.80f;              // no-clip/anti-grav: yumusak asili kal (titremez)
+            else if (isLowGravEnabled && v.y < 0.0f) v.y *= 0.25f; // floaty dusus
             rbSetVelIl(g_rb, &v);
         } @catch (...) {}
     }
@@ -2222,7 +2259,7 @@ static void h_addMoney(void* self, int amount) {
 - (void)doPeek:(NSString*)roomName {
     @try {
         NSString *savedNick = (pn_getNickName) ? readStr(pn_getNickName()) : nil;   // ismi kaydet
-        if (pn_setNickName) { void* inv = mkStr(@"⠀⠀"); if (inv) pn_setNickName(inv); }   // isimsiz yap
+        if (pn_setNickName) { void* inv = mkStr(@"isimsiz"); if (inv) pn_setNickName(inv); }   // "isimsiz" yaz (bos calismiyor)
         void* ns = mkStr(roomName); if (!ns) { FLog(@"Isim olusmadi"); return; }
         pn_joinRoom(ns, NULL);   // odaya katil
         FLog(@"Odaya goz atiliyor...");
@@ -2244,7 +2281,8 @@ static void h_addMoney(void* self, int amount) {
                         }
                     }
                 }
-                if (lobbyGetInst && lobby_leaveRoom) { void* lob = lobbyGetInst(); if (lob) lobby_leaveRoom(lob); }   // cik
+                if (pn_leaveRoom) pn_leaveRoom(false);   // PhotonNetwork.LeaveRoom (guvenilir cikis)
+                if (lobbyGetInst && lobby_leaveRoom) { void* lob = lobbyGetInst(); if (lob) lobby_leaveRoom(lob); }   // yedek cikis
                 if (pn_setNickName && savedNick.length) { void* rs = mkStr(savedNick); if (rs) pn_setNickName(rs); }   // ismi geri yukle
                 UIAlertController *res = [UIAlertController alertControllerWithTitle:@"\U0001F441 Odadaki Oyuncular"
                     message:(n>0 ? list : @"Oyuncu okunamadi (oda dolu/kapali/sifreli olabilir)") preferredStyle:UIAlertControllerStyleAlert];
@@ -2409,7 +2447,6 @@ static void h_addMoney(void* self, int amount) {
     enforceScale();
 }
 
-- (void)tapNitro     { isInfiniteNitroEnabled  = !isInfiniteNitroEnabled;  saveBool(@"nitro", isInfiniteNitroEnabled);      [self refreshUI]; }
 - (void)tapNoClip    { isNoClip   = !isNoClip;   saveBool(@"noclip", isNoClip);     [self refreshUI]; }
 - (void)tapAntiGrav  { isAntiGrav = !isAntiGrav; saveBool(@"antigrav", isAntiGrav); [self refreshUI]; }
 - (void)tapGodmode   { isGodmode = !isGodmode; saveBool(@"godmode", isGodmode); if(!isGodmode) g_myPlayerHandler = NULL; FLog(isGodmode ? @"GODMODE acik - kaza yapmazsin" : @"Godmode kapali"); [self refreshUI]; }
@@ -2460,7 +2497,6 @@ static void h_addMoney(void* self, int amount) {
 }
 - (void)tapFly       { isFlyEnabled            = !isFlyEnabled;            saveBool(@"fly", isFlyEnabled);                  [self refreshUI]; }
 - (void)tapLowGrav   { isLowGravEnabled        = !isLowGravEnabled;        saveBool(@"lowgrav", isLowGravEnabled);          [self refreshUI]; }
-- (void)tapColorChat { isColorChatEnabled       = !isColorChatEnabled;      saveBool(@"colorchat", isColorChatEnabled);      [self refreshUI]; }
 - (void)tapBypass    { isBypassPasswordEnabled  = !isBypassPasswordEnabled; saveBool(@"bypass", isBypassPasswordEnabled);    [self refreshUI]; }
 - (void)tapAutoMoney { isAutoMoneyEnabled        = !isAutoMoneyEnabled;      saveBool(@"automoney", isAutoMoneyEnabled);      [self refreshUI]; }
 
@@ -3239,19 +3275,19 @@ static bool few1n_invoke0(void* method, void* obj, const char* label) {
     if (isRoomSpamEnabled) {
         roomSpamPhase = 0;
         roomSpamCount = 0;   // sayaci sifirla
-        float iv = roomSpamInterval >= 0.04f ? roomSpamInterval : 0.3f;
+        float iv = roomSpamInterval >= 0.02f ? roomSpamInterval : 0.3f;
         roomSpamTimer = [NSTimer scheduledTimerWithTimeInterval:iv target:self selector:@selector(fireRoomSpam) userInfo:nil repeats:YES];
     }
     [self refreshUI];
 }
 
 - (void)spam300Rooms {
-    roomSpamMaxCount = 300; roomSpamContinuous = false; roomSpamInterval = 0.04f;
-    saveInt(@"roomMax", 300); saveBool(@"roomcont", false); saveInt(@"roomIv", 4);
+    roomSpamMaxCount = 300; roomSpamContinuous = false; roomSpamInterval = 0.02f;
+    saveInt(@"roomMax", 300); saveBool(@"roomcont", false); saveInt(@"roomIv", 2);
     if (roomSpamTimer) { [roomSpamTimer invalidate]; roomSpamTimer = nil; }
     isRoomSpamEnabled = true; saveBool(@"roomspam", true);
     roomSpamPhase = 0; roomSpamCount = 0;
-    roomSpamTimer = [NSTimer scheduledTimerWithTimeInterval:0.04 target:self selector:@selector(fireRoomSpam) userInfo:nil repeats:YES];
+    roomSpamTimer = [NSTimer scheduledTimerWithTimeInterval:0.02 target:self selector:@selector(fireRoomSpam) userInfo:nil repeats:YES];
     FLog(@"300 oda spam basladi (0.04sn/adim) - liste dolacak, odalar ~5dk yasar");
     [self refreshUI];
 }
@@ -3285,7 +3321,7 @@ static bool few1n_invoke0(void* method, void* obj, const char* label) {
     [ac addTextFieldWithConfigurationHandler:^(UITextField *tf){ tf.keyboardType = UIKeyboardTypeDecimalPad; tf.text = [NSString stringWithFormat:@"%.1f", roomSpamInterval]; }];
     [ac addAction:[UIAlertAction actionWithTitle:@"Kaydet" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
         float v = [ac.textFields.firstObject.text floatValue];
-        if (v >= 0.04f && v <= 5.0f) { roomSpamInterval = v; saveInt(@"roomIv", (int)(v*100)); }
+        if (v >= 0.02f && v <= 5.0f) { roomSpamInterval = v; saveInt(@"roomIv", (int)(v*100)); }
     }]];
     [ac addAction:[UIAlertAction actionWithTitle:@"Iptal" style:UIAlertActionStyleCancel handler:nil]];
     [self present:ac];
@@ -3674,7 +3710,7 @@ static bool few1n_invoke0(void* method, void* obj, const char* label) {
 
 static void restoreSettings(void) {
     speedMode              = loadInt(@"speedMode", 1);
-    isInfiniteNitroEnabled = loadBool(@"nitro", false);
+    isInfiniteNitroEnabled = false;   // ozellik kaldirildi (kalici kapali)
     isCarPanelEnabled      = loadBool(@"carpanel", false);
     isEspEnabled           = false;   // ESP her aciliste kapali baslar (overlay guvenligi)
     isSpeedHud             = false;   // HUD da kapali baslar
@@ -3701,7 +3737,7 @@ static void restoreSettings(void) {
     carAccelPower          = loadFloat(@"caraccel", 3.0f);
     carSteerPower          = loadFloat(@"carsteer", 1.0f);
     carTopSpeed            = loadFloat(@"cartop",   300.0f);
-    isColorChatEnabled     = loadBool(@"colorchat", false);
+    isColorChatEnabled     = false;   // ozellik kaldirildi (kalici kapali)
     isSpamEnabled          = loadBool(@"chatspam", false);
     isBypassPasswordEnabled= loadBool(@"bypass", true);
     isFlyEnabled           = loadBool(@"fly", false);
@@ -3753,6 +3789,7 @@ static void InstallEverything(uintptr_t b) {
     pn_setNickName            = (void(*)(void*))(b + 0x5933940);
     pn_joinRoom               = (bool(*)(void*,void*))(b + 0x593A64C);
     pn_getNickName            = (void*(*)(void))(b + 0x59338C0);
+    pn_leaveRoom              = (bool(*)(bool))(b + 0x593B2D8);
     lobbyGetInst              = (void*(*)(void))(b + 0x54A8098);
     playerManagerGetInst      = (void*(*)(void))(b + 0x5A2DE20);
     pm_updateNicknameInternal = (void(*)(void*,void*))(b + 0x5A3DDD4);
@@ -3806,7 +3843,7 @@ static void few1n_poll(void) {
 }
 
 %ctor {
-    FLog(@"v30.2 basladi, UnityFramework araniyor...");
+    FLog(@"v30.6 basladi, UnityFramework araniyor...");
     restoreSettings();
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 3 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{ few1n_poll(); });
 }
