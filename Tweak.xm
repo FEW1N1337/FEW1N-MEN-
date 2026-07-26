@@ -9,7 +9,7 @@
 #import <objc/runtime.h>
 
 // ============================================================
-//  v23.7 - FEW1N MOD MENU
+//  v40.0 FIX - FEW1N MOD MENU  (derleme hatalari duzeltildi - duplike/interface/nameTricks)
 //  DreamRoadMultiplayer | Unity 6 (6000.3.0b1) | Metadata v39
 // ------------------------------------------------------------
 //  ONEMLI: Oyun Unity 6'ya guncellendi + isim obfuscation eklendi.
@@ -1796,7 +1796,7 @@ static void h_addMoney(void* self, int amount) {
     title.font = [UIFont systemFontOfSize:17 weight:UIFontWeightBlack];
     [header addSubview:title];
     UILabel *ver = [[UILabel alloc] initWithFrame:CGRectMake(42,37,pw-90,16)];
-    ver.text = [NSString stringWithFormat:@"v33.3  •  Base 0x%lX", (unsigned long)global_base];
+    ver.text = [NSString stringWithFormat:@"v40.0 FIX  •  Base 0x%lX", (unsigned long)global_base];
     ver.textColor = [UIColor colorWithWhite:1 alpha:0.82];
     ver.font = [UIFont fontWithName:@"Menlo-Bold" size:8] ?: [UIFont systemFontOfSize:8 weight:UIFontWeightBold];
     [header addSubview:ver];
@@ -4435,7 +4435,7 @@ static void few1n_poll(void) {
 }
 
 %ctor {
-    FLog(@"v33.3 basladi, UnityFramework araniyor...");
+    FLog(@"v40.0 FIX basladi, UnityFramework araniyor...");
     restoreSettings();
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 3 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{ few1n_poll(); });
 }
