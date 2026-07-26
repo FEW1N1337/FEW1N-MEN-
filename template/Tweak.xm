@@ -9,7 +9,7 @@
 #import <objc/runtime.h>
 
 // ============================================================
-//  v50.0 CLEAN - FEW1N MOD MENU  (derlenir, hatasiz - bu dosyayi kullan)
+//  v51.0 MENU - FEW1N MOD MENU  (derlenir, hatasiz - bu dosyayi kullan)
 //  DreamRoadMultiplayer | Unity 6 (6000.3.0b1) | Metadata v39
 // ------------------------------------------------------------
 //  ONEMLI: Oyun Unity 6'ya guncellendi + isim obfuscation eklendi.
@@ -842,10 +842,11 @@ static void few1n_kickPlayer(void* playerObj) {
     if (!fn) { FLog(@"Kick: CloseConnection pointeri yok"); return; }
     @try {
         g_isManualKick = true;
-        fn(playerObj);
+        bool ok = fn(playerObj);   // CloseConnection master degilsen FALSE doner
         g_isManualKick = false;
-        FLog(@"Oyuncu atma istegi gonderildi (sadece MASTER/host isen calisir)");
-    } @catch (...) { g_isManualKick = false; }
+        FLog(ok ? @"Kick GONDERILDI (basarili - kisi dusmeli)"
+                : @"Kick REDDEDILDI: sen MASTER/host DEGILSIN. Photon izin vermedi.");
+    } @catch (...) { g_isManualKick = false; FLog(@"Kick hatasi (exception)"); }
 }
 
 // ===== INFINITE NITRO =====
@@ -1796,7 +1797,7 @@ static void h_addMoney(void* self, int amount) {
     title.font = [UIFont systemFontOfSize:17 weight:UIFontWeightBlack];
     [header addSubview:title];
     UILabel *ver = [[UILabel alloc] initWithFrame:CGRectMake(42,37,pw-90,16)];
-    ver.text = [NSString stringWithFormat:@"v50.0 CLEAN  •  Base 0x%lX", (unsigned long)global_base];
+    ver.text = [NSString stringWithFormat:@"v51.0 MENU  •  Base 0x%lX", (unsigned long)global_base];
     ver.textColor = [UIColor colorWithWhite:1 alpha:0.82];
     ver.font = [UIFont fontWithName:@"Menlo-Bold" size:8] ?: [UIFont systemFontOfSize:8 weight:UIFontWeightBold];
     [header addSubview:ver];
@@ -1853,6 +1854,12 @@ static void h_addMoney(void* self, int amount) {
     y = [self toggle:@"🧊  Drift Modu (Kusursuz Kayma)" sub:@"il2cpp fizik ile yan kayma koruması" key:@"drift" atY:y action:@selector(tapDrift)];
     y = [self toggle:@"🚗  Hız Sabitleyici (Cruise Control)" sub:@"Gaza basmadan belirlenen hızda git" key:@"cruise" atY:y action:@selector(tapCruise)];
     y = [self actionRow:@"✏️  Sabit Hız Ayarla (km/h)" color:C_CYAN atY:y action:@selector(editCruiseSpeed)];
+    y = [self toggle:@"\U0001F681  Ucus (Havada Surus)" sub:@"Gaz=ileri it, direksiyon=havada don" key:@"fly" atY:y action:@selector(tapFly)];
+    y = [self toggle:@"\U0001FAB6  Dusuk Yercekimi" sub:@"Dusus yavas, floaty" key:@"lowgrav" atY:y action:@selector(tapLowGrav)];
+    y = [self toggle:@"\U0001F319  Anti-Gravity (Ay modu)" sub:@"Yercekimi kapali, suzul (asili kal)" key:@"antigrav" atY:y action:@selector(tapAntiGrav)];
+    y = [self toggle:@"\U0001F6E1  GODMODE (Kaza Yapma)" sub:@"Trafige carpsan bile olmezsin" key:@"godmode" atY:y action:@selector(tapGodmode)];
+    y = [self toggle:@"\U0001F4A1  Hizli Selektor (far cakma)" sub:@"On farlari hizli ac/kapat (RCCP)" key:@"selektor" atY:y action:@selector(tapSelektor)];
+    y = [self actionRow:@"✏️  Selektor Hizi Ayarla" color:C_CYAN atY:y action:@selector(editSelektorSpeed)];
     y = [self actionRow:@"\U0001F53C  ZIPLA (bas)" color:C_ON atY:y action:@selector(jumpTap)];
     y = [self actionRow:@"\U0001F680  Hiz Patlamasi (boost)" color:C_ON atY:y action:@selector(boostTap)];
     y = [self actionRow:@"\U0001F9CA  Araci Dondur (anlik dur)" color:C_CYAN atY:y action:@selector(freezeTap)];
@@ -1865,7 +1872,8 @@ static void h_addMoney(void* self, int amount) {
     y = [self header:@"\U0001F4AC  CHAT" atY:y];
     y = [self toggle:@"\U0001F4E2  Chat Spam" sub:@"50ms araligla mesaj" key:@"chatspam" atY:y action:@selector(tapChatSpam)];
     y = [self actionRow:@"✏️  Spam Yazisini Duzenle" color:C_CYAN atY:y action:@selector(editSpam)];
-    y = [self actionRow:@"\U0001F3A8  Spam Rengi Sec" color:C_CYAN atY:y action:@selector(pickSpamColor)];
+    y = [self actionRow:@"\U0001F3A8  Spam/Chat Rengi Sec (ozel hex)" color:C_CYAN atY:y action:@selector(pickSpamColor)];
+    y = [self actionRow:@"\U0001F58D  Renkli Mesaj Gonder (istedigin renkte)" color:C_ON atY:y action:@selector(sendColoredChat)];
     {
         UIView *ssrow = [[UIView alloc] initWithFrame:CGRectMake(12,y,pw-24,44)];
         ssrow.backgroundColor = C_CARD; ssrow.layer.cornerRadius = 12;
@@ -2129,6 +2137,8 @@ static void h_addMoney(void* self, int amount) {
     [self setToggle:@"godmode"   on:isGodmode];
     [self setToggle:@"selektor"  on:isSelektor];
     [self setToggle:@"antigrav"  on:isAntiGrav];
+    [self setToggle:@"matrixchat" on:isMatrixChatEnabled];
+    [self setToggle:@"glitchchat" on:isGlitchChatEnabled];
     [self setToggle:@"carsize"   on:isCarSizeEnabled];
     [self setToggle:@"carcolor"  on:isCarColorEnabled];
     [self setToggle:@"carcolorrainbow" on:carColorRainbow];
@@ -2756,6 +2766,23 @@ static void h_addMoney(void* self, int amount) {
     FLog(isGlitchChatEnabled ? @"Glitch Chat Modu ACIK" : @"Glitch Chat Modu KAPALI");
     [self refreshUI];
 }
+// Istedigin mesaji, sectigin renkte gonder (herkes gorur - exploit'in kullandigi richText)
+- (void)sendColoredChat {
+    if (!chatGetInst || !chatSend) { FLog(@"Chat pointeri yok - odaya gir"); return; }
+    UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"\U0001F3A8 Renkli Mesaj Gonder"
+        message:@"Yazdigin mesaj SENIN rengin ile gider (herkes gorur)" preferredStyle:UIAlertControllerStyleAlert];
+    [ac addTextFieldWithConfigurationHandler:^(UITextField *tf){ tf.placeholder = @"mesajin..."; tf.clearButtonMode = UITextFieldViewModeAlways; }];
+    [ac addAction:[UIAlertAction actionWithTitle:@"Gonder" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
+        NSString *t = ac.textFields.firstObject.text;
+        if (t.length == 0) return;
+        NSString *col = [NSString stringWithUTF8String:spamColorHex];
+        NSString *msg = [NSString stringWithFormat:@"<color=#%@><b>%@</b></color>", col, t];
+        @try { void* mgr = chatGetInst(); void* s = mkStr(msg); if (mgr && s) chatSend(mgr, s); } @catch (...) {}
+        FLog([NSString stringWithFormat:@"Renkli mesaj gonderildi (#%@)", col]);
+    }]];
+    [ac addAction:[UIAlertAction actionWithTitle:@"Iptal" style:UIAlertActionStyleCancel handler:nil]];
+    [self present:ac];
+}
 - (void)sendChatTemplate {
     if (!chatGetInst || !chatSend) { FLog(@"Chat pointeri yok - odaya gir"); return; }
     NSArray *templates = chatTemplates();
@@ -2811,6 +2838,18 @@ static void h_addMoney(void* self, int amount) {
     add(@"\U0001F534 Kirmizi", "FF3B30"); add(@"\U0001F7E0 Turuncu", "FF9500"); add(@"\U0001F7E1 Sari", "FFCC00");
     add(@"\U0001F7E2 Yesil", "34C759"); add(@"\U0001F535 Mavi", "007AFF"); add(@"\U0001F7E3 Mor", "AF52DE");
     add(@"\U0001F338 Pembe", "FF2D55"); add(@"⚪ Cyan", "00FFFF");
+    add(@"⚫ Siyah", "000000"); add(@"⚪ Beyaz", "FFFFFF"); add(@"\U0001F7E4 Kahve", "A2845E");
+    [ac addAction:[UIAlertAction actionWithTitle:@"✏️ Ozel Renk (istedigin HEX)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
+        UIAlertController *hx = [UIAlertController alertControllerWithTitle:@"\U0001F3A8 Ozel Renk (HEX)" message:@"Ornek: FF00FF  (# koyma)" preferredStyle:UIAlertControllerStyleAlert];
+        [hx addTextFieldWithConfigurationHandler:^(UITextField *tf){ tf.text = [NSString stringWithUTF8String:spamColorHex]; tf.placeholder = @"FF00FF"; tf.autocapitalizationType = UITextAutocapitalizationTypeAllCharacters; }];
+        [hx addAction:[UIAlertAction actionWithTitle:@"Uygula" style:UIAlertActionStyleDefault handler:^(UIAlertAction *b){
+            NSString *t = [[hx.textFields.firstObject.text stringByReplacingOccurrencesOfString:@"#" withString:@""] uppercaseString];
+            if (t.length >= 3 && t.length <= 6) { strncpy(spamColorHex, t.UTF8String, sizeof(spamColorHex)-1); spamColorHex[sizeof(spamColorHex)-1]='\0'; saveStr(@"spamColor", t); FLog([NSString stringWithFormat:@"Chat rengi: #%@ (Chat Spam'i acinca bu renkte olur)", t]); [self refreshUI]; }
+            else FLog(@"Gecersiz hex (3-6 karakter: orn FF00FF)");
+        }]];
+        [hx addAction:[UIAlertAction actionWithTitle:@"Iptal" style:UIAlertActionStyleCancel handler:nil]];
+        [self present:hx];
+    }]];
     [ac addAction:[UIAlertAction actionWithTitle:@"Iptal" style:UIAlertActionStyleCancel handler:nil]];
     if (ac.popoverPresentationController) { ac.popoverPresentationController.sourceView = self.panel; ac.popoverPresentationController.sourceRect = CGRectMake(self.panel.bounds.size.width/2, self.panel.bounds.size.height/2, 1, 1); }
     [self present:ac];
@@ -4405,7 +4444,7 @@ static void few1n_poll(void) {
 }
 
 %ctor {
-    FLog(@"v50.0 CLEAN basladi, UnityFramework araniyor...");
+    FLog(@"v51.0 MENU basladi, UnityFramework araniyor...");
     restoreSettings();
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 3 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{ few1n_poll(); });
 }
