@@ -3346,7 +3346,7 @@ static NSString* rainbowWrap(NSString* text, int idx) {
             [NSString stringWithFormat:@"<c\u00ADolor=#FF0000><b>%@</b></c\u00ADolor>", input],
             [NSString stringWithFormat:@"<#F00><b>%@</b>", input],
             [NSString stringWithFormat:@"<mark=#FF0000AA><b>%@</b></mark>", input],
-            [NSString stringWithFormat:@"<size=160%><#FF0000><b>%@</b></size>", input],
+            [NSString stringWithFormat:@"<size=160%%><#FF0000><b>%@</b></size>", input],
             [NSString stringWithFormat:@"<col<color=#FF0000>or=#FF0000><b>%@</b>", input],
             [NSString stringWithFormat:@"\u200F<#FF0000><b>%@</b>", input],
             [NSString stringWithFormat:@"<C\u200BOLOR=#FF0000><mark=#FF000044><b>%@</b></mark></C\u200BOLOR>", input],
