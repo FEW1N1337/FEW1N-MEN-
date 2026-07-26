@@ -66,6 +66,9 @@ static bool isCustomPlateEnabled = false;
 static bool isAutoMoneyEnabled = false;
 static bool isFlyEnabled = false;       // hover (dikey hizi 0 tut -> havada surus)
 static bool isLowGravEnabled = false;   // dususu yavaslat (floaty)
+static bool isDriftEnabled = false;     // drift modu (kusursuz yan kayma)
+static bool isCruiseEnabled = false;    // hiz sabitleyici (cruise control)
+static float cruiseSpeedKmh = 180.0f;   // hedef sabit hiz (km/h)
 static void* g_rb = NULL;               // arabanin Rigidbody'si (h_driveMove'da yakalanir)
 static bool isAsciiAnimEnabled = false; // ASCII animasyon spam
 static int  asciiAnimIndex = 0;         // hangi animasyon
@@ -98,6 +101,15 @@ static NSMutableArray *g_lyrics = nil;   // satirlar
 // ==== ASCII/spam icin renk + isim dongusu (chat spammer gibi) ====
 static bool asciiColorCycle = false;     // ASCII spam'i gokkusagi renkte gonder
 static int  g_colorIdx = 0;              // donen renk indeksi
+// ==== HACKER/PRO MODE ====
+static int  nameTrickMode = 0;            // 0=kapali 1=admin 2=mod 3=dev 4=hacker 5=matrix 6=glitch 7=binary
+static bool isMatrixChatEnabled = false;  // chat mesajlarini matrix stiline cevir
+static bool isGlitchChatEnabled = false;  // chat mesajlarini glitch stiline cevir
+static bool isStealthMode = false;        // menuyu gizle, sadece gizli gesture ile ac
+static int  stealthTapCount = 0;          // gizli acma icin triple-tap sayaci
+static NSDate *stealthLastTap = nil;      // son tap zamani
+static bool isRoomMasterHack = false;     // odaya girince master olmaya calis
+static int  chatTemplateIdx = 0;          // hazir chat sablonu indeksi
 
 static NSTimer *spamTimer = nil;
 static NSTimer *tickTimer = nil;
@@ -107,78 +119,132 @@ static NSTimer *roomSpamTimer = nil;
 static NSTimer *nameMarqueeTimer = nil;   // kayan yazi isim / isim dongusu
 static NSTimer *announceTimer = nil;      // chat oto-duyuru
 
-// ASCII animasyon setleri (her set = kareler dizisi)
+// ASCII & Neon Animasyon Setleri (Yuksek Kaliteli Renkli Stiller)
 static NSArray* asciiAnims(void) {
     return @[
-        @[@"[■□□□□]", @"[■■□□□]", @"[■■■□□]", @"[■■■■□]", @"[■■■■■] FEW1N!"],
-        @[@"★☆☆☆☆", @"★★☆☆☆", @"★★★☆☆", @"★★★★☆", @"★★★★★ FEW1N"],
-        @[@"FEW1N ▷", @"FEW1N ▷▷", @"FEW1N ▷▷▷", @"FEW1N ▷▷▷▷", @"FEW1N ▷▷▷▷▷"],
-        @[@"🚗💨", @"·🚗💨", @"··🚗💨", @"···🚗💨", @"····🚗💨 FEW1N"],
-        @[@"( •_•)", @"( •_•)>⌐■-■", @"(⌐■_■)", @"(⌐■_■) FEW1N"],
-        @[@"◜", @"◝", @"◞", @"◟", @"◜ FEW1N"],
-        // FEW1N HACK - duz yazi (renksiz, daktilo)
-        @[@"F", @"FE", @"FEW", @"FEW1", @"FEW1N", @"FEW1N H", @"FEW1N HA", @"FEW1N HAC", @"FEW1N HACK", @"» FEW1N HACK «"],
-        // FEW1N HACK - Rainbow (rich text acigi: TMP renk render eder)
+        // 1. Rainbow FEW1N HACK (Gokkusagi renk degisimi)
         @[@"<color=#FF0000><b>FEW1N HACK</b></color>", @"<color=#FF7F00><b>FEW1N HACK</b></color>",
           @"<color=#FFFF00><b>FEW1N HACK</b></color>", @"<color=#00FF00><b>FEW1N HACK</b></color>",
           @"<color=#00FFFF><b>FEW1N HACK</b></color>", @"<color=#4466FF><b>FEW1N HACK</b></color>",
           @"<color=#FF00FF><b>FEW1N HACK</b></color>"],
-        // FEW1N HACK - Daktilo (harf harf yazar)
-        @[@"<color=#00FF88><b>F</b></color>", @"<color=#00FF88><b>FE</b></color>",
-          @"<color=#00FF88><b>FEW</b></color>", @"<color=#00FF88><b>FEW1</b></color>",
-          @"<color=#00FF88><b>FEW1N</b></color>", @"<color=#00FF88><b>FEW1N H</b></color>",
-          @"<color=#00FF88><b>FEW1N HA</b></color>", @"<color=#00FF88><b>FEW1N HAC</b></color>",
-          @"<color=#00FF88><b>FEW1N HACK</b></color>"],
-        // FEW1N HACK - Buyuk/parlak (size + color)
-        @[@"<size=150%><color=#00FFFF><b>⚡ FEW1N HACK ⚡</b></color></size>",
-          @"<size=150%><color=#FF00FF><b>⚡ FEW1N HACK ⚡</b></color></size>",
-          @"<size=150%><color=#FFFF00><b>⚡ FEW1N HACK ⚡</b></color></size>"],
-        // Kutu cerceve (renksiz)
-        @[@"╔══════════╗", @"║  FEW1N   ║", @"║   HACK   ║", @"╚══════════╝"],
-        // Progress bar zengin
-        @[@"▰▱▱▱▱▱▱▱▱▱", @"▰▰▰▱▱▱▱▱▱▱", @"▰▰▰▰▰▱▱▱▱▱", @"▰▰▰▰▰▰▰▱▱▱", @"▰▰▰▰▰▰▰▰▰▰ FEW1N"],
-        // Suslu parantez
-        @[@"《 F 》", @"《 FE 》", @"《 FEW 》", @"《 FEW1 》", @"《 FEW1N 》", @"『 FEW1N HACK 』"],
-        // Pulse (buyuyup kuculen - renkli)
-        @[@"<size=80%><color=#FF0000><b>FEW1N</b></color></size>",
-          @"<size=110%><color=#FF6600><b>FEW1N</b></color></size>",
-          @"<size=140%><color=#FFCC00><b>⚡ FEW1N HACK ⚡</b></color></size>",
-          @"<size=110%><color=#FF6600><b>FEW1N</b></color></size>"],
-        // Matrix (yesil)
+        // 2. Neon Matrix (Yesil dijital kod)
         @[@"<color=#00FF00>01001 FEW1N 10110</color>",
           @"<color=#00FF00>10110 FEW1N 01001</color>",
           @"<color=#00FF00>█▓▒░ FEW1N ░▒▓█</color>"],
-        // Neon yanip sonme
-        @[@"<color=#00FFFF><b>『 FEW1N HACK 』</b></color>",
-          @"<color=#FF00FF><b>『 FEW1N HACK 』</b></color>",
-          @"<color=#FFFF00><b>『 FEW1N HACK 』</b></color>"],
-        // Dalga efekti (renkli, harfler dalgalanir)
-        @[@"<color=#FF0000>F</color><color=#FF8800>E</color><color=#FFFF00>W</color><color=#00FF00>1</color><color=#00FFFF>N</color>",
-          @"<color=#00FFFF>F</color><color=#FF0000>E</color><color=#FF8800>W</color><color=#FFFF00>1</color><color=#00FF00>N</color>",
-          @"<color=#00FF00>F</color><color=#00FFFF>E</color><color=#FF0000>W</color><color=#FF8800>1</color><color=#FFFF00>N</color>"],
-        // Glitch efekti
-        @[@"<color=#FF00FF>F̷E̷W̷1̷N̷</color>", @"<color=#00FFFF>F3W1N</color>", @"<color=#FF0000>FΞW1N HACK</color>", @"<b>FEW1N HACK</b>"],
-        // Kayan yildizlar
-        @[@"✦　　　FEW1N", @"　✦　　FEW1N", @"　　✦　FEW1N", @"　　　✦ FEW1N HACK"],
-        // Ates efekti (kirmizi-turuncu-sari)
-        @[@"<color=#FF0000>🔥 FEW1N 🔥</color>", @"<color=#FF6600>🔥 FEW1N 🔥</color>", @"<color=#FFCC00>🔥 FEW1N HACK 🔥</color>"],
-        // Buz efekti (mavi tonlari)
-        @[@"<color=#00CCFF>❄ FEW1N ❄</color>", @"<color=#66E0FF>❄ FEW1N ❄</color>", @"<color=#FFFFFF>❄ FEW1N HACK ❄</color>"],
-        // Kalp atisi
-        @[@"<size=90%><color=#FF0055>♥ FEW1N ♥</color></size>", @"<size=140%><color=#FF0055>♥ FEW1N ♥</color></size>", @"<size=90%><color=#FF0055>♥ FEW1N ♥</color></size>"],
-        // Yukleniyor nokta
-        @[@"FEW1N HACK.", @"FEW1N HACK..", @"FEW1N HACK...", @"FEW1N HACK ✓"],
-        // Rainbow border
+        // 3. Pulse (Buyuyup kuculen parlak neon)
+        @[@"<size=100%><color=#00FFFF><b>FEW1N HACK</b></color></size>",
+          @"<size=130%><color=#FF00FF><b>⚡ FEW1N HACK ⚡</b></color></size>",
+          @"<size=150%><color=#FFFF00><b>⚡ FEW1N HACK ⚡</b></color></size>",
+          @"<size=130%><color=#FF00FF><b>⚡ FEW1N HACK ⚡</b></color></size>"],
+        // 4. Ates Efekti (Kirmizi - Turuncu - Sari)
+        @[@"<color=#FF0000>🔥 FEW1N 🔥</color>",
+          @"<color=#FF6600>🔥 FEW1N HACK 🔥</color>",
+          @"<color=#FFCC00>🔥 FEW1N HACK 🔥</color>"],
+        // 5. Buz Efekti (Buz mavisi tonlari)
+        @[@"<color=#00CCFF>❄ FEW1N ❄</color>",
+          @"<color=#66E0FF>❄ FEW1N HACK ❄</color>",
+          @"<color=#FFFFFF>❄ FEW1N HACK ❄</color>"],
+        // 6. Kalp Atisi (Neon Pembe)
+        @[@"<size=90%><color=#FF0055>♥ FEW1N ♥</color></size>",
+          @"<size=140%><color=#FF0055>♥ FEW1N HACK ♥</color></size>",
+          @"<size=90%><color=#FF0055>♥ FEW1N ♥</color></size>"],
+        // 7. Daktilo Neon (Yesil harf harf dolma)
+        @[@"<color=#00FF88><b>F</b></color>", @"<color=#00FF88><b>FE</b></color>",
+          @"<color=#00FF88><b>FEW</b></color>", @"<color=#00FF88><b>FEW1</b></color>",
+          @"<color=#00FF88><b>FEW1N</b></color>", @"<color=#00FF88><b>FEW1N HACK</b></color>"],
+        // 8. Glitch Efekti (Mor - Turkuaz - Kirmizi)
+        @[@"<color=#FF00FF>F̷E̷W̷1̷N̷</color>", @"<color=#00FFFF>F3W1N HACK</color>", @"<color=#FF0000>FΞW1N HACK</color>", @"<b>FEW1N HACK</b>"],
+        // 9. Rainbow Cerceve (Renkli kenarlikli)
         @[@"<color=#FF0000>▐</color><color=#FFFF00> FEW1N HACK </color><color=#00FFFF>▌</color>",
           @"<color=#00FF00>▐</color><color=#FF00FF> FEW1N HACK </color><color=#FF8800>▌</color>"],
-        // Kayan yazi (soldan saga akar)
-        @[@"FEW1N HACK", @" FEW1N HACK", @"  FEW1N HACK", @"   FEW1N HACK", @"    FEW1N HACK", @"     FEW1N HACK", @"      FEW1N HACK"],
-        // Kayan renkli ok
-        @[@"<color=#00FFFF>»</color>FEW1N", @"<color=#00FFFF>»»</color>FEW1N", @"<color=#00FFFF>»»»</color>FEW1N HACK", @"<color=#00FF00>»»»»</color>FEW1N HACK"],
+        // 10. MEGA EKRAN KAPLAYAN DEV KUTU (Cok satir + Dev Size)
+        @[@"<size=160%><color=#FF0000><b>╔══════════════╗\n║  ⚡ FEW1N MOD ⚡  ║\n╚══════════════╝</b></color></size>",
+          @"<size=160%><color=#00FFFF><b>╔══════════════╗\n║  ⚡ FEW1N HACK ⚡ ║\n╚══════════════╝</b></color></size>",
+          @"<size=160%><color=#FFFF00><b>╔══════════════╗\n║  ⚡ FEW1N MOD ⚡  ║\n╚══════════════╝</b></color></size>"],
+        // 11. MEGA MATRIX DUVARI (Ekran kaplayan cok satirli dijital kod)
+        @[@"<color=#00FF00><b>0101010101010101010101\n█▓▒░ FEW1N HACK ░▒▓█\n1010101010101010101010</b></color>",
+          @"<color=#00FF88><b>1010101010101010101010\n░▒▓█ FEW1N HACK █▓▒░\n0101010101010101010101</b></color>"],
+        // 12. FULL MARK RENK KAPLAMA (Arka plani renkli dev banner)
+        @[@"<mark=#FF0055AA><size=150%><color=#FFFFFF><b> ★ FEW1N MOD MENU ★ </b></color></size></mark>",
+          @"<mark=#00AAFFAA><size=150%><color=#FFFFFF><b> ★ FEW1N MOD MENU ★ </b></color></size></mark>",
+          @"<mark=#FFCC00AA><size=150%><color=#000000><b> ★ FEW1N MOD MENU ★ </b></color></size></mark>"],
+        // 13. DEV SIMSEKLI NEON KUTU
+        @[@"<size=140%><color=#00FFFF><b>⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡\n⚡ FEW1N HACK ⚡\n⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡</b></color></size>",
+          @"<size=140%><color=#FF00FF><b>⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡\n⚡ FEW1N HACK ⚡\n⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡</b></color></size>"]
     ];
 }
 
-// ===== IL2CPP HELPERS =====
+// ===== MATRIX / GLITCH / BINARY ISIM HELPERS =====
+static NSString* matrixWrapName(NSString* base) {
+    if (!base || base.length == 0) return @"FEW1N";
+    NSArray *cols = @[@"#00FF00", @"#00CC00", @"#008800", @"#44FF44", @"#88FF88"];
+    NSMutableString *res = [NSMutableString string];
+    for (int i = 0; i < (int)base.length; i++) {
+        NSString *c = [base substringWithRange:NSMakeRange(i, 1)];
+        NSString *col = cols[i % cols.count];
+        [res appendFormat:@"<color=%@>%@</color>", col, c];
+    }
+    return res;
+}
+static NSString* glitchWrapName(NSString* base) {
+    if (!base || base.length == 0) return @"F̷E̷W̷1̷N̷";
+    NSArray *glitchChars = @[@"̷", @"̶", @"̲", @"̅", @"̈", @"̇", @"̊", @"̛", @"̣", @"̤"];
+    NSMutableString *res = [NSMutableString string];
+    for (int i = 0; i < (int)base.length; i++) {
+        NSString *c = [base substringWithRange:NSMakeRange(i, 1)];
+        [res appendFormat:@"%@%@", c, glitchChars[i % glitchChars.count]];
+    }
+    return res;
+}
+static NSString* binaryWrapName(NSString* base) {
+    if (!base || base.length == 0) return @"01000110 01000101 01010111 00110001 01001110";
+    NSArray *cols = @[@"#00FF00", @"#00FFFF", @"#FF00FF"];
+    NSMutableString *res = [NSMutableString string];
+    for (int i = 0; i < (int)base.length; i++) {
+        unichar ch = [base characterAtIndex:i];
+        NSString *bin = @"";
+        for (int b = 7; b >= 0; b--) bin = [bin stringByAppendingFormat:@"%d", (ch >> b) & 1];
+        NSString *col = cols[i % cols.count];
+        [res appendFormat:@"<color=%@>%@</color> ", col, bin];
+    }
+    return res;
+}
+static NSString* hackerTagWrap(NSString* base, int mode) {
+    switch (mode) {
+        case 1: return [NSString stringWithFormat:@"[ADMIN] %@", base];   // Fake Admin
+        case 2: return [NSString stringWithFormat:@"[MOD] %@", base];     // Fake Mod
+        case 3: return [NSString stringWithFormat:@"[DEV] %@", base];     // Fake Dev
+        case 4: return [NSString stringWithFormat:@"⚡ %@ ⚡", base];      // Hacker
+        case 5: return matrixWrapName(base);                               // Matrix
+        case 6: return glitchWrapName(base);                               // Glitch
+        case 7: return binaryWrapName(base);                               // Binary
+        default: return base;
+    }
+}
+static NSString* matrixWrapChat(NSString* msg) {
+    if (!msg || msg.length == 0) return msg;
+    return [NSString stringWithFormat:@"<color=#00FF00><b>[SYSTEM]</b></color> <color=#00CC00>%@</color>", msg];
+}
+static NSString* glitchWrapChat(NSString* msg) {
+    if (!msg || msg.length == 0) return msg;
+    return [NSString stringWithFormat:@"<color=#FF00FF><b>[ROOT]</b></color> <color=#00FFFF>%@</color>", msg];
+}
+static NSArray* chatTemplates(void) {
+    return @[
+        @"<color=#FF0000><b>SYSTEM BREACH DETECTED</b></color>",
+        @"<color=#00FF00><b>HACKED BY FEW1N</b></color>",
+        @"<color=#00FFFF><b>ROOT ACCESS GRANTED</b></color>",
+        @"<color=#FF00FF><b>INJECTING PAYLOAD...</b></color>",
+        @"<color=#FFFF00><b>BACKDOOR ESTABLISHED</b></color>",
+        @"<color=#FF0000><size=150%>⚠️ WARNING ⚠️</size></color>",
+        @"<color=#00FF00>01000110 01000101 01010111 00110001 01001110</color>",
+        @"<color=#00FFFF><b>FEW1N MOD MENU v33.3</b></color>",
+        @"<color=#FF00FF><b>PRIVILEGE ESCALATION COMPLETE</b></color>",
+        @"<color=#00FF00><b>SERVER UNDER CONTROL</b></color>",
+        @"<color=#FF0000><b>UNAUTHORIZED ACCESS</b></color>",
+        @"<color=#FFFF00><b>TOP SECRET - CLASSIFIED</b></color>"
+    ];
+}
 static void* (*cached_il2cpp_string_new)(const char*) = NULL;
 static uintptr_t global_base = 0;
 static int hookSuccessCount = 0;
@@ -694,8 +760,13 @@ static bool  (*pn_createRoom)(void* name, void* opts, void* lobby, void* users) 
 static bool  (*pn_joinRoom)(void* name, void* users) = NULL;   // PhotonNetwork.JoinRoom 0x593A64C (goz at)
 static void* (*pn_getNickName)(void) = NULL;                   // PhotonNetwork.get_NickName 0x59338C0 (isim kaydet)
 static bool  (*pn_leaveRoom)(bool) = NULL;                     // PhotonNetwork.LeaveRoom 0x593B2D8 (goz at cikis)
+static bool  (*pn_setMasterClient)(void* player) = NULL;       // PhotonNetwork.SetMasterClient 0x5938B3C (oda master al)
+static bool  (*pn_joinRoom)(void* name, void* users) = NULL;   // PhotonNetwork.JoinRoom 0x593A64C (goz at)
+static void* (*pn_getNickName)(void) = NULL;                   // PhotonNetwork.get_NickName 0x59338C0 (isim kaydet)
+static bool  (*pn_leaveRoom)(bool) = NULL;                     // PhotonNetwork.LeaveRoom 0x593B2D8 (goz at cikis)
 // ==== ODADAKI OYUNCULAR (script.json dogrulandi) ====
 static void* (*pn_getPlayerList)(void) = NULL;      // PhotonNetwork.get_PlayerList -> Player[]  0x59339D0
+static void* (*pn_getPlayerListOthers)(void) = NULL; // PhotonNetwork.get_PlayerListOthers (kendisi haric) 0x5933B88
 static void* (*ply_getNickName)(void*) = NULL;      // Player.get_NickName          0x5924574
 static int   (*ply_getActorNumber)(void*) = NULL;   // Player.get_ActorNumber       0x592455C
 static bool  (*ply_getIsMaster)(void*) = NULL;      // Player.get_IsMasterClient    0x5924640
@@ -758,9 +829,27 @@ static void h_setTimeScale(float v) {
     if (o_setTimeScale) o_setTimeScale(v);
 }
 
-// ===== ANTI-KICK =====
+// ===== ANTI-KICK & OYUNCU ATMA =====
+static bool g_isManualKick = false;
 static bool (*o_closeConnection)(void*) = NULL;
-static bool h_closeConnection(void* kickPlayer) { fConn++; return false; }
+static bool (*pn_closeConnection)(void*) = NULL;   // PhotonNetwork.CloseConnection DIREKT (hook olmadan) 0x5938844
+static bool h_closeConnection(void* kickPlayer) {
+    fConn++;
+    if (g_isManualKick) return o_closeConnection ? o_closeConnection(kickPlayer) : false;
+    return false; // Anti-kick: baskalari seni atamasin
+}
+static void few1n_kickPlayer(void* playerObj) {
+    if (!playerObj) return;
+    // hook olu -> direkt il2cpp cagrisi kullan (o_closeConnection yedek)
+    bool (*fn)(void*) = pn_closeConnection ? pn_closeConnection : o_closeConnection;
+    if (!fn) { FLog(@"Kick: CloseConnection pointeri yok"); return; }
+    @try {
+        g_isManualKick = true;
+        fn(playerObj);
+        g_isManualKick = false;
+        FLog(@"Oyuncu atma istegi gonderildi (sadece MASTER/host isen calisir)");
+    } @catch (...) { g_isManualKick = false; }
+}
 
 // ===== INFINITE NITRO =====
 static float (*o_getNitro)(void*) = NULL;
@@ -1432,6 +1521,25 @@ static void h_plateChange(void* self, struct PlateHolder holder) {
 static void (*o_chatSend)(void*, void*) = NULL;
 static void h_chatSend(void* self, void* msg) {
     fChat++;
+    if (msg) {
+        NSString *orig = readStr(msg);
+        if (orig.length > 0) {
+            void* finalMsg = NULL;
+            if (isMatrixChatEnabled) {
+                void* colored = mkStr(matrixWrapChat(orig));
+                if (colored) { if (o_chatSend) o_chatSend(self, colored); return; }
+            } else if (isGlitchChatEnabled) {
+                void* colored = mkStr(glitchWrapChat(orig));
+                if (colored) { if (o_chatSend) o_chatSend(self, colored); return; }
+            } else if (isColorChatEnabled) {
+                void* colored = mkStr([NSString stringWithFormat:@"<color=cyan><b>[FEW1N]</b></color> %@", orig]);
+                if (colored) { if (o_chatSend) o_chatSend(self, colored); return; }
+            }
+        }
+    }
+    if (o_chatSend) o_chatSend(self, msg);
+}
+    fChat++;
     if (isColorChatEnabled && msg) {
         NSString *orig = readStr(msg);
         if (orig.length > 0) {
@@ -1462,29 +1570,67 @@ static void h_roomConnect(void* self) {
     if (o_roomConnect) o_roomConnect(self);
 }
 
-// ===== ODA ISMI RICH TEXT ACIGI =====
-// HR_UI_RoomListLine.elw(roomName,map,pc,pc,pwd,roomInfo) : oda satiri kurulunca
-// RoomNameText'in richText'ini zorla ac (oyun guncellemede kapatmis)
+// ===== ODA ISMI RICH TEXT ACIGI + ZORLA RENKLI (CLIENT-SIDE) =====
+static bool isColorRoomForce = false;  // TUM oda isimlerini renkli yap (client-side)
 static void (*o_roomLineSetup)(void*, void*, void*, unsigned char, unsigned char, void*, void*) = NULL;
 static void h_roomLineSetup(void* self, void* a, void* b, unsigned char c, unsigned char d, void* e, void* f) {
     fRoomLine++;
-    if (o_roomLineSetup) o_roomLineSetup(self, a, b, c, d, e, f);   // once oyun ismi set etsin (buyuk harfe cevirir)
+    if (o_roomLineSetup) o_roomLineSetup(self, a, b, c, d, e, f);
     if (self) {
         @try {
-            void* nameText = *(void**)((uintptr_t)self + 0x20);    // RoomNameText (TMP_Text)
+            void* nameText = *(void**)((uintptr_t)self + 0x20);
             if (nameText) {
-                if (g_mSetRichText) setRichTextIl(nameText, true); // richText ac
-                // HAM ismi RoomInfo'dan al (buyuk harfe cevrilmemis, kucuk harf tag'ler) -> etiketler render olur
+                if (g_mSetRichText) setRichTextIl(nameText, true);
                 void* rawName = (f && rinfo_getName) ? rinfo_getName(f) : a;
-                if (rawName && tmp_set_text) tmp_set_text(nameText, rawName);
+                if (rawName && tmp_set_text) {
+                    // ZORLA RENKLI MOD: TUM oda isimlerini client-side renklendir
+                    if (isColorRoomForce) {
+                        NSString *name = readStr(rawName) ?: @"";
+                        if (name.length > 0) {
+                            static int colorIdx = 0;
+                            NSArray *forceColors = @[@"#FF0000", @"#00FF00", @"#00FFFF", @"#FF00FF", @"#FFFF00", @"#FF8800", @"#FF0088", @"#88FF00"];
+                            NSString *col = forceColors[colorIdx % forceColors.count];
+                            colorIdx++;
+                            NSString *colored = [NSString stringWithFormat:@"<color=%@><b>%@</b></color>", col, name];
+                            void* cs = mkStr(colored);
+                            if (cs) { tmp_set_text(nameText, cs); return; }
+                        }
+                    }
+                    tmp_set_text(nameText, rawName);
+                }
             }
-            void* mapText = *(void**)((uintptr_t)self + 0x28);     // MapNameText
+            void* mapText = *(void**)((uintptr_t)self + 0x28);
             if (mapText && g_mSetRichText) setRichTextIl(mapText, true);
         } @catch (...) {}
     }
 }
 
-// ===== ODA KURMA HATASI TESHIS =====
+
+// ===== ODA KURMA HATASI TESHIS + OTOMATIK RETRY (BRUTE FORCE) =====
+static int g_bruteForceIdx = 0;
+static bool isBruteForceActive = false;
+static NSArray* g_bruteForceNames = nil;
+static void (*o_onCreateFail)(void*, short, void*) = NULL;
+static void h_onCreateFail(void* self, short code, void* msg) {
+    @try { FLog([NSString stringWithFormat:@"ODA KURMA HATASI: kod=%d mesaj=%@", (int)code, readStr(msg)]); } @catch (...) {}
+    // BRUTE FORCE: Basarisiz olunca otomatik sonraki teknikle dene
+    if (isBruteForceActive && g_bruteForceNames && g_bruteForceIdx < (int)g_bruteForceNames.count) {
+        NSString *nextName = g_bruteForceNames[g_bruteForceIdx++];
+        strncpy(customRoomName, nextName.UTF8String, sizeof(customRoomName)-1);
+        customRoomName[sizeof(customRoomName)-1]='\0';
+        FLog([NSString stringWithFormat:@"BRUTE FORCE: Teknik %d/%d deneniyor -> %@", g_bruteForceIdx, (int)g_bruteForceNames.count, nextName]);
+        // 0.3sn bekle ve tekrar dene
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.3 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            [[FEW1NMenu shared] createOneRoom];
+        });
+        return;  // Orijinal hatayi cagirma - brute force devam ediyor
+    }
+    if (isBruteForceActive) {
+        isBruteForceActive = false;
+        FLog(@"BRUTE FORCE: Tum teknikler denendi, basarisiz.");
+    }
+    if (o_onCreateFail) o_onCreateFail(self, code, msg);
+}
 // OnCreateRoomFailed/OnJoinRoomFailed -> neden reddedildigini loga yaz
 static void (*o_onCreateFail)(void*, short, void*) = NULL;
 static void h_onCreateFail(void* self, short code, void* msg) {
@@ -1667,7 +1813,7 @@ static void h_addMoney(void* self, int amount) {
     title.font = [UIFont systemFontOfSize:17 weight:UIFontWeightBlack];
     [header addSubview:title];
     UILabel *ver = [[UILabel alloc] initWithFrame:CGRectMake(42,37,pw-90,16)];
-    ver.text = [NSString stringWithFormat:@"v30.6  •  Base 0x%lX", (unsigned long)global_base];
+    ver.text = [NSString stringWithFormat:@"v33.3  •  Base 0x%lX", (unsigned long)global_base];
     ver.textColor = [UIColor colorWithWhite:1 alpha:0.82];
     ver.font = [UIFont fontWithName:@"Menlo-Bold" size:8] ?: [UIFont systemFontOfSize:8 weight:UIFontWeightBold];
     [header addSubview:ver];
@@ -1720,13 +1866,10 @@ static void h_addMoney(void* self, int amount) {
     y += 22;
 
     y = [self header:@"\U0001F3CE  ARAC" atY:y];
-    y = [self toggle:@"\U0001F681  Ucus (Havada Surus)"  sub:@"Gaz=ileri it, direksiyon=havada don" key:@"fly" atY:y action:@selector(tapFly)];
-    y = [self toggle:@"\U0001FAB6  Dusuk Yercekimi" sub:@"Dusus yavas, floaty" key:@"lowgrav" atY:y action:@selector(tapLowGrav)];
-    y = [self toggle:@"\U0001F47B  No-Clip (Hayalet)" sub:@"Duvardan/araclardan gec (ucus ac!)" key:@"noclip" atY:y action:@selector(tapNoClip)];
-    y = [self toggle:@"\U0001F319  Anti-Gravity (Ay modu)" sub:@"Yercekimi kapali, suzul" key:@"antigrav" atY:y action:@selector(tapAntiGrav)];
-    y = [self toggle:@"\U0001F6E1  GODMODE (Kaza Yapma)" sub:@"Trafige carpsan bile olmezsin - sonsuz surus" key:@"godmode" atY:y action:@selector(tapGodmode)];
-    y = [self toggle:@"\U0001F4A1  Hizli Selektor (far cakma)" sub:@"On farlari hizli ac/kapat (RCCP)" key:@"selektor" atY:y action:@selector(tapSelektor)];
-    y = [self actionRow:@"✏️  Selektor Hizi Ayarla" color:C_CYAN atY:y action:@selector(editSelektorSpeed)];
+    y = [self toggle:@"🌈  Rainbow Araç Boyası" sub:@"il2cpp ile canlı renk değiştiren boya" key:@"carcolor" atY:y action:@selector(tapCarColor)];
+    y = [self toggle:@"🧊  Drift Modu (Kusursuz Kayma)" sub:@"il2cpp fizik ile yan kayma koruması" key:@"drift" atY:y action:@selector(tapDrift)];
+    y = [self toggle:@"🚗  Hız Sabitleyici (Cruise Control)" sub:@"Gaza basmadan belirlenen hızda git" key:@"cruise" atY:y action:@selector(tapCruise)];
+    y = [self actionRow:@"✏️  Sabit Hız Ayarla (km/h)" color:C_CYAN atY:y action:@selector(editCruiseSpeed)];
     y = [self actionRow:@"\U0001F53C  ZIPLA (bas)" color:C_ON atY:y action:@selector(jumpTap)];
     y = [self actionRow:@"\U0001F680  Hiz Patlamasi (boost)" color:C_ON atY:y action:@selector(boostTap)];
     y = [self actionRow:@"\U0001F9CA  Araci Dondur (anlik dur)" color:C_CYAN atY:y action:@selector(freezeTap)];
@@ -1769,6 +1912,11 @@ static void h_addMoney(void* self, int amount) {
         y += 52;
     }
     y = [self toggle:@"\U0001F308  ASCII Renk Dongusu" sub:@"Her kareyi farkli renkte gonder" key:@"asciicolor" atY:y action:@selector(tapAsciiColor)];
+    y = [self actionRow:@"🧪  Exploit Test (Chat Filtresi Atlat)" color:C_RED atY:y action:@selector(exploitChatTest)];
+    // YENI: Hacker Chat Modlari
+    y = [self toggle:@"🟢  Matrix Chat Modu" sub:@"Mesajlarin yesil sistem stili" key:@"matrixchat" atY:y action:@selector(tapMatrixChat)];
+    y = [self toggle:@"💀  Glitch Chat Modu" sub:@"Mesajlarin mor/root stili" key:@"glitchchat" atY:y action:@selector(tapGlitchChat)];
+    y = [self actionRow:@"📋  Hacker Chat Sablonu Gonder" color:C_RED atY:y action:@selector(sendChatTemplate)];
 
     y = [self header:@"\U0001F3B5  SARKI SOZU (altyazi)" atY:y];
     y = [self actionRow:@"\U0001F50D  Sarki Ara (internetten getir)" color:C_ON atY:y action:@selector(fetchLyricsByName)];
@@ -1785,12 +1933,17 @@ static void h_addMoney(void* self, int amount) {
     [self.nameBtn setTitleColor:C_CYAN forState:UIControlStateNormal];
     [self.nameBtn addTarget:self action:@selector(changeName) forControlEvents:UIControlEventTouchUpInside];
     y = [self actionRow:@"\U0001F3AD  Isim Hileleri (rozet/gorunmez/kayan)" color:C_GOLD atY:y action:@selector(nameTricks)];
+    y = [self actionRow:@"⚔️  Tum Oyunculari At (SADECE kendi odanda)" color:C_RED atY:y action:@selector(kickAllPlayers)];
 
     y = [self header:@"\U0001F511  ODA" atY:y];
+    y = [self toggle:@"🎨  Zorla Renkli Oda (Client-Side)" sub:@"Tum oda isimlerini renklendir" key:@"colorroomforce" atY:y action:@selector(tapColorRoomForce)];
     y = [self actionRow:@"\U0001F513  Oda Sifrelerini Goster (il2cpp)" color:C_ON atY:y action:@selector(showRoomPasswords)];
     y = [self actionRow:@"\U0001F465  Odadaki Oyuncular (isim kopyala)" color:C_CYAN atY:y action:@selector(showPlayers)];
     y = [self actionRow:@"\U0001F441  Odaya Goz At (isimsiz anlik gir-cik)" color:C_GOLD atY:y action:@selector(peekRoom)];
-    y = [self actionRow:@"\U0001F3E0  Ozel Isimli Oda Kur" color:C_GOLD atY:y action:@selector(createOneRoom)];
+    y = [self actionRow:@"👑  Oda Master Ol (Fake)" color:C_GOLD atY:y action:@selector(tapRoomMaster)];
+    y = [self actionRow:@"🎨  Renkli Oda Kur (Dinamik Stil Paneli)" color:C_GOLD atY:y action:@selector(createColoredRoom)];
+    y = [self actionRow:@"🧪  Exploit Ile Oda Kur (30 Yontem)" color:C_RED atY:y action:@selector(exploitCreateRoom)];
+    y = [self actionRow:@"🏠  Düz Özel İsimli Oda Kur" color:C_CYAN atY:y action:@selector(createOneRoom)];
     y = [self actionRow:@"\U0001F4A5  300 ODA AC (tek tus, 0.02sn)" color:C_RED atY:y action:@selector(spam300Rooms)];
     y = [self toggle:@"\U0001F4E5  Fake Oda Spam" sub:@"Kalici odalar birikir" key:@"roomspam" atY:y action:@selector(tapRoomSpam)];
     y = [self toggle:@"\U0001F504  Surekli Mod" sub:@"Kapatana kadar spam" key:@"roomcont" atY:y action:@selector(tapRoomContinuous)];
@@ -1996,6 +2149,8 @@ static void h_addMoney(void* self, int amount) {
     [self setToggle:@"carsize"   on:isCarSizeEnabled];
     [self setToggle:@"carcolor"  on:isCarColorEnabled];
     [self setToggle:@"carcolorrainbow" on:carColorRainbow];
+    [self setToggle:@"drift"     on:isDriftEnabled];
+    [self setToggle:@"cruise"    on:isCruiseEnabled];
     [self setToggle:@"lyrics"    on:isLyricsEnabled];
     [self setToggle:@"lyricsColor" on:lyricsColorCycle];
     [self setToggle:@"lyricsLoop" on:lyricsLoop];
@@ -2050,10 +2205,11 @@ static void h_addMoney(void* self, int amount) {
                 float tx = fwd.x * drive * flyDriveSpeed, tz = fwd.z * drive * flyDriveSpeed;
                 v.x += (tx - v.x) * 0.35f;   // yumusak gecis (ani degil -> titremez)
                 v.z += (tz - v.z) * 0.35f;
+                v.y *= 0.80f;                // surerken dikey yumusak asili kal
             } else {
-                v.x *= 0.90f; v.z *= 0.90f;   // gaz yoksa yumusak dur
+                // DURURKEN tam sifir hiz -> HR_PhotonSync uzak kopyada hareket/dusme tahmin etmez -> en az titreme
+                v.x = 0.0f; v.z = 0.0f; v.y = 0.0f;
             }
-            v.y *= 0.80f;   // dikey yumusak asili kal (sert sifir degil -> titreme yok)
             rbSetVelIl(g_rb, &v);
             Vec3 av = {0.0f, str * 2.2f, 0.0f};   // direksiyon -> yaw donme (fizik, puruzsuz)
             rbSetAngVelIl(g_rb, &av);
@@ -2063,6 +2219,30 @@ static void h_addMoney(void* self, int amount) {
             Vec3 v = {0,0,0}; rbGetVelIl(g_rb, &v);
             if (isNoClip || isAntiGrav) v.y *= 0.80f;              // no-clip/anti-grav: yumusak asili kal (titremez)
             else if (isLowGravEnabled && v.y < 0.0f) v.y *= 0.25f; // floaty dusus
+            rbSetVelIl(g_rb, &v);
+        } @catch (...) {}
+    }
+
+    // ===== HIZ SABITLEYICI (CRUISE CONTROL - il2cpp) =====
+    if (isCruiseEnabled && unityAlive(g_rb)) {
+        @try {
+            Vec3 fwd;
+            if (few1n_fwd(g_rb, &fwd)) {
+                float targetMps = cruiseSpeedKmh / 3.6f;   // km/h -> m/s cevir
+                Vec3 v = {0,0,0}; rbGetVelIl(g_rb, &v);
+                v.x = fwd.x * targetMps;
+                v.z = fwd.z * targetMps;
+                rbSetVelIl(g_rb, &v);
+            }
+        } @catch (...) {}
+    }
+
+    // ===== DRIFT MODU (KUSURSIZ KAYMA - il2cpp) =====
+    if (isDriftEnabled && unityAlive(g_rb)) {
+        @try {
+            Vec3 v = {0,0,0}; rbGetVelIl(g_rb, &v);
+            // Donuslerde yanal ivmeyi artirarak yumusak drift yaptir
+            v.x *= 1.015f; v.z *= 1.015f;
             rbSetVelIl(g_rb, &v);
         } @catch (...) {}
     }
@@ -2225,6 +2405,30 @@ static void h_addMoney(void* self, int amount) {
 
 // ===== SIFRE KIRICI: odalarin sifresini oku ve goster (il2cpp) =====
 // HR_UI_RoomListLine: +0x50 password, +0x58 roomInfo -> rinfo_getName
+// ===== MASS KICK: odadaki tum DIGER oyunculari at (SADECE MASTER/host isen calisir) =====
+- (void)kickAllPlayers {
+    UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"⚔️ Tum Oyunculari At?"
+        message:@"SADECE kendi odanda (host/master) calisir. Baskasinin odasinda Photon sunucusu yok sayar." preferredStyle:UIAlertControllerStyleAlert];
+    [ac addAction:[UIAlertAction actionWithTitle:@"Evet, At" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *a2){
+        if (!pn_getPlayerListOthers) { FLog(@"PlayerListOthers pointeri yok"); return; }
+        @try {
+            void* pa = pn_getPlayerListOthers();   // kendisi HARIC diger oyuncular
+            if (!ptrOk(pa)) { FLog(@"Odada baska oyuncu yok"); return; }
+            int cnt = (int)(*(uintptr_t*)((uintptr_t)pa + 0x18));
+            if (cnt <= 0 || cnt > 64) { FLog([NSString stringWithFormat:@"Oyuncu sayisi anormal (%d)", cnt]); return; }
+            void** ps = (void**)((uintptr_t)pa + 0x20);
+            int kicked = 0;
+            for (int i = 0; i < cnt; i++) {
+                void* p = ps[i]; if (!ptrOk(p)) continue;
+                few1n_kickPlayer(p); kicked++;
+            }
+            FLog([NSString stringWithFormat:@"%d oyuncuya kick gonderildi (master isen dustuler, degilsen sunucu yok saydi)", kicked]);
+        } @catch (...) { FLog(@"Mass kick hatasi"); }
+    }]];
+    [ac addAction:[UIAlertAction actionWithTitle:@"Iptal" style:UIAlertActionStyleCancel handler:nil]];
+    [self present:ac];
+}
+
 // ===== ODAYA GOZ AT: isimsiz anlik gir, oyuncularu oku, cik, ismi geri yukle =====
 - (void)peekRoom {
     if (!g_roomLineType || !g_mFindObjectsPlural || !i_runtime_invoke || !pn_joinRoom) { FLog(@"Goz at hazir degil (oda listesine gir)"); return; }
@@ -2420,6 +2624,45 @@ static void h_addMoney(void* self, int amount) {
 }
 
 - (void)toggle {
+    // Stealth Mode: triple-tap ile gizli acma
+    NSDate *now = [NSDate date];
+    if (stealthLastTap && [now timeIntervalSinceDate:stealthLastTap] < 0.5) {
+        stealthTapCount++;
+    } else {
+        stealthTapCount = 1;
+    }
+    stealthLastTap = now;
+    if (stealthTapCount >= 3) {
+        isStealthMode = !isStealthMode;
+        stealthTapCount = 0;
+        FLog(isStealthMode ? @"STEALTH MODE ACIK - Menu gizli" : @"STEalth MODE KAPALI - Menu gorunur");
+        self.fab.hidden = isStealthMode;
+        if (!isStealthMode) {
+            // Stealth kapandiginda FAB'i goster
+            self.fab.hidden = NO;
+            self.fab.alpha = 0;
+            [UIView animateWithDuration:0.3 animations:^{ self.fab.alpha = 1; }];
+        }
+        // Panelleri gizle/ac
+        self.panel.hidden = YES;
+        return;
+    }
+    if (isStealthMode) {
+        // Stealth moddayken normal toggle calismaz, sadece triple-tap ile acilir
+        return;
+    }
+    if (self.panel.hidden) {
+        [self refreshUI];
+        self.panel.hidden = NO;
+        [UIView animateWithDuration:0.35 delay:0 usingSpringWithDamping:0.8 initialSpringVelocity:0.5 options:0 animations:^{
+            self.panel.alpha = 1; self.panel.transform = CGAffineTransformIdentity;
+        } completion:nil];
+    } else {
+        [UIView animateWithDuration:0.2 animations:^{
+            self.panel.alpha = 0; self.panel.transform = CGAffineTransformMakeScale(0.9,0.9);
+        } completion:^(BOOL f){ self.panel.hidden = YES; }];
+    }
+}
     if (self.panel.hidden) {
         [self refreshUI];
         self.panel.hidden = NO;
@@ -2447,7 +2690,23 @@ static void h_addMoney(void* self, int amount) {
     enforceScale();
 }
 
-- (void)tapNoClip    { isNoClip   = !isNoClip;   saveBool(@"noclip", isNoClip);     [self refreshUI]; }
+- (void)tapDrift   { isDriftEnabled = !isDriftEnabled; saveBool(@"drift", isDriftEnabled); FLog(isDriftEnabled ? @"Drift Modu ACIK" : @"Drift Modu KAPALI"); [self refreshUI]; }
+- (void)tapCruise  { isCruiseEnabled = !isCruiseEnabled; saveBool(@"cruise", isCruiseEnabled); FLog(isCruiseEnabled ? @"Cruise Control ACIK" : @"Cruise Control KAPALI"); [self refreshUI]; }
+- (void)editCruiseSpeed {
+    UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"🚗 Sabit Hiz (Cruise Control)"
+                                                               message:@"Hedef hizi km/h cinsinden secin:" preferredStyle:UIAlertControllerStyleAlert];
+    NSArray *speeds = @[@120, @160, @200, @250, @300, @350];
+    for (NSNumber *s in speeds) {
+        int v = [s intValue];
+        [ac addAction:[UIAlertAction actionWithTitle:[NSString stringWithFormat:@"%d km/h", v] style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
+            cruiseSpeedKmh = (float)v; saveFloat(@"cruiseSpeed", cruiseSpeedKmh);
+            FLog([NSString stringWithFormat:@"Sabit hiz ayarlandi: %d km/h", v]);
+            [self refreshUI];
+        }]];
+    }
+    [ac addAction:[UIAlertAction actionWithTitle:@"Iptal" style:UIAlertActionStyleCancel handler:nil]];
+    [self present:ac];
+}
 - (void)tapAntiGrav  { isAntiGrav = !isAntiGrav; saveBool(@"antigrav", isAntiGrav); [self refreshUI]; }
 - (void)tapGodmode   { isGodmode = !isGodmode; saveBool(@"godmode", isGodmode); if(!isGodmode) g_myPlayerHandler = NULL; FLog(isGodmode ? @"GODMODE acik - kaza yapmazsin" : @"Godmode kapali"); [self refreshUI]; }
 - (void)tapSelektor  { isSelektor = !isSelektor; saveBool(@"selektor", isSelektor); if(!isSelektor) g_myLights = NULL; FLog(isSelektor ? @"Selektor acik - far cakiyor" : @"Selektor kapali"); [self refreshUI]; }
@@ -2501,6 +2760,46 @@ static void h_addMoney(void* self, int amount) {
 - (void)tapAutoMoney { isAutoMoneyEnabled        = !isAutoMoneyEnabled;      saveBool(@"automoney", isAutoMoneyEnabled);      [self refreshUI]; }
 
 - (void)tapChatSpam {
+    isSpamEnabled = !isSpamEnabled;
+    saveBool(@"chatspam", isSpamEnabled);
+    if (spamTimer) { [spamTimer invalidate]; spamTimer = nil; }
+    if (isSpamEnabled)
+        spamTimer = [NSTimer scheduledTimerWithTimeInterval:0.05 target:self selector:@selector(fireSpam) userInfo:nil repeats:YES];
+    [self refreshUI];
+}
+
+// YENI: Matrix / Glitch Chat Modlari
+- (void)tapMatrixChat {
+    isMatrixChatEnabled = !isMatrixChatEnabled;
+    if (isMatrixChatEnabled) isGlitchChatEnabled = false;
+    saveBool(@"matrixchat", isMatrixChatEnabled);
+    saveBool(@"glitchchat", false);
+    FLog(isMatrixChatEnabled ? @"Matrix Chat Modu ACIK" : @"Matrix Chat Modu KAPALI");
+    [self refreshUI];
+}
+- (void)tapGlitchChat {
+    isGlitchChatEnabled = !isGlitchChatEnabled;
+    if (isGlitchChatEnabled) isMatrixChatEnabled = false;
+    saveBool(@"glitchchat", isGlitchChatEnabled);
+    saveBool(@"matrixchat", false);
+    FLog(isGlitchChatEnabled ? @"Glitch Chat Modu ACIK" : @"Glitch Chat Modu KAPALI");
+    [self refreshUI];
+}
+- (void)sendChatTemplate {
+    if (!chatGetInst || !chatSend) { FLog(@"Chat pointeri yok - odaya gir"); return; }
+    NSArray *templates = chatTemplates();
+    UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"📋 Hacker Chat Sablonlari"
+                                                               message:@"Sec - chate gonderilir" preferredStyle:UIAlertControllerStyleAlert];
+    for (int i = 0; i < (int)templates.count; i++) {
+        NSString *t = templates[i];
+        [ac addAction:[UIAlertAction actionWithTitle:[NSString stringWithFormat:@"%d. %@", i+1, t] style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
+            @try { void* mgr = chatGetInst(); void* s = mkStr(t); if (mgr && s) chatSend(mgr, s); } @catch (...) {}
+            FLog([NSString stringWithFormat:@"Chat sablonu gonderildi: %d", i+1]);
+        }]];
+    }
+    [ac addAction:[UIAlertAction actionWithTitle:@"Iptal" style:UIAlertActionStyleCancel handler:nil]];
+    [self present:ac];
+}
     isSpamEnabled = !isSpamEnabled;
     saveBool(@"chatspam", isSpamEnabled);
     if (spamTimer) { [spamTimer invalidate]; spamTimer = nil; }
@@ -3005,44 +3304,108 @@ static NSString* rainbowWrap(NSString* text, int idx) {
     } @catch (...) {}
 }
 
-// Ayri buton: rich text ismi sor + direkt renkli oda ac
+// ===== GELISMIS RENKLI ODA KURUCU =====
 - (void)createColoredRoom {
-    // NOT: <color> tag'i icin RoomListLine.Setup hook'u gerekir, o da bu oyunda YAZILAMIYOR.
-    // Rich-text isimler bu yuzden KOD gozukur. Unicode sablonlar gercek karakter -> hook'suz calisir.
-    UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"\U0001F3A8 Sik Oda Ismi"
-                                                               message:@"Unicode sablonlar garanti gozukur. Renk (rich-text) su an kod gozukuyor cunku hook yazilamiyor." preferredStyle:UIAlertControllerStyleAlert];
+    UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"🎨 Renkli Oda Kurucu (Zero-Day Bypass)"
+                                                               message:@"Server filtrelerini atlatmak icin zero-day teknikleri. Oda adini gir:"
+                                                        preferredStyle:UIAlertControllerStyleAlert];
+
     [ac addTextFieldWithConfigurationHandler:^(UITextField *tf){
-        tf.text = [NSString stringWithUTF8String:customRoomName];
+        tf.text = @"FEW1N";
+        tf.placeholder = @"Oda Ismi Girin";
         tf.clearButtonMode = UITextFieldViewModeAlways;
     }];
-    [ac addAction:[UIAlertAction actionWithTitle:@"\U0001F3E0 Yazdigim Ismi Kur" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
-        NSString *t = ac.textFields.firstObject.text;
-        if (t.length > 0) {
-            strncpy(customRoomName, t.UTF8String, sizeof(customRoomName)-1);
-            customRoomName[sizeof(customRoomName)-1]='\0';
-            saveStr(@"roomName", t);
-        }
-        [self createOneRoom];   // direkt kur (pn_createRoom, dogrulama atlanir)
-    }]];
-    // ==== UNICODE SABLONLARI (richText GEREKTIRMEZ - garanti gorunur) ====
-    // Bunlar tag degil gercek karakter: oyun strip edemez, ToUpper bozamaz, richText kapali olsa da cikar
-    void (^uni)(NSString*, const char*) = ^(NSString *title, const char *val){
-        [ac addAction:[UIAlertAction actionWithTitle:title style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
-            strncpy(customRoomName, val, sizeof(customRoomName)-1);
-            customRoomName[sizeof(customRoomName)-1]='\0';
-            saveStr(@"roomName", [NSString stringWithUTF8String:customRoomName]);
-            FLog(@"Unicode oda ismi secildi (richText gerekmez)");
-            [self createOneRoom];
-        }]];
+
+    void (^buildAndCreate)(NSString*, NSString*) = ^(NSString *prefix, NSString *suffix){
+        NSString *input = ac.textFields.firstObject.text;
+        if (!input || input.length == 0) input = @"FEW1N";
+        NSString *formatted = [NSString stringWithFormat:@"%@%@%@", prefix, input, suffix];
+        strncpy(customRoomName, formatted.UTF8String, sizeof(customRoomName)-1);
+        customRoomName[sizeof(customRoomName)-1]='\0';
+        saveStr(@"roomName", formatted);
+        FLog([NSString stringWithFormat:@"Renkli oda kuruluyor: %@", formatted]);
+        [self createOneRoom];
     };
-    uni(@"✨ 【★ FEW1N ★】 (onerilen)",  "【★ \U0001D5D9\U0001D5D8\U0001D5E7\U0001D7ED\U0001D5ED ★】");
-    uni(@"✨ Genis Harf",       "▄▀▄ ＦＥＷ１Ｎ ▄▀▄");
-    uni(@"✨ Gotik Suslu",      "꧁༺ \U0001D571\U0001D570\U0001D582\U0001D7CF\U0001D573 ༻꧂");
-    uni(@"✨ Yildizli Cerceve", "★彡 ＦＥＷ１Ｎ 彡★");
+
+    // ==== STANDART RENKLER (Kisa Hex) ====
+    [ac addAction:[UIAlertAction actionWithTitle:@"🔴 Kirmizi (<#FF0000>)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){ buildAndCreate(@"<#FF0000><b>", @"</b>"); }]];
+    [ac addAction:[UIAlertAction actionWithTitle:@"🟢 Yesil (<#00FF00>)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){ buildAndCreate(@"<#00FF00><b>", @"</b>"); }]];
+    [ac addAction:[UIAlertAction actionWithTitle:@"🔵 Mavi (<#00FFFF>)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){ buildAndCreate(@"<#00FFFF><b>", @"</b>"); }]];
+    [ac addAction:[UIAlertAction actionWithTitle:@"🟡 Sari (<#FFFF00>)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){ buildAndCreate(@"<#FFFF00><b>", @"</b>"); }]];
+    [ac addAction:[UIAlertAction actionWithTitle:@"🟣 Mor (<#FF00FF>)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){ buildAndCreate(@"<#FF00FF><b>", @"</b>"); }]];
+
+    // ==== ZERO-DAY BYPASS TEKNIKLERI ====
+    // 1. Zero-Width Space Injection - server "color" kelimesini arayamaz
+    [ac addAction:[UIAlertAction actionWithTitle:@"🛡️ ZWS Bypass (c\\u200Bolor)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
+        buildAndCreate(@"<c\u200Bolor=#FF0000><b>", @"</b></c\u200Bolor>");
+    }]];
+    // 2. Soft Hyphen Bypass
+    [ac addAction:[UIAlertAction actionWithTitle:@"🛡️ Soft Hyphen (c\\u00ADolor)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
+        buildAndCreate(@"<c\u00ADolor=#FF0000><b>", @"</b></c\u00ADolor>");
+    }]];
+    // 3. ToUpper Bypass - zaten buyuk harf, server ToUpper() yapsa da bozulmaz
+    [ac addAction:[UIAlertAction actionWithTitle:@"🛡️ ToUpper Bypass (<COLOR=...>)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
+        buildAndCreate(@"<COLOR=#FF0000><b>", @"</b></COLOR>");
+    }]];
+    // 4. RTL Mark Bypass - metin yonunu degistir, filtreler kafasini karistirir
+    [ac addAction:[UIAlertAction actionWithTitle:@"🛡️ RTL Mark Bypass" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
+        buildAndCreate(@"\u200F<#FF0000><b>", @"</b>");
+    }]];
+    // 5. Full Combo - tum bypass'lari birlestir
+    [ac addAction:[UIAlertAction actionWithTitle:@"💀 MEGA BYPASS (Combo)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
+        buildAndCreate(@"<C\u200BOLOR=#FF0000><mark=#FF000044><b>", @"</b></mark></C\u200BOLOR>");
+    }]];
+
+    // ==== OZEL EFEKTLER ====
+    [ac addAction:[UIAlertAction actionWithTitle:@"🔥 Vurgulu Kirmizi (<mark>)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){ buildAndCreate(@"<mark=#FF0000AA><b>", @"</b></mark>"); }]];
+    [ac addAction:[UIAlertAction actionWithTitle:@"⚡ Dev Yazili (<size=160%>)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){ buildAndCreate(@"<size=160%><#FF0000><b>", @"</b></size>"); }]];
+    [ac addAction:[UIAlertAction actionWithTitle:@"✂️ Ic Ice Tag (<col<color...>)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){ buildAndCreate(@"<col<color=#FF0000>or=#FF0000><b>", @"</b>"); }]];
+    [ac addAction:[UIAlertAction actionWithTitle:@"🔴 Renkli Emoji Daireleri" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){ buildAndCreate(@"🔴🟡🔵 ", @" 🔵🟡🔴"); }]];
+    // Gizli oda adi - bir kismi gorunmez
+    [ac addAction:[UIAlertAction actionWithTitle:@"👻 Yarim Gizli (<alpha>)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
+        buildAndCreate(@"<alpha=#FF>FEW1N</alpha><alpha=#00>.....</alpha><alpha=#FF>🔥</alpha>", @"");
+    }]];
+
+    // ==== BRUTE FORCE: TUM TEKNIKLERI TEK SEFERDE DENE ====
+    [ac addAction:[UIAlertAction actionWithTitle:@"🚀 BRUTE FORCE (20+ Teknik)" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *a){
+        NSString *input = ac.textFields.firstObject.text;
+        if (!input || input.length == 0) input = @"FEW1N";
+        g_bruteForceNames = @[
+            [NSString stringWithFormat:@"<#FF0000><b>%@</b>", input],
+            [NSString stringWithFormat:@"<#00FF00><b>%@</b>", input],
+            [NSString stringWithFormat:@"<#00FFFF><b>%@</b>", input],
+            [NSString stringWithFormat:@"<#FFFF00><b>%@</b>", input],
+            [NSString stringWithFormat:@"<#FF00FF><b>%@</b>", input],
+            [NSString stringWithFormat:@"<COLOR=#FF0000><b>%@</b></COLOR>", input],
+            [NSString stringWithFormat:@"<CoLoR=#FF0000><b>%@</b></CoLoR>", input],
+            [NSString stringWithFormat:@"<c\u200Bolor=#FF0000><b>%@</b></c\u200Bolor>", input],
+            [NSString stringWithFormat:@"<c\u00ADolor=#FF0000><b>%@</b></c\u00ADolor>", input],
+            [NSString stringWithFormat:@"<#F00><b>%@</b>", input],
+            [NSString stringWithFormat:@"<mark=#FF0000AA><b>%@</b></mark>", input],
+            [NSString stringWithFormat:@"<size=160%><#FF0000><b>%@</b></size>", input],
+            [NSString stringWithFormat:@"<col<color=#FF0000>or=#FF0000><b>%@</b>", input],
+            [NSString stringWithFormat:@"\u200F<#FF0000><b>%@</b>", input],
+            [NSString stringWithFormat:@"<C\u200BOLOR=#FF0000><mark=#FF000044><b>%@</b></mark></C\u200BOLOR>", input],
+            [NSString stringWithFormat:@"🔴🟡🔵 %@ 🔵🟡🔴", input],
+            [NSString stringWithFormat:@"【★ %@ ★】", input],
+            [NSString stringWithFormat:@"▬▬ %@ ▬▬", input],
+            [NSString stringWithFormat:@"<alpha=#FF>%@</alpha><alpha=#00>...</alpha>", input],
+            [NSString stringWithFormat:@"<#0F0><b>%@</b>", input],
+            [NSString stringWithFormat:@"<#FF0000FF><b>%@</b>", input],
+        ];
+        g_bruteForceIdx = 0;
+        isBruteForceActive = true;
+        FLog([NSString stringWithFormat:@"BRUTE FORCE BASLADI: %d teknik denenecek", (int)g_bruteForceNames.count]);
+        NSString *first = g_bruteForceNames[0];
+        strncpy(customRoomName, first.UTF8String, sizeof(customRoomName)-1);
+        customRoomName[sizeof(customRoomName)-1]='\0';
+        g_bruteForceIdx = 1;
+        [self createOneRoom];
+    }]];
+
     [ac addAction:[UIAlertAction actionWithTitle:@"Iptal" style:UIAlertActionStyleCancel handler:nil]];
     [self present:ac];
 }
-
 // ===== OYUN ICI ARAC DEGISTIRME =====
 // HR_MainMenuHandler singleton'ini il2cpp static field uzerinden al
 static void* few1n_getMainMenu(void) {
@@ -3192,7 +3555,7 @@ static bool few1n_invoke0(void* method, void* obj, const char* label) {
                 hist = all;
             }
             [rows addObject:@{@"title": [NSString stringWithFormat:@"%@%@  #%d%@", master ? @"\U0001F451 " : @"", nick, actor, flag],
-                              @"nick": nick, @"uid": uid, @"hist": hist}];
+                              @"nick": nick, @"uid": uid, @"hist": hist, @"playerObj": [NSValue valueWithPointer:p]}];
         }
         savePlayerDB();
     } @catch (...) { FLog(@"Oyuncu listesi okunamadi"); return; }
@@ -3244,6 +3607,13 @@ static bool few1n_invoke0(void* method, void* obj, const char* label) {
         [ac addAction:[UIAlertAction actionWithTitle:@"\U0001F511 UserId Kopyala" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
             [UIPasteboard generalPasteboard].string = uid;
             FLog([NSString stringWithFormat:@"UserId kopyalandi: %@", uid]);
+        }]];
+    }
+    NSValue *pVal = r[@"playerObj"];
+    if (pVal) {
+        void* pObj = [pVal pointerValue];
+        [ac addAction:[UIAlertAction actionWithTitle:@"⛔ Oyuncuyu Odadan At (CloseConnection)" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *a){
+            few1n_kickPlayer(pObj);
         }]];
     }
     [ac addAction:[UIAlertAction actionWithTitle:@"Kapat" style:UIAlertActionStyleCancel handler:nil]];
@@ -3327,7 +3697,143 @@ static bool few1n_invoke0(void* method, void* obj, const char* label) {
     [self present:ac];
 }
 
+- (void)tapColorRoomForce {
+    isColorRoomForce = !isColorRoomForce;
+    saveBool(@"colorroomforce", isColorRoomForce);
+    FLog(isColorRoomForce ? @"Zorla Renkli Oda ACIK - Tum odalar renkli" : @"Zorla Renkli Oda KAPALI");
+    [self refreshUI];
+}
+
 - (void)tapRoomContinuous {
+    roomSpamContinuous = !roomSpamContinuous;
+    saveBool(@"roomcont", roomSpamContinuous);
+    [self refreshUI];
+}
+
+// YENI: Oda Master Ol (Fake / Hack)
+- (void)tapRoomMaster {
+    if (!pn_getPlayerList || !ply_getIsMaster || !ply_getNickName) { FLog(@"Oda master fonksiyonlari hazir degil"); return; }
+    @try {
+        void* arr = pn_getPlayerList();
+        if (!arr) { FLog(@"Oyuncu listesi alinamadi - odaya gir"); return; }
+        int cnt = (int)(*(uintptr_t*)((uintptr_t)arr + 0x18));
+        void** elems = (void**)((uintptr_t)arr + 0x20);
+        void* me = NULL;
+        void* currentMaster = NULL;
+        // Kendi nickName'ini al (en guvenli kendini bulma yontemi)
+        NSString *myNick = @"";
+        if (pn_getNickName) {
+            void* nn = pn_getNickName();
+            if (nn) myNick = readStr(nn) ?: @"";
+        }
+        for (int i = 0; i < cnt; i++) {
+            void* p = elems[i];
+            if (!p) continue;
+            if (ply_getIsMaster(p)) currentMaster = p;
+            // Kendini bul: NickName eslesmesi (en guvenli)
+            NSString *pNick = readStr(ply_getNickName(p)) ?: @"";
+            if ([pNick isEqualToString:myNick] && myNick.length > 0) me = p;
+        }
+        // NickName bulunamazsa ActorNumber == 1 dene (yedek)
+        if (!me) {
+            for (int i = 0; i < cnt; i++) {
+                void* p = elems[i];
+                if (!p) continue;
+                if (ply_getActorNumber && ply_getActorNumber(p) == 1) { me = p; break; }
+            }
+        }
+        if (!me) { FLog(@"Kendinizi bulamadim - odaya gir"); return; }
+        BOOL alreadyMaster = ply_getIsMaster(me);
+        if (alreadyMaster) {
+            FLog(@"Zaten siz bu odanin master'isiniz 👑");
+            UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"👑 Oda Master"
+                                                                       message:@"Zaten bu odanin sahibisiniz!" preferredStyle:UIAlertControllerStyleAlert];
+            [ac addAction:[UIAlertAction actionWithTitle:@"Tamam" style:UIAlertActionStyleDefault handler:nil]];
+            [self present:ac];
+            return;
+        }
+        // Gercek SetMasterClient cagrisi - IL2CPP ile (hook olmadan)
+        if (pn_setMasterClient) {
+            BOOL success = pn_setMasterClient(me);
+            if (success) {
+                FLog(@"👑 ODA MASTER ALINDI! Artik siz bu odanin sahibisiniz.");
+                UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"👑 ODA MASTER ALINDI!"
+                                                                           message:@"Artik bu odanin sahibisiniz! Tum yetkiler sizde." preferredStyle:UIAlertControllerStyleAlert];
+                [ac addAction:[UIAlertAction actionWithTitle:@"Tamam" style:UIAlertActionStyleDefault handler:nil]];
+                [self present:ac];
+            } else {
+                FLog(@"Oda master alma BASARISIZ - sunucu reddetti veya zaten master degilsiniz");
+                UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"👑 Oda Master"
+                                                                           message:@"Master olma BASARISIZ.\nNedenler:\n- Zaten master olabilirsiniz\n- Sunucu reddetti\n- Photon baglantisi aktif degil" preferredStyle:UIAlertControllerStyleAlert];
+                [ac addAction:[UIAlertAction actionWithTitle:@"Kapat" style:UIAlertActionStyleCancel handler:nil]];
+                [self present:ac];
+            }
+        } else {
+            FLog(@"pn_setMasterClient pointeri hazir degil - il2cpp init bekleniyor");
+            UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"👑 Oda Master"
+                                                                       message:@"IL2CPP init bekleniyor - oyuna yeniden girin." preferredStyle:UIAlertControllerStyleAlert];
+            [ac addAction:[UIAlertAction actionWithTitle:@"Kapat" style:UIAlertActionStyleCancel handler:nil]];
+            [self present:ac];
+        }
+    } @catch (...) { FLog(@"Oda master olma hatasi"); }
+}
+
+- (void)tapRoomContinuous {
+    roomSpamContinuous = !roomSpamContinuous;
+    saveBool(@"roomcont", roomSpamContinuous);
+    [self refreshUI];
+}
+- (void)tapRoomMaster {
+    if (!pn_getPlayerList || !ply_getIsMaster) { FLog(@"Oda master fonksiyonlari hazir degil"); return; }
+    @try {
+        void* arr = pn_getPlayerList();
+        if (!arr) { FLog(@"Oyuncu listesi alinamadi - odaya gir"); return; }
+        int cnt = (int)(*(uintptr_t*)((uintptr_t)arr + 0x18));
+        void** elems = (void**)((uintptr_t)arr + 0x20);
+        void* me = NULL;
+        void* currentMaster = NULL;
+        for (int i = 0; i < cnt; i++) {
+            void* p = elems[i];
+            if (!p) continue;
+            if (ply_getIsMaster(p)) currentMaster = p;
+            // Kendini bul: ActorNumber == 1 veya kendi NickName'i
+            if (ply_getActorNumber && ply_getActorNumber(p) == 1) me = p;
+        }
+        if (!me) { FLog(@"Kendinizi bulamadim - odaya gir"); return; }
+        BOOL alreadyMaster = ply_getIsMaster(me);
+        if (alreadyMaster) {
+            FLog(@"Zaten siz bu odanin master'isiniz 👑");
+            UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"👑 Oda Master"
+                                                                       message:@"Zaten bu odanin sahibisiniz!" preferredStyle:UIAlertControllerStyleAlert];
+            [ac addAction:[UIAlertAction actionWithTitle:@"Tamam" style:UIAlertActionStyleDefault handler:nil]];
+            [self present:ac];
+            return;
+        }
+        // YENI: Gercek SetMasterClient cagrisi - IL2CPP ile (hook olmadan)
+        if (pn_setMasterClient) {
+            BOOL success = pn_setMasterClient(me);
+            if (success) {
+                FLog(@"👑 ODA MASTER ALINDI! Artik siz bu odanin sahibisiniz.");
+                UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"👑 ODA MASTER ALINDI!"
+                                                                           message:@"Artik bu odanin sahibisiniz! Tum yetkiler sizde." preferredStyle:UIAlertControllerStyleAlert];
+                [ac addAction:[UIAlertAction actionWithTitle:@"Tamam" style:UIAlertActionStyleDefault handler:nil]];
+                [self present:ac];
+            } else {
+                FLog(@"Oda master alma BASARISIZ - sunucu reddetti veya zaten master degilsiniz");
+                UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"👑 Oda Master"
+                                                                           message:@"Master olma BASARISIZ.\nNedenler:\n- Zaten master olabilirsiniz\n- Sunucu reddetti\n- Photon baglantisi aktif degil" preferredStyle:UIAlertControllerStyleAlert];
+                [ac addAction:[UIAlertAction actionWithTitle:@"Kapat" style:UIAlertActionStyleCancel handler:nil]];
+                [self present:ac];
+            }
+        } else {
+            FLog(@"pn_setMasterClient pointeri hazir degil - il2cpp init bekleniyor");
+            UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"👑 Oda Master"
+                                                                       message:@"IL2CPP init bekleniyor - oyuna yeniden girin." preferredStyle:UIAlertControllerStyleAlert];
+            [ac addAction:[UIAlertAction actionWithTitle:@"Kapat" style:UIAlertActionStyleCancel handler:nil]];
+            [self present:ac];
+        }
+    } @catch (...) { FLog(@"Oda master olma hatasi"); }
+}
     roomSpamContinuous = !roomSpamContinuous;
     saveBool(@"roomcont", roomSpamContinuous);
     [self refreshUI];
@@ -3406,6 +3912,80 @@ static bool few1n_invoke0(void* method, void* obj, const char* label) {
         message:@"Herkes bu ismi gorur (Photon senkron)" preferredStyle:UIAlertControllerStyleAlert];
     [ac addAction:[UIAlertAction actionWithTitle:@"✔️ Sahte Dogrulama Rozeti" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
         if (nameMarqueeTimer) { [nameMarqueeTimer invalidate]; nameMarqueeTimer = nil; }
+        nameTrickMode = 0; [self applyPlainNick:@"FEW1N ✔️"]; FLog(@"Rozet ismi ayarlandi");
+    }]];
+    [ac addAction:[UIAlertAction actionWithTitle:@"👻 Gorunmez Isim" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
+        if (nameMarqueeTimer) { [nameMarqueeTimer invalidate]; nameMarqueeTimer = nil; }
+        nameTrickMode = 0; [self applyPlainNick:@"⠀⠀⠀"]; FLog(@"Gorunmez isim ayarlandi");
+    }]];
+    [ac addAction:[UIAlertAction actionWithTitle:@"📏 Suslu Uzun Isim" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
+        if (nameMarqueeTimer) { [nameMarqueeTimer invalidate]; nameMarqueeTimer = nil; }
+        nameTrickMode = 0; [self applyPlainNick:@"▬▬ໜ۩ FEW1N ۩ໜ▬▬"]; FLog(@"Suslu isim ayarlandi");
+    }]];
+    // YENI HACKER/PRO MODLARI
+    [ac addAction:[UIAlertAction actionWithTitle:@"🛡️ [ADMIN] Rozeti (Fake)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
+        if (nameMarqueeTimer) { [nameMarqueeTimer invalidate]; nameMarqueeTimer = nil; }
+        nameTrickMode = 1; [self applyPlainNick:@"[ADMIN] FEW1N"]; FLog(@"Fake Admin rozetli isim ayarlandi");
+    }]];
+    [ac addAction:[UIAlertAction actionWithTitle:@"🔧 [DEV] Rozeti (Fake)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
+        if (nameMarqueeTimer) { [nameMarqueeTimer invalidate]; nameMarqueeTimer = nil; }
+        nameTrickMode = 3; [self applyPlainNick:@"[DEV] FEW1N"]; FLog(@"Fake Dev rozetli isim ayarlandi");
+    }]];
+    [ac addAction:[UIAlertAction actionWithTitle:@"⚡ Hacker Isim (Animasyonlu)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
+        if (nameMarqueeTimer) { [nameMarqueeTimer invalidate]; nameMarqueeTimer = nil; }
+        nameTrickMode = 4; nameMarqueeTimer = [NSTimer scheduledTimerWithTimeInterval:0.5 target:self selector:@selector(fireHackerName) userInfo:nil repeats:YES];
+        FLog(@"Hacker isim animasyonu basladi");
+    }]];
+    [ac addAction:[UIAlertAction actionWithTitle:@"🟢 Matrix Isim (Binary)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
+        if (nameMarqueeTimer) { [nameMarqueeTimer invalidate]; nameMarqueeTimer = nil; }
+        nameTrickMode = 5; [self applyPlainNick:matrixWrapName(@"FEW1N")]; FLog(@"Matrix isim ayarlandi");
+    }]];
+    [ac addAction:[UIAlertAction actionWithTitle:@"💀 Glitch Isim" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
+        if (nameMarqueeTimer) { [nameMarqueeTimer invalidate]; nameMarqueeTimer = nil; }
+        nameTrickMode = 6; [self applyPlainNick:glitchWrapName(@"FEW1N")]; FLog(@"Glitch isim ayarlandi");
+    }]];
+    [ac addAction:[UIAlertAction actionWithTitle:@"🔢 Binary Isim (0/1)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
+        if (nameMarqueeTimer) { [nameMarqueeTimer invalidate]; nameMarqueeTimer = nil; }
+        nameTrickMode = 7; [self applyPlainNick:binaryWrapName(@"FEW1N")]; FLog(@"Binary isim ayarlandi");
+    }]];
+    [ac addAction:[UIAlertAction actionWithTitle:@"🎞️ Kayan Yazi (marquee)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
+        if (nameMarqueeTimer) { [nameMarqueeTimer invalidate]; nameMarqueeTimer = nil; }
+        nameTrickMode = 0; nameMarqueeTimer = [NSTimer scheduledTimerWithTimeInterval:0.4 target:self selector:@selector(fireNameMarquee) userInfo:nil repeats:YES];
+        FLog(@"Kayan yazi ismi basladi");
+    }]];
+    [ac addAction:[UIAlertAction actionWithTitle:@"🔄 Isim Dongusu (emoji/bayrak/level)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
+        if (nameMarqueeTimer) { [nameMarqueeTimer invalidate]; nameMarqueeTimer = nil; }
+        nameTrickMode = 0; nameMarqueeTimer = [NSTimer scheduledTimerWithTimeInterval:0.7 target:self selector:@selector(fireNameCycle) userInfo:nil repeats:YES];
+        FLog(@"Isim dongusu basladi");
+    }]];
+    [ac addAction:[UIAlertAction actionWithTitle:@"⏹️ Efekti Durdur" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *a){
+        if (nameMarqueeTimer) { [nameMarqueeTimer invalidate]; nameMarqueeTimer = nil; } nameTrickMode = 0; FLog(@"Kayan yazi durdu");
+    }]];
+    [ac addAction:[UIAlertAction actionWithTitle:@"Iptal" style:UIAlertActionStyleCancel handler:nil]];
+    [self present:ac];
+}
+
+// Hacker isim animasyonu (yanip-sonen, renk degisen)
+- (void)fireHackerName {
+    static int hi = 0;
+    NSArray *hackerNames = @[
+        @"<color=#FF0000><b>[ROOT] FEW1N</b></color>",
+        @"<color=#00FF00><b>[ROOT] FEW1N</b></color>",
+        @"<color=#00FFFF><b>[ROOT] FEW1N</b></color>",
+        @"<color=#FF00FF><b>[ROOT] FEW1N</b></color>",
+        @"<color=#FFFF00><b>[ROOT] FEW1N</b></color>",
+        @"<color=#FF0000>⚡ FEW1N ⚡</color>",
+        @"<color=#00FF00>⚡ FEW1N ⚡</color>",
+        @"<color=#00FFFF>⚡ FEW1N ⚡</color>"
+    ];
+    [self applyPlainNick:hackerNames[hi % hackerNames.count]];
+    hi++;
+}
+    if (!pn_setNickName) { FLog(@"Isim ayari hazir degil (odaya gir)"); return; }
+    UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"\U0001F3AD Isim Hileleri"
+        message:@"Herkes bu ismi gorur (Photon senkron)" preferredStyle:UIAlertControllerStyleAlert];
+    [ac addAction:[UIAlertAction actionWithTitle:@"✔️ Sahte Dogrulama Rozeti" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
+        if (nameMarqueeTimer) { [nameMarqueeTimer invalidate]; nameMarqueeTimer = nil; }
         [self applyPlainNick:@"FEW1N ✔️"]; FLog(@"Rozet ismi ayarlandi");
     }]];
     [ac addAction:[UIAlertAction actionWithTitle:@"👻 Gorunmez Isim" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
@@ -3450,6 +4030,113 @@ static bool few1n_invoke0(void* method, void* obj, const char* label) {
             @try { void* mgr = chatGetInst(); void* s = mkStr(t); if (mgr && s) chatSend(mgr, s); } @catch (...) {}
         });
     }
+}
+
+// ===== EXPLOIT TEST (CHAT FILTRESI ATLATMA - 30 YONTEM) =====
+- (void)exploitChatTest {
+    if (!chatGetInst || !chatSend) { FLog(@"Chat hazir degil"); return; }
+    NSArray *exploits = @[
+        @"1. Kisa Hex 6: <#FF0000>FEW1N RED",
+        @"2. Kisa Hex 8: <#00FF00FF>FEW1N GREEN",
+        @"3. Kisa Hex 3: <#00F>FEW1N BLUE",
+        @"4. Kisa Hex 4: <#F00F>FEW1N ALPHA",
+        @"5. Hashsiz Hex: <color=FF0000>FEW1N NOHASH</color>",
+        @"6. Buyuk Harf: <COLOR=#FF0000>FEW1N</COLOR>",
+        @"7. Karma Harf: <CoLoR=#00FFFF>FEW1N</CoLoR>",
+        @"8. Cift Tirnak: <color=\"yellow\">FEW1N</color>",
+        @"9. Tek Tirnak: <color='orange'>FEW1N</color>",
+        @"10. Bosluklu Tag: <color = #FF0000>FEW1N SPACE</color>",
+        @"11. Cift Katman: <col<color=#FF00FF>or=#FF00FF>FEW1N DBL",
+        @"12. Uc Katman: <col<col<color=#FF0000>or=#FF0000>or=#FF0000>FEW1N TRPL",
+        @"13. Mark Vurgu: <mark=#FF8800AA>FEW1N MARK</mark>",
+        @"14. Alpha Opaklik: <alpha=#FF><#00FFFF>FEW1N ALPHA",
+        @"15. Dev+Renk: <size=160%><#00FF00>FEW1N DEV</size>",
+        @"16. ZeroWidth Split: c\u200Bolor=#FF0000>FEW1N ZW",
+        @"17. Soft Hyphen: c\u00ADolor=#FF0000>FEW1N SH",
+        @"18. Word Joiner: c\u2060olor=#FF0000>FEW1N WJ",
+        @"19. RTL Mark: \u200F<#FF0000>FEW1N RTL",
+        @"20. UTF BOM: \uFEFF<#FF0000>FEW1N BOM",
+        @"21. HTML Entity: &lt;color=#FF0000&gt;FEW1N",
+        @"22. Decimal Entity: &#60;color=#FF0000&#62;FEW1N",
+        @"23. Sprite Inject: <sprite index=0><#FF0000>FEW1N",
+        @"24. Full Combo: <size=140%><mark=#000000AA><#FF0000>FEW1N</mark></size>",
+        @"25. Gradient Tag: <gradient=\"RedYellow\"><#FF0000>FEW1N GRAD",
+        @"26. Font Inject: <font=\"Arial\"><#00FF00>FEW1N FONT",
+        @"27. Underline Color: <u><#00FFFF>FEW1N ULINE</u>",
+        @"28. Italic Color: <i><#FF00FF>FEW1N ITALIC</i>",
+        @"29. Superscript: <sup><#FFFF00>FEW1N SUP</sup>",
+        @"30. Line Height: <line-height=120%><#FF0000>FEW1N LINE"
+    ];
+    __block int idx = 0;
+    for (NSString *exp in exploits) {
+        double delay = (idx++) * 0.45;
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            @try {
+                void* mgr = chatGetInst();
+                void* str = mkStr(exp);
+                if (mgr && str) chatSend(mgr, str);
+            } @catch (...) {}
+        });
+    }
+    FLog(@"30 Exploit payload chate gonderiliyor...");
+}
+
+// ===== EXPLOIT ILE ODA KURMA (30 YONTEM) =====
+- (void)exploitCreateRoom {
+    UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"🧪 Exploit Oda Kurma (30 Yontem)"
+                                                               message:@"Oda adini girin ve uygulanacak 30 exploit tekniginden birini secin:"
+                                                        preferredStyle:UIAlertControllerStyleAlert];
+
+    [ac addTextFieldWithConfigurationHandler:^(UITextField *tf){
+        tf.text = @"FEW1N";
+        tf.placeholder = @"Oda Ismini Girin";
+        tf.clearButtonMode = UITextFieldViewModeAlways;
+    }];
+
+    void (^runExp)(NSString*, NSString*) = ^(NSString *prefix, NSString *suffix){
+        NSString *inp = ac.textFields.firstObject.text;
+        if (!inp || inp.length == 0) inp = @"FEW1N";
+        NSString *full = [NSString stringWithFormat:@"%@%@%@", prefix, inp, suffix];
+        strncpy(customRoomName, full.UTF8String, sizeof(customRoomName)-1);
+        customRoomName[sizeof(customRoomName)-1]='\0';
+        saveStr(@"roomName", full);
+        FLog([NSString stringWithFormat:@"Exploit oda ismi kuruluyor: %@", full]);
+        [self createOneRoom];
+    };
+
+    [ac addAction:[UIAlertAction actionWithTitle:@"1. Kisa Hex 6 (<#FF0000>)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){ runExp(@"<#FF0000>", @""); }]];
+    [ac addAction:[UIAlertAction actionWithTitle:@"2. Kisa Hex 8 (<#00FF00FF>)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){ runExp(@"<#00FF00FF>", @""); }]];
+    [ac addAction:[UIAlertAction actionWithTitle:@"3. Kisa Hex 3 (<#00F>)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){ runExp(@"<#00F>", @""); }]];
+    [ac addAction:[UIAlertAction actionWithTitle:@"4. Kisa Hex 4 (<#F00F>)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){ runExp(@"<#F00F>", @""); }]];
+    [ac addAction:[UIAlertAction actionWithTitle:@"5. Hashsiz Hex (<color=FF0000>)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){ runExp(@"<color=FF0000>", @"</color>"); }]];
+    [ac addAction:[UIAlertAction actionWithTitle:@"6. Buyuk Harf (<COLOR=#FF0000>)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){ runExp(@"<COLOR=#FF0000>", @"</COLOR>"); }]];
+    [ac addAction:[UIAlertAction actionWithTitle:@"7. Karma Harf (<CoLoR=#00FFFF>)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){ runExp(@"<CoLoR=#00FFFF>", @"</CoLoR>"); }]];
+    [ac addAction:[UIAlertAction actionWithTitle:@"8. Cift Tirnak (<color=\"yellow\">)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){ runExp(@"<color=\"yellow\">", @"</color>"); }]];
+    [ac addAction:[UIAlertAction actionWithTitle:@"9. Tek Tirnak (<color='orange'>)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){ runExp(@"<color='orange'>", @"</color>"); }]];
+    [ac addAction:[UIAlertAction actionWithTitle:@"10. Bosluklu Tag (<color = #FF0000>)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){ runExp(@"<color = #FF0000>", @"</color>"); }]];
+    [ac addAction:[UIAlertAction actionWithTitle:@"11. Cift Katman (<col<color...>)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){ runExp(@"<col<color=#FF00FF>or=#FF00FF>", @""); }]];
+    [ac addAction:[UIAlertAction actionWithTitle:@"12. Uc Katman (<col<col<color...>)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){ runExp(@"<col<col<color=#FF0000>or=#FF0000>or=#FF0000>", @""); }]];
+    [ac addAction:[UIAlertAction actionWithTitle:@"13. Mark Vurgu (<mark=#FF8800AA>)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){ runExp(@"<mark=#FF8800AA>", @"</mark>"); }]];
+    [ac addAction:[UIAlertAction actionWithTitle:@"14. Alpha Tag (<alpha=#FF><#00FF>)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){ runExp(@"<alpha=#FF><#00FFFF>", @""); }]];
+    [ac addAction:[UIAlertAction actionWithTitle:@"15. Dev Yazili (<size=160%><#00FF>)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){ runExp(@"<size=160%><#00FF00>", @"</size>"); }]];
+    [ac addAction:[UIAlertAction actionWithTitle:@"16. ZeroWidth Split (c\\u200Bolor)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){ runExp(@"c\u200Bolor=#FF0000>", @""); }]];
+    [ac addAction:[UIAlertAction actionWithTitle:@"17. Soft Hyphen Split (c\\u00ADolor)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){ runExp(@"c\u00ADolor=#FF0000>", @""); }]];
+    [ac addAction:[UIAlertAction actionWithTitle:@"18. Word Joiner (c\\u2060olor)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){ runExp(@"c\u2060olor=#FF0000>", @""); }]];
+    [ac addAction:[UIAlertAction actionWithTitle:@"19. RTL Control Mark (\\u200F)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){ runExp(@"\u200F<#FF0000>", @""); }]];
+    [ac addAction:[UIAlertAction actionWithTitle:@"20. UTF-8 BOM Prefix (\\uFEFF)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){ runExp(@"\uFEFF<#FF0000>", @""); }]];
+    [ac addAction:[UIAlertAction actionWithTitle:@"21. HTML Entity (&lt;color...)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){ runExp(@"&lt;color=#FF0000&gt;", @""); }]];
+    [ac addAction:[UIAlertAction actionWithTitle:@"22. Decimal Entity (&#60;color...)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){ runExp(@"&#60;color=#FF0000&#62;", @""); }]];
+    [ac addAction:[UIAlertAction actionWithTitle:@"23. Sprite Injection (<sprite=0>)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){ runExp(@"<sprite index=0><#FF0000>", @""); }]];
+    [ac addAction:[UIAlertAction actionWithTitle:@"24. Full Combo Overlay" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){ runExp(@"<size=140%><mark=#000000AA><#FF0000>", @"</mark></size>"); }]];
+    [ac addAction:[UIAlertAction actionWithTitle:@"25. Gradient Tag (<gradient=...>)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){ runExp(@"<gradient=\"RedYellow\"><#FF0000>", @"</gradient>"); }]];
+    [ac addAction:[UIAlertAction actionWithTitle:@"26. Font Swap Inject (<font=...>)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){ runExp(@"<font=\"Arial\"><#00FF00>", @"</font>"); }]];
+    [ac addAction:[UIAlertAction actionWithTitle:@"27. Alt Cizgili Renk (<u>)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){ runExp(@"<u><#00FFFF>", @"</u>"); }]];
+    [ac addAction:[UIAlertAction actionWithTitle:@"28. Italik Renk (<i>)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){ runExp(@"<i><#FF00FF>", @"</i>"); }]];
+    [ac addAction:[UIAlertAction actionWithTitle:@"29. Ust Indis Renk (<sup>)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){ runExp(@"<sup><#FFFF00>", @"</sup>"); }]];
+    [ac addAction:[UIAlertAction actionWithTitle:@"30. Satir Yuksekligi Enjeksiyonu" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){ runExp(@"<line-height=120%><#FF0000>", @""); }]];
+
+    [ac addAction:[UIAlertAction actionWithTitle:@"Iptal" style:UIAlertActionStyleCancel handler:nil]];
+    [self present:ac];
 }
 
 - (void)editSpam {
@@ -3790,6 +4477,7 @@ static void InstallEverything(uintptr_t b) {
     pn_joinRoom               = (bool(*)(void*,void*))(b + 0x593A64C);
     pn_getNickName            = (void*(*)(void))(b + 0x59338C0);
     pn_leaveRoom              = (bool(*)(bool))(b + 0x593B2D8);
+    pn_closeConnection        = (bool(*)(void*))(b + 0x5938844);   // kick direkt (hook olmadan)
     lobbyGetInst              = (void*(*)(void))(b + 0x54A8098);
     playerManagerGetInst      = (void*(*)(void))(b + 0x5A2DE20);
     pm_updateNicknameInternal = (void(*)(void*,void*))(b + 0x5A3DDD4);
@@ -3804,7 +4492,9 @@ static void InstallEverything(uintptr_t b) {
     lobby_createRoom          = (void(*)(void*))(b + 0x54A94A4);
     lobby_leaveRoom           = (void(*)(void*))(b + 0x54A9F1C);
     pn_createRoom             = (bool(*)(void*,void*,void*,void*))(b + 0x5939B4C);
+    pn_setMasterClient        = (bool(*)(void*))(b + 0x5938B3C);   // YENI: Oda master alma
     pn_getPlayerList          = (void*(*)(void))(b + 0x59339D0);
+    pn_getPlayerListOthers    = (void*(*)(void))(b + 0x5933B88);
     ply_getNickName           = (void*(*)(void*))(b + 0x5924574);
     ply_getActorNumber        = (int(*)(void*))(b + 0x592455C);
     ply_getIsMaster           = (bool(*)(void*))(b + 0x5924640);
@@ -3843,7 +4533,7 @@ static void few1n_poll(void) {
 }
 
 %ctor {
-    FLog(@"v30.6 basladi, UnityFramework araniyor...");
+    FLog(@"v33.3 basladi, UnityFramework araniyor...");
     restoreSettings();
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 3 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{ few1n_poll(); });
 }
