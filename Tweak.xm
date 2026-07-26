@@ -760,10 +760,7 @@ static bool  (*pn_createRoom)(void* name, void* opts, void* lobby, void* users) 
 static bool  (*pn_joinRoom)(void* name, void* users) = NULL;   // PhotonNetwork.JoinRoom 0x593A64C (goz at)
 static void* (*pn_getNickName)(void) = NULL;                   // PhotonNetwork.get_NickName 0x59338C0 (isim kaydet)
 static bool  (*pn_leaveRoom)(bool) = NULL;                     // PhotonNetwork.LeaveRoom 0x593B2D8 (goz at cikis)
-static bool  (*pn_setMasterClient)(void* player) = NULL;       // PhotonNetwork.SetMasterClient 0x5938B3C (oda master al)
-static bool  (*pn_joinRoom)(void* name, void* users) = NULL;   // PhotonNetwork.JoinRoom 0x593A64C (goz at)
-static void* (*pn_getNickName)(void) = NULL;                   // PhotonNetwork.get_NickName 0x59338C0 (isim kaydet)
-static bool  (*pn_leaveRoom)(bool) = NULL;                     // PhotonNetwork.LeaveRoom 0x593B2D8 (goz at cikis)
+static bool  (*pn_setMasterClient)(void* player) = NULL;       // PhotonNetwork.SetMasterClient (kullanicinin eklemesi)
 // ==== ODADAKI OYUNCULAR (script.json dogrulandi) ====
 static void* (*pn_getPlayerList)(void) = NULL;      // PhotonNetwork.get_PlayerList -> Player[]  0x59339D0
 static void* (*pn_getPlayerListOthers)(void) = NULL; // PhotonNetwork.get_PlayerListOthers (kendisi haric) 0x5933B88
@@ -1597,6 +1594,33 @@ static void h_roomLineSetup(void* self, void* a, void* b, unsigned char c, unsig
 
 
 // ===== ODA KURMA HATASI TESHIS + OTOMATIK RETRY (BRUTE FORCE) =====
+// FEW1NMenu @interface yukari alindi ki hook'lar (h_onCreateFail brute-force) menuye erisebilsin
+@interface FEW1NMenu : NSObject
+@property (nonatomic, strong) UIButton *fab;
+@property (nonatomic, strong) UIView *panel;
+@property (nonatomic, strong) UIScrollView *scrollView;
+@property (nonatomic, strong) UIView *contentView;
+@property (nonatomic, strong) NSMutableDictionary *toggleViews;
+@property (nonatomic, strong) UILabel *statusLabel;
+@property (nonatomic, strong) UIView *statusCard;
+@property (nonatomic, strong) UIView *espOverlay;
+@property (nonatomic, strong) NSMutableArray *espLabels;
+@property (nonatomic, strong) NSTimer *espTimer;
+@property (nonatomic, strong) UIView *lyricsOverlay;
+@property (nonatomic, strong) UITextView *lyricsInput;
+@property (nonatomic, strong) UIView *songPicker;
+@property (nonatomic, strong) NSMutableDictionary *speedBtns;
+@property (nonatomic, strong) UIButton *plateBtn;
+@property (nonatomic, strong) UIButton *nameBtn;
+@property (nonatomic, strong) UIButton *moneyBtn;
+@property (nonatomic, strong) UIView *logOverlay;
+@property (nonatomic, strong) UITextView *logText;
+@property (nonatomic, strong) CADisplayLink *dl;
++ (instancetype)shared;
+- (void)build;
+- (void)createOneRoom;
+@end
+
 static int g_bruteForceIdx = 0;
 static bool isBruteForceActive = false;
 static NSArray* g_bruteForceNames = nil;
@@ -1619,12 +1643,6 @@ static void h_onCreateFail(void* self, short code, void* msg) {
         isBruteForceActive = false;
         FLog(@"BRUTE FORCE: Tum teknikler denendi, basarisiz.");
     }
-    if (o_onCreateFail) o_onCreateFail(self, code, msg);
-}
-// OnCreateRoomFailed/OnJoinRoomFailed -> neden reddedildigini loga yaz
-static void (*o_onCreateFail)(void*, short, void*) = NULL;
-static void h_onCreateFail(void* self, short code, void* msg) {
-    @try { FLog([NSString stringWithFormat:@"ODA KURMA HATASI: kod=%d mesaj=%@", (int)code, readStr(msg)]); } @catch (...) {}
     if (o_onCreateFail) o_onCreateFail(self, code, msg);
 }
 static void (*o_onJoinFail)(void*, short, void*) = NULL;
@@ -1686,31 +1704,6 @@ static void h_addMoney(void* self, int amount) {
 #define C_CYAN   [UIColor colorWithRed:0.10 green:0.62 blue:0.92 alpha:1.0]
 #define C_TEXT   [UIColor colorWithRed:0.06 green:0.12 blue:0.20 alpha:1.0]   // koyu lacivert metin
 #define C_SUB    [UIColor colorWithRed:0.30 green:0.42 blue:0.52 alpha:0.85]  // gri-mavi alt metin
-
-@interface FEW1NMenu : NSObject
-@property (nonatomic, strong) UIButton *fab;
-@property (nonatomic, strong) UIView *panel;
-@property (nonatomic, strong) UIScrollView *scrollView;
-@property (nonatomic, strong) UIView *contentView;
-@property (nonatomic, strong) NSMutableDictionary *toggleViews;
-@property (nonatomic, strong) UILabel *statusLabel;
-@property (nonatomic, strong) UIView *statusCard;
-@property (nonatomic, strong) UIView *espOverlay;
-@property (nonatomic, strong) NSMutableArray *espLabels;
-@property (nonatomic, strong) NSTimer *espTimer;
-@property (nonatomic, strong) UIView *lyricsOverlay;
-@property (nonatomic, strong) UITextView *lyricsInput;
-@property (nonatomic, strong) UIView *songPicker;
-@property (nonatomic, strong) NSMutableDictionary *speedBtns;
-@property (nonatomic, strong) UIButton *plateBtn;
-@property (nonatomic, strong) UIButton *nameBtn;
-@property (nonatomic, strong) UIButton *moneyBtn;
-@property (nonatomic, strong) UIView *logOverlay;
-@property (nonatomic, strong) UITextView *logText;
-@property (nonatomic, strong) CADisplayLink *dl;
-+ (instancetype)shared;
-- (void)build;
-@end
 
 @implementation FEW1NMenu
 
