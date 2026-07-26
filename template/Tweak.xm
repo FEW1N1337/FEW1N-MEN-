@@ -83,6 +83,11 @@ static char customPlateText[64] = "FEW1N";
 static char chatSpamText[128] = "FEW1N MOD MENU!";
 static char spamColorHex[8] = "00FFFF";   // chat spam rengi (renkli stilde)
 static int  customMoneyAmount = 100000000;
+// ==== CHAT OTO-DUYURU (donen banner - herkes gorur) ====
+static bool  isAnnounceEnabled = false;
+static float announceInterval = 5.0f;
+static int   g_announceIdx = 0;
+static char  announceText[512] = "FEW1N MOD MENU aktif!\nHerkese selam!\nIyi oyunlar";
 // ==== SARKI SOZU -> CHAT (altyazi gibi) ====
 static bool isLyricsEnabled = false;
 static int  g_lyricsIdx = 0;             // hangi satir
@@ -99,6 +104,8 @@ static NSTimer *tickTimer = nil;
 static NSTimer *asciiTimer = nil;
 static NSTimer *lyricsTimer = nil;
 static NSTimer *roomSpamTimer = nil;
+static NSTimer *nameMarqueeTimer = nil;   // kayan yazi isim / isim dongusu
+static NSTimer *announceTimer = nil;      // chat oto-duyuru
 
 // ASCII animasyon setleri (her set = kareler dizisi)
 static NSArray* asciiAnims(void) {
@@ -228,6 +235,16 @@ static void* g_fIsMine = NULL;         // PhotonView.<IsMine>k__BackingField (Fi
 static int   g_isMineOff = 0;          // IsMine byte offset @0x68 (dogrudan okuma - cokme YOK)
 static void* g_fOwner = NULL;          // PhotonView.<Owner>k__BackingField (FieldInfo)
 static int   g_pvOwnerOff = 0;         // Owner (Player*) byte offset @0x80 (isim icin)
+// ==== GODMODE (HR_PlayerHandler.canCrash=false -> hic kaza yapma) ====
+static void* g_playerHandlerType = NULL;   // typeof(HR_PlayerHandler)
+static void* g_myPlayerHandler = NULL;     // benim handler (PhotonView@0xB8.IsMine)
+static bool  isGodmode = false;
+// ==== SELEKTOR (RCCP_Lights.highBeamHeadlights@0x41 hizli ac/kapat) ====
+static void* g_rccpLightsType = NULL;      // typeof(RCCP_Lights)
+static void* g_myLights = NULL;            // benim RCCP_Lights (g_rb'ye en yakin)
+static bool  isSelektor = false;
+static int   g_selTick = 0;
+static int   g_selFlashRate = 1;   // yariperiyot frame sayisi (1=en hizli strobe, buyudukce yavas)
 // ==== YENI HAVALI HACKLER ====
 static void* g_mRbSetDetect = NULL;    // Rigidbody.set_detectCollisions (no-clip)
 static void* g_mRbUseGrav = NULL;      // Rigidbody.set_useGravity (anti-grav)
@@ -463,6 +480,16 @@ static void few1n_initIl2cpp(void) {
                       if (g_fOwner  && i_field_get_offset) g_pvOwnerOff = (int)i_field_get_offset(g_fOwner);
                       FLog([NSString stringWithFormat:@"PhotonView tipi=%p IsMineOff=%d OwnerOff=%d", g_photonViewType, g_isMineOff, g_pvOwnerOff]); }
         }
+        if (!g_playerHandlerType) {
+            void* ph = i_class_from_name(img, "", "HR_PlayerHandler");
+            if (!ph) ph = few1n_findClassByName(img, "HR_PlayerHandler");
+            if (ph) { g_playerHandlerType = few1n_typeObjOf(ph); FLog([NSString stringWithFormat:@"HR_PlayerHandler tipi=%p (godmode)", g_playerHandlerType]); }
+        }
+        if (!g_rccpLightsType) {
+            void* rl = i_class_from_name(img, "", "RCCP_Lights");
+            if (!rl) rl = few1n_findClassByName(img, "RCCP_Lights");
+            if (rl) { g_rccpLightsType = few1n_typeObjOf(rl); FLog([NSString stringWithFormat:@"RCCP_Lights tipi=%p (selektor)", g_rccpLightsType]); }
+        }
         if (!g_roomOptionsClass) {
             void* roc = i_class_from_name(img, "Photon.Realtime", "RoomOptions");
             if (roc) { g_roomOptionsClass = roc; FLog([NSString stringWithFormat:@"RoomOptions bulundu! %p", roc]); }
@@ -652,6 +679,8 @@ static void  (*pm_addMoney)(void* self, int amount) = NULL;
 static void  (*lobby_createRoom)(void* self) = NULL;   // HR_PhotonLobbyManager.CreateRoomButton
 static void  (*lobby_leaveRoom)(void* self) = NULL;    // HR_PhotonLobbyManager.LeaveRoom
 static bool  (*pn_createRoom)(void* name, void* opts, void* lobby, void* users) = NULL; // PhotonNetwork.CreateRoom
+static bool  (*pn_joinRoom)(void* name, void* users) = NULL;   // PhotonNetwork.JoinRoom 0x593A64C (goz at)
+static void* (*pn_getNickName)(void) = NULL;                   // PhotonNetwork.get_NickName 0x59338C0 (isim kaydet)
 // ==== ODADAKI OYUNCULAR (script.json dogrulandi) ====
 static void* (*pn_getPlayerList)(void) = NULL;      // PhotonNetwork.get_PlayerList -> Player[]  0x59339D0
 static void* (*ply_getNickName)(void*) = NULL;      // Player.get_NickName          0x5924574
@@ -1228,6 +1257,73 @@ static void few1n_applyColor(void) {
     } @catch (...) {}
 }
 
+// ===== GODMODE: HR_PlayerHandler.canCrash=false -> hic kaza yapma (sonsuz surus) =====
+// Benim handler'im: PhotonView(@0xB8).IsMine=true. canCrash@0x38, damage@0x3C.
+static void few1n_applyGodmode(void) {
+    if (!isGodmode) return;
+    if (g_myPlayerHandler && !unityAlive(g_myPlayerHandler)) g_myPlayerHandler = NULL;
+    if (!unityAlive(g_myPlayerHandler)) {
+        static int gmTick = 0;
+        if ((gmTick++ % 20) != 0) return;   // ~her 20 frame'de bir ara (FindObjects ucuz degil)
+        if (!g_playerHandlerType || !g_mFindObjectsPlural || !i_runtime_invoke || g_isMineOff <= 0) return;
+        @try {
+            void* a[1]; a[0] = g_playerHandlerType;
+            void* arr = i_runtime_invoke(g_mFindObjectsPlural, NULL, a, NULL);
+            if (!ptrOk(arr)) return;
+            int cnt = (int)(*(uintptr_t*)((uintptr_t)arr + 0x18));
+            if (cnt < 0 || cnt > 64) return;
+            void** hs = (void**)((uintptr_t)arr + 0x20);
+            for (int i = 0; i < cnt; i++) {
+                void* h = hs[i]; if (!unityAlive(h)) continue;
+                void* pv = *(void**)((uintptr_t)h + 0xB8);   // HR_PlayerHandler.PhotonView
+                bool mine = unityAlive(pv) ? *(bool*)((uintptr_t)pv + g_isMineOff) : false;
+                if (mine) { g_myPlayerHandler = h; break; }
+            }
+        } @catch (...) {}
+        return;
+    }
+    @try {
+        *(unsigned char*)((uintptr_t)g_myPlayerHandler + 0x38) = 0;   // canCrash = false
+        *(float*)((uintptr_t)g_myPlayerHandler + 0x3C) = 0.0f;        // damage = 0
+    } @catch (...) {}
+}
+
+// ===== SELEKTOR: RCCP_Lights.highBeamHeadlights@0x41 hizli ac/kapat (g_rb'ye en yakin) =====
+static void few1n_applySelektor(void) {
+    if (!isSelektor) return;
+    if (g_myLights && !unityAlive(g_myLights)) g_myLights = NULL;
+    if (!unityAlive(g_myLights)) {
+        static int sTick = 0;
+        if ((sTick++ % 15) != 0) return;
+        if (!g_rccpLightsType || !g_mFindObjectsPlural || !i_runtime_invoke || !unityAlive(g_rb)) return;
+        @try {
+            Vec3 myPos; rbGetPosIl(g_rb, &myPos);
+            void* a[1]; a[0] = g_rccpLightsType;
+            void* arr = i_runtime_invoke(g_mFindObjectsPlural, NULL, a, NULL);
+            if (!ptrOk(arr)) return;
+            int cnt = (int)(*(uintptr_t*)((uintptr_t)arr + 0x18));
+            if (cnt < 0 || cnt > 256) return;
+            void** ls = (void**)((uintptr_t)arr + 0x20);
+            void* best = NULL; float bestD = 1e18f;
+            for (int i = 0; i < cnt; i++) {
+                void* L = ls[i]; if (!unityAlive(L)) continue;
+                Vec3 p; if (!few1n_objPos(L, &p)) continue;
+                float dx=p.x-myPos.x,dy=p.y-myPos.y,dz=p.z-myPos.z; float d=dx*dx+dy*dy+dz*dz;
+                if (d < bestD) { bestD = d; best = L; }
+            }
+            if (ptrOk(best) && bestD < 100.0f) g_myLights = best;
+        } @catch (...) {}
+        return;
+    }
+    @try {
+        g_selTick++;
+        int rate = (g_selFlashRate >= 1) ? g_selFlashRate : 1;
+        unsigned char on = (((g_selTick / rate) % 2) == 0) ? 1 : 0;   // hiz menuden ayarli
+        *(unsigned char*)((uintptr_t)g_myLights + 0x41) = on;   // highBeamHeadlights
+        *(unsigned char*)((uintptr_t)g_myLights + 0x40) = on;   // lowBeamHeadlights (gorunurluk icin)
+    } @catch (...) {}
+}
+
 // ===== GERCEK COZUM: CarPlayerInput.FixedUpdate (SADECE YEREL OYUNCU) =====
 // script.json + il2cpp.h ile dogrulandi:
 //   CarPlayerInput$$FixedUpdate = RVA 0x54D0BC0  (88935360)
@@ -1545,7 +1641,7 @@ static void h_addMoney(void* self, int amount) {
     title.font = [UIFont systemFontOfSize:17 weight:UIFontWeightBlack];
     [header addSubview:title];
     UILabel *ver = [[UILabel alloc] initWithFrame:CGRectMake(42,37,pw-90,16)];
-    ver.text = [NSString stringWithFormat:@"v29.5  •  Base 0x%lX", (unsigned long)global_base];
+    ver.text = [NSString stringWithFormat:@"v30.2  •  Base 0x%lX", (unsigned long)global_base];
     ver.textColor = [UIColor colorWithWhite:1 alpha:0.82];
     ver.font = [UIFont fontWithName:@"Menlo-Bold" size:8] ?: [UIFont systemFontOfSize:8 weight:UIFontWeightBold];
     [header addSubview:ver];
@@ -1603,6 +1699,9 @@ static void h_addMoney(void* self, int amount) {
     y = [self toggle:@"\U0001FAB6  Dusuk Yercekimi" sub:@"Dusus yavas, floaty" key:@"lowgrav" atY:y action:@selector(tapLowGrav)];
     y = [self toggle:@"\U0001F47B  No-Clip (Hayalet)" sub:@"Duvardan/araclardan gec (ucus ac!)" key:@"noclip" atY:y action:@selector(tapNoClip)];
     y = [self toggle:@"\U0001F319  Anti-Gravity (Ay modu)" sub:@"Yercekimi kapali, suzul" key:@"antigrav" atY:y action:@selector(tapAntiGrav)];
+    y = [self toggle:@"\U0001F6E1  GODMODE (Kaza Yapma)" sub:@"Trafige carpsan bile olmezsin - sonsuz surus" key:@"godmode" atY:y action:@selector(tapGodmode)];
+    y = [self toggle:@"\U0001F4A1  Hizli Selektor (far cakma)" sub:@"On farlari hizli ac/kapat (RCCP)" key:@"selektor" atY:y action:@selector(tapSelektor)];
+    y = [self actionRow:@"✏️  Selektor Hizi Ayarla" color:C_CYAN atY:y action:@selector(editSelektorSpeed)];
     y = [self actionRow:@"\U0001F53C  ZIPLA (bas)" color:C_ON atY:y action:@selector(jumpTap)];
     y = [self actionRow:@"\U0001F680  Hiz Patlamasi (boost)" color:C_ON atY:y action:@selector(boostTap)];
     y = [self actionRow:@"\U0001F9CA  Araci Dondur (anlik dur)" color:C_CYAN atY:y action:@selector(freezeTap)];
@@ -1616,6 +1715,10 @@ static void h_addMoney(void* self, int amount) {
     y = [self toggle:@"\U0001F3A8  Renkli Chat" sub:@"[FEW1N] prefix + cyan" key:@"colorchat" atY:y action:@selector(tapColorChat)];
     y = [self toggle:@"\U0001F4E2  Chat Spam" sub:@"50ms araligla mesaj" key:@"chatspam" atY:y action:@selector(tapChatSpam)];
     y = [self actionRow:@"✏️  Spam Yazisini Duzenle" color:C_CYAN atY:y action:@selector(editSpam)];
+    y = [self actionRow:@"\U0001F3A8  Chat ASCII Sanat (herkes gorur)" color:C_ON atY:y action:@selector(chatArt)];
+    y = [self toggle:@"\U0001F4E2  Chat Oto-Duyuru" sub:@"Donen mesaj, herkes gorur" key:@"announce" atY:y action:@selector(tapAnnounce)];
+    y = [self actionRow:@"✏️  Duyuru Mesajlarini Ayarla" color:C_CYAN atY:y action:@selector(editAnnounce)];
+    y = [self actionRow:@"\U0001F4E1  Sahte SERVER Mesaji (troll)" color:C_RED atY:y action:@selector(fakeServerMsg)];
     y = [self actionRow:@"\U0001F3A8  Spam Rengi Sec" color:C_CYAN atY:y action:@selector(pickSpamColor)];
     {
         UIView *ssrow = [[UIView alloc] initWithFrame:CGRectMake(12,y,pw-24,44)];
@@ -1661,11 +1764,14 @@ static void h_addMoney(void* self, int amount) {
     [self.nameBtn setTitle:@"\U0001F4DB  Isim Degistir" forState:UIControlStateNormal];
     [self.nameBtn setTitleColor:C_CYAN forState:UIControlStateNormal];
     [self.nameBtn addTarget:self action:@selector(changeName) forControlEvents:UIControlEventTouchUpInside];
+    y = [self actionRow:@"\U0001F3AD  Isim Hileleri (rozet/gorunmez/kayan)" color:C_GOLD atY:y action:@selector(nameTricks)];
 
     y = [self header:@"\U0001F511  ODA" atY:y];
     y = [self actionRow:@"\U0001F513  Oda Sifrelerini Goster (il2cpp)" color:C_ON atY:y action:@selector(showRoomPasswords)];
     y = [self actionRow:@"\U0001F465  Odadaki Oyuncular (isim kopyala)" color:C_CYAN atY:y action:@selector(showPlayers)];
+    y = [self actionRow:@"\U0001F441  Odaya Goz At (isimsiz anlik gir-cik)" color:C_GOLD atY:y action:@selector(peekRoom)];
     y = [self actionRow:@"\U0001F3E0  Ozel Isimli Oda Kur" color:C_GOLD atY:y action:@selector(createOneRoom)];
+    y = [self actionRow:@"\U0001F4A5  300 ODA AC (tek tus, 0.04sn)" color:C_RED atY:y action:@selector(spam300Rooms)];
     y = [self toggle:@"\U0001F4E5  Fake Oda Spam" sub:@"Kalici odalar birikir" key:@"roomspam" atY:y action:@selector(tapRoomSpam)];
     y = [self toggle:@"\U0001F504  Surekli Mod" sub:@"Kapatana kadar spam" key:@"roomcont" atY:y action:@selector(tapRoomContinuous)];
     y = [self actionRow:@"✏️  Oda Ismini Ayarla" color:C_CYAN atY:y action:@selector(editRoomName)];
@@ -1858,6 +1964,7 @@ static void h_addMoney(void* self, int amount) {
     [self setToggle:@"lowgrav"   on:isLowGravEnabled];
     [self setToggle:@"colorchat" on:isColorChatEnabled];
     [self setToggle:@"chatspam"  on:isSpamEnabled];
+    [self setToggle:@"announce"  on:isAnnounceEnabled];
     [self setToggle:@"asciianim" on:isAsciiAnimEnabled];
     [self setToggle:@"bypass"    on:isBypassPasswordEnabled];
     [self setToggle:@"roomspam"  on:isRoomSpamEnabled];
@@ -1866,6 +1973,8 @@ static void h_addMoney(void* self, int amount) {
     [self setToggle:@"esp"       on:isEspEnabled];
     [self setToggle:@"asciicolor" on:asciiColorCycle];
     [self setToggle:@"noclip"    on:isNoClip];
+    [self setToggle:@"godmode"   on:isGodmode];
+    [self setToggle:@"selektor"  on:isSelektor];
     [self setToggle:@"antigrav"  on:isAntiGrav];
     [self setToggle:@"carsize"   on:isCarSizeEnabled];
     [self setToggle:@"carcolor"  on:isCarColorEnabled];
@@ -1905,6 +2014,8 @@ static void h_addMoney(void* self, int amount) {
     enforceScale();          // her ekran frame'inde timeScale'i zorla
     few1n_applyCar();        // onbellekten nitro/hiz/panel uygula (arama YAPMAZ - ucuz)
     few1n_applyColor();      // arac rengini uygula (onbellek materyaller - ucuz)
+    few1n_applyGodmode();    // godmode: canCrash=false (hic kaza yapma)
+    few1n_applySelektor();   // selektor: RCCP high/low beam hizli cakma
     // Ucus (hover) ve dusuk yercekimi - Rigidbody dikey hizini ayarla
     if ((isFlyEnabled || isLowGravEnabled || isNoClip) && unityAlive(g_rb)) {
         @try {
@@ -2077,6 +2188,75 @@ static void h_addMoney(void* self, int amount) {
 
 // ===== SIFRE KIRICI: odalarin sifresini oku ve goster (il2cpp) =====
 // HR_UI_RoomListLine: +0x50 password, +0x58 roomInfo -> rinfo_getName
+// ===== ODAYA GOZ AT: isimsiz anlik gir, oyuncularu oku, cik, ismi geri yukle =====
+- (void)peekRoom {
+    if (!g_roomLineType || !g_mFindObjectsPlural || !i_runtime_invoke || !pn_joinRoom) { FLog(@"Goz at hazir degil (oda listesine gir)"); return; }
+    @try {
+        void* a[1]; a[0] = g_roomLineType;
+        void* arr = i_runtime_invoke(g_mFindObjectsPlural, NULL, a, NULL);
+        if (!ptrOk(arr)) { FLog(@"Oda listesi yok"); return; }
+        int cnt = (int)(*(uintptr_t*)((uintptr_t)arr + 0x18));
+        if (cnt < 0 || cnt > 128) { FLog(@"Oda sayisi anormal"); return; }
+        void** lines = (void**)((uintptr_t)arr + 0x20);
+        NSMutableArray *rooms = [NSMutableArray array];   // @[gorunenAd, gercekAd]
+        for (int i = 0; i < cnt; i++) {
+            void* ln = lines[i]; if (!unityAlive(ln)) continue;
+            void* rinfo = *(void**)((uintptr_t)ln + 0x58);
+            NSString *real = (ptrOk(rinfo) && rinfo_getName) ? readStr(rinfo_getName(rinfo)) : @"";
+            if (real.length == 0) continue;
+            NSString *disp = [real stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+            if (disp.length == 0) disp = [NSString stringWithFormat:@"Oda %d", i+1];
+            [rooms addObject:@[disp, real]];
+        }
+        if (rooms.count == 0) { FLog(@"Oda bulunamadi"); return; }
+        UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"\U0001F441 Odaya Goz At"
+            message:@"Sec: isimsiz anlik girer, oyuncularu gosterir, cikar" preferredStyle:UIAlertControllerStyleAlert];
+        for (NSArray *r in rooms) {
+            NSString *real = r[1];
+            [ac addAction:[UIAlertAction actionWithTitle:r[0] style:UIAlertActionStyleDefault handler:^(UIAlertAction *a2){ [self doPeek:real]; }]];
+        }
+        [ac addAction:[UIAlertAction actionWithTitle:@"Iptal" style:UIAlertActionStyleCancel handler:nil]];
+        [self present:ac];
+    } @catch (...) { FLog(@"Goz at hatasi"); }
+}
+- (void)doPeek:(NSString*)roomName {
+    @try {
+        NSString *savedNick = (pn_getNickName) ? readStr(pn_getNickName()) : nil;   // ismi kaydet
+        if (pn_setNickName) { void* inv = mkStr(@"⠀⠀"); if (inv) pn_setNickName(inv); }   // isimsiz yap
+        void* ns = mkStr(roomName); if (!ns) { FLog(@"Isim olusmadi"); return; }
+        pn_joinRoom(ns, NULL);   // odaya katil
+        FLog(@"Odaya goz atiliyor...");
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.4 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            @try {
+                NSMutableString *list = [NSMutableString string]; int n = 0;
+                if (pn_getPlayerList) {
+                    void* pa = pn_getPlayerList();
+                    if (ptrOk(pa)) {
+                        int c = (int)(*(uintptr_t*)((uintptr_t)pa + 0x18));
+                        if (c > 0 && c <= 64) {
+                            void** ps = (void**)((uintptr_t)pa + 0x20);
+                            for (int i = 0; i < c; i++) {
+                                void* p = ps[i]; if (!ptrOk(p)) continue;
+                                NSString *nick = (ply_getNickName) ? readStr(ply_getNickName(p)) : @"";
+                                if (nick.length == 0) nick = @"(isimsiz)";
+                                [list appendFormat:@"• %@\n", nick]; n++;
+                            }
+                        }
+                    }
+                }
+                if (lobbyGetInst && lobby_leaveRoom) { void* lob = lobbyGetInst(); if (lob) lobby_leaveRoom(lob); }   // cik
+                if (pn_setNickName && savedNick.length) { void* rs = mkStr(savedNick); if (rs) pn_setNickName(rs); }   // ismi geri yukle
+                UIAlertController *res = [UIAlertController alertControllerWithTitle:@"\U0001F441 Odadaki Oyuncular"
+                    message:(n>0 ? list : @"Oyuncu okunamadi (oda dolu/kapali/sifreli olabilir)") preferredStyle:UIAlertControllerStyleAlert];
+                [res addAction:[UIAlertAction actionWithTitle:@"Panoya Kopyala" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){ [UIPasteboard generalPasteboard].string = list; }]];
+                [res addAction:[UIAlertAction actionWithTitle:@"Kapat" style:UIAlertActionStyleCancel handler:nil]];
+                [self present:res];
+                FLog([NSString stringWithFormat:@"Goz at: %d oyuncu", n]);
+            } @catch (...) { FLog(@"Goz at okuma hatasi"); }
+        });
+    } @catch (...) { FLog(@"Goz at hatasi"); }
+}
+
 - (void)showRoomPasswords {
     if (!g_roomLineType || !g_mFindObjectsPlural || !i_runtime_invoke) { FLog(@"Sifre kirici hazir degil (oda listesine gir)"); return; }
     @try {
@@ -2232,6 +2412,21 @@ static void h_addMoney(void* self, int amount) {
 - (void)tapNitro     { isInfiniteNitroEnabled  = !isInfiniteNitroEnabled;  saveBool(@"nitro", isInfiniteNitroEnabled);      [self refreshUI]; }
 - (void)tapNoClip    { isNoClip   = !isNoClip;   saveBool(@"noclip", isNoClip);     [self refreshUI]; }
 - (void)tapAntiGrav  { isAntiGrav = !isAntiGrav; saveBool(@"antigrav", isAntiGrav); [self refreshUI]; }
+- (void)tapGodmode   { isGodmode = !isGodmode; saveBool(@"godmode", isGodmode); if(!isGodmode) g_myPlayerHandler = NULL; FLog(isGodmode ? @"GODMODE acik - kaza yapmazsin" : @"Godmode kapali"); [self refreshUI]; }
+- (void)tapSelektor  { isSelektor = !isSelektor; saveBool(@"selektor", isSelektor); if(!isSelektor) g_myLights = NULL; FLog(isSelektor ? @"Selektor acik - far cakiyor" : @"Selektor kapali"); [self refreshUI]; }
+- (void)editSelektorSpeed {
+    UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"\U0001F4A1 Selektor Hizi"
+        message:@"Cakma hizini sec (kucuk = hizli)" preferredStyle:UIAlertControllerStyleAlert];
+    NSArray *opts = @[@[@"⚡ Cok Hizli (strobe)", @1], @[@"\U0001F525 Hizli", @2], @[@"➡️ Orta", @4], @[@"\U0001F422 Yavas", @8], @[@"\U0001F40C Cok Yavas", @14]];
+    for (NSArray *o in opts) {
+        int r = [o[1] intValue];
+        [ac addAction:[UIAlertAction actionWithTitle:o[0] style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
+            g_selFlashRate = r; saveInt(@"selRate", r); FLog([NSString stringWithFormat:@"Selektor hizi ayarlandi: %d frame", r]); [self refreshUI];
+        }]];
+    }
+    [ac addAction:[UIAlertAction actionWithTitle:@"Iptal" style:UIAlertActionStyleCancel handler:nil]];
+    [self present:ac];
+}
 - (void)tapCarSize   { isCarSizeEnabled = !isCarSizeEnabled; saveBool(@"carsize", isCarSizeEnabled); [self refreshUI]; }
 - (void)editCarSize {
     UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"\U0001F4CF Arac Boyutu"
@@ -3044,9 +3239,20 @@ static bool few1n_invoke0(void* method, void* obj, const char* label) {
     if (isRoomSpamEnabled) {
         roomSpamPhase = 0;
         roomSpamCount = 0;   // sayaci sifirla
-        float iv = roomSpamInterval >= 0.05f ? roomSpamInterval : 0.3f;
+        float iv = roomSpamInterval >= 0.04f ? roomSpamInterval : 0.3f;
         roomSpamTimer = [NSTimer scheduledTimerWithTimeInterval:iv target:self selector:@selector(fireRoomSpam) userInfo:nil repeats:YES];
     }
+    [self refreshUI];
+}
+
+- (void)spam300Rooms {
+    roomSpamMaxCount = 300; roomSpamContinuous = false; roomSpamInterval = 0.04f;
+    saveInt(@"roomMax", 300); saveBool(@"roomcont", false); saveInt(@"roomIv", 4);
+    if (roomSpamTimer) { [roomSpamTimer invalidate]; roomSpamTimer = nil; }
+    isRoomSpamEnabled = true; saveBool(@"roomspam", true);
+    roomSpamPhase = 0; roomSpamCount = 0;
+    roomSpamTimer = [NSTimer scheduledTimerWithTimeInterval:0.04 target:self selector:@selector(fireRoomSpam) userInfo:nil repeats:YES];
+    FLog(@"300 oda spam basladi (0.04sn/adim) - liste dolacak, odalar ~5dk yasar");
     [self refreshUI];
 }
 
@@ -3079,7 +3285,7 @@ static bool few1n_invoke0(void* method, void* obj, const char* label) {
     [ac addTextFieldWithConfigurationHandler:^(UITextField *tf){ tf.keyboardType = UIKeyboardTypeDecimalPad; tf.text = [NSString stringWithFormat:@"%.1f", roomSpamInterval]; }];
     [ac addAction:[UIAlertAction actionWithTitle:@"Kaydet" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
         float v = [ac.textFields.firstObject.text floatValue];
-        if (v >= 0.05f && v <= 5.0f) { roomSpamInterval = v; saveInt(@"roomIv", (int)(v*100)); }
+        if (v >= 0.04f && v <= 5.0f) { roomSpamInterval = v; saveInt(@"roomIv", (int)(v*100)); }
     }]];
     [ac addAction:[UIAlertAction actionWithTitle:@"Iptal" style:UIAlertActionStyleCancel handler:nil]];
     [self present:ac];
@@ -3133,6 +3339,64 @@ static bool few1n_invoke0(void* method, void* obj, const char* label) {
     [self present:ac];
 }
 
+// ===== ISIM HILELERI (Photon nickname - HERKES gorur) =====
+// Duz unicode kullaniyoruz (renk etiketi degil) -> baskalari kesin gorur.
+- (void)fireNameMarquee {
+    if (!pn_setNickName) return;
+    static int idx = 0;
+    NSString *base = @"★ FEW1N MOD MENU ★ ";   // ★ ... ★
+    NSUInteger n = base.length; if (n == 0) return;
+    NSMutableString *win = [NSMutableString string];
+    for (int k = 0; k < 12; k++) [win appendString:[base substringWithRange:NSMakeRange((idx + k) % n, 1)]];
+    idx = (idx + 1) % n;
+    void* ns = mkStr(win);
+    if (ns) { pn_setNickName(ns);
+        if (playerManagerGetInst && pm_updateNicknameInternal) { @try { void* pm = playerManagerGetInst(); if (pm) pm_updateNicknameInternal(pm, ns); } @catch (...) {} } }
+}
+- (void)fireNameCycle {
+    static int ci = 0;
+    NSArray *names = @[@"FEW1N 🔥", @"FEW1N ⚡", @"FEW1N 🇹🇷", @"👑 FEW1N", @"Lv.999 FEW1N", @"FEW1N 💎", @"🏎️ FEW1N 💨"];
+    [self applyPlainNick:names[(ci++) % names.count]];
+}
+- (void)applyPlainNick:(NSString*)s {
+    if (!pn_setNickName || s.length == 0) return;
+    void* ns = mkStr(s);
+    if (ns) { pn_setNickName(ns);
+        if (playerManagerGetInst && pm_updateNicknameInternal) { @try { void* pm = playerManagerGetInst(); if (pm) pm_updateNicknameInternal(pm, ns); } @catch (...) {} } }
+}
+- (void)nameTricks {
+    if (!pn_setNickName) { FLog(@"Isim ayari hazir degil (odaya gir)"); return; }
+    UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"\U0001F3AD Isim Hileleri"
+        message:@"Herkes bu ismi gorur (Photon senkron)" preferredStyle:UIAlertControllerStyleAlert];
+    [ac addAction:[UIAlertAction actionWithTitle:@"✔️ Sahte Dogrulama Rozeti" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
+        if (nameMarqueeTimer) { [nameMarqueeTimer invalidate]; nameMarqueeTimer = nil; }
+        [self applyPlainNick:@"FEW1N ✔️"]; FLog(@"Rozet ismi ayarlandi");
+    }]];
+    [ac addAction:[UIAlertAction actionWithTitle:@"👻 Gorunmez Isim" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
+        if (nameMarqueeTimer) { [nameMarqueeTimer invalidate]; nameMarqueeTimer = nil; }
+        [self applyPlainNick:@"⠀⠀⠀"]; FLog(@"Gorunmez isim ayarlandi");   // Braille blank
+    }]];
+    [ac addAction:[UIAlertAction actionWithTitle:@"📏 Suslu Uzun Isim" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
+        if (nameMarqueeTimer) { [nameMarqueeTimer invalidate]; nameMarqueeTimer = nil; }
+        [self applyPlainNick:@"▬▬ໜ۩ FEW1N ۩ໜ▬▬"]; FLog(@"Suslu isim ayarlandi");
+    }]];
+    [ac addAction:[UIAlertAction actionWithTitle:@"🎞️ Kayan Yazi (marquee)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
+        if (nameMarqueeTimer) { [nameMarqueeTimer invalidate]; nameMarqueeTimer = nil; }
+        nameMarqueeTimer = [NSTimer scheduledTimerWithTimeInterval:0.4 target:self selector:@selector(fireNameMarquee) userInfo:nil repeats:YES];
+        FLog(@"Kayan yazi ismi basladi");
+    }]];
+    [ac addAction:[UIAlertAction actionWithTitle:@"🔄 Isim Dongusu (emoji/bayrak/level)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
+        if (nameMarqueeTimer) { [nameMarqueeTimer invalidate]; nameMarqueeTimer = nil; }
+        nameMarqueeTimer = [NSTimer scheduledTimerWithTimeInterval:0.7 target:self selector:@selector(fireNameCycle) userInfo:nil repeats:YES];
+        FLog(@"Isim dongusu basladi");
+    }]];
+    [ac addAction:[UIAlertAction actionWithTitle:@"⏹️ Efekti Durdur" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *a){
+        if (nameMarqueeTimer) { [nameMarqueeTimer invalidate]; nameMarqueeTimer = nil; } FLog(@"Kayan yazi durdu");
+    }]];
+    [ac addAction:[UIAlertAction actionWithTitle:@"Iptal" style:UIAlertActionStyleCancel handler:nil]];
+    [self present:ac];
+}
+
 // Rich text test: cesitli etiketleri chate gonder, hangileri render oluyor gor
 - (void)richTextTest {
     if (!chatGetInst || !chatSend) return;
@@ -3158,6 +3422,93 @@ static bool few1n_invoke0(void* method, void* obj, const char* label) {
     [ac addAction:[UIAlertAction actionWithTitle:@"Kaydet" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
         NSString *t = ac.textFields.firstObject.text;
         if (t.length > 0) { strncpy(chatSpamText, t.UTF8String, sizeof(chatSpamText)-1); chatSpamText[sizeof(chatSpamText)-1]='\0'; saveStr(@"spamText", t); }
+    }]];
+    [ac addAction:[UIAlertAction actionWithTitle:@"Iptal" style:UIAlertActionStyleCancel handler:nil]];
+    [self present:ac];
+}
+
+- (void)chatArt {
+    if (!chatGetInst || !chatSend) { FLog(@"Chat pointeri yok - odaya gir"); return; }
+    NSArray *arts = @[ @"¯\\_(ツ)_/¯", @"( ͡° ͜ʖ ͡°)", @"ʕ•ᴥ•ʔ", @"(⌐■_■)", @"▄︻デ══━一 💥", @"（╯°□°）╯︵ ┻━┻", @"༼ つ ◕_◕ ༽つ" ];
+    UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"\U0001F3A8 Chat ASCII Sanat"
+        message:@"Sec - chate gonderilir (odadaki herkes gorur)" preferredStyle:UIAlertControllerStyleAlert];
+    for (NSString *art in arts) {
+        [ac addAction:[UIAlertAction actionWithTitle:art style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
+            @try { void* mgr = chatGetInst(); void* s = mkStr(art); if (mgr && s) chatSend(mgr, s); } @catch (...) {}
+            FLog(@"ASCII sanat gonderildi");
+        }]];
+    }
+    [ac addAction:[UIAlertAction actionWithTitle:@"🏁 FEW1N Banner (3 satir)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
+        NSArray *lines = @[ @"█▀▀ █▀▀ █░█░█ ▄█ █▄░█", @"█▀░ ██▄ ▀▄▀▄▀ ░█ █░▀█", @"▬▬▬ MOD MENU ▬▬▬" ];
+        __block int i = 0;
+        for (NSString *ln in lines) {
+            double delay = (i++) * 0.4;
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                @try { void* mgr = chatGetInst(); void* s = mkStr(ln); if (mgr && s) chatSend(mgr, s); } @catch (...) {}
+            });
+        }
+        FLog(@"FEW1N banner gonderildi");
+    }]];
+    [ac addAction:[UIAlertAction actionWithTitle:@"Iptal" style:UIAlertActionStyleCancel handler:nil]];
+    [self present:ac];
+}
+
+- (void)fireAnnounce {
+    if (!isAnnounceEnabled || !chatGetInst || !chatSend) return;
+    @try {
+        NSArray *lines = [[NSString stringWithUTF8String:announceText] componentsSeparatedByString:@"\n"];
+        if (lines.count == 0) return;
+        NSString *msg = [lines[g_announceIdx % lines.count] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+        g_announceIdx++;
+        if (msg.length > 0) { void* mgr = chatGetInst(); void* s = mkStr(msg); if (mgr && s) chatSend(mgr, s); }
+    } @catch (...) {}
+}
+- (void)tapAnnounce {
+    isAnnounceEnabled = !isAnnounceEnabled;
+    saveBool(@"announce", isAnnounceEnabled);
+    if (announceTimer) { [announceTimer invalidate]; announceTimer = nil; }
+    if (isAnnounceEnabled) {
+        g_announceIdx = 0;
+        float iv = announceInterval >= 1.0f ? announceInterval : 5.0f;
+        announceTimer = [NSTimer scheduledTimerWithTimeInterval:iv target:self selector:@selector(fireAnnounce) userInfo:nil repeats:YES];
+        FLog(@"Chat oto-duyuru basladi");
+    } else FLog(@"Oto-duyuru durdu");
+    [self refreshUI];
+}
+- (void)editAnnounce {
+    UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"📢 Duyuru Mesajlari"
+        message:@"Her satir ayri mesaj (sirayla doner):" preferredStyle:UIAlertControllerStyleAlert];
+    [ac addTextFieldWithConfigurationHandler:^(UITextField *tf){ tf.text = [NSString stringWithUTF8String:announceText]; tf.clearButtonMode = UITextFieldViewModeAlways; }];
+    [ac addTextFieldWithConfigurationHandler:^(UITextField *tf){ tf.keyboardType = UIKeyboardTypeDecimalPad; tf.text = [NSString stringWithFormat:@"%.0f", announceInterval]; tf.placeholder = @"aralik (sn, min 1)"; }];
+    [ac addAction:[UIAlertAction actionWithTitle:@"Kaydet" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
+        NSString *t = ac.textFields[0].text;
+        if (t.length > 0) { strncpy(announceText, t.UTF8String, sizeof(announceText)-1); announceText[sizeof(announceText)-1]='\0'; saveStr(@"announceText", t); }
+        float iv = [ac.textFields[1].text floatValue]; if (iv >= 1.0f && iv <= 60.0f) { announceInterval = iv; saveInt(@"announceIv", (int)iv); }
+    }]];
+    [ac addAction:[UIAlertAction actionWithTitle:@"Iptal" style:UIAlertActionStyleCancel handler:nil]];
+    [self present:ac];
+}
+- (void)fakeServerMsg {
+    if (!chatGetInst || !chatSend) { FLog(@"Chat pointeri yok - odaya gir"); return; }
+    NSArray *presets = @[
+        @"[SERVER] Bakim 5 dakika sonra basliyor",
+        @"[SERVER] Etkinlik basladi! 2x odul",
+        @"[SERVER] Hile tespiti aktif 👀",
+        @"[SERVER] Yeni guncelleme yayinlandi",
+        @"[DUYURU] FEW1N odaya katildi"
+    ];
+    UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"📡 Sahte SERVER Mesaji"
+        message:@"Sec veya kendin yaz. Not: yaninda kendi ismin de gorunur - Gorunmez isim ile birlestir." preferredStyle:UIAlertControllerStyleAlert];
+    for (NSString *p in presets) {
+        [ac addAction:[UIAlertAction actionWithTitle:p style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
+            @try { void* mgr = chatGetInst(); void* s = mkStr(p); if (mgr && s) chatSend(mgr, s); } @catch (...) {}
+            FLog(@"Sahte server mesaji gonderildi");
+        }]];
+    }
+    [ac addTextFieldWithConfigurationHandler:^(UITextField *tf){ tf.placeholder = @"[SERVER] kendi mesajin"; tf.text = @"[SERVER] "; }];
+    [ac addAction:[UIAlertAction actionWithTitle:@"Kendi Mesajimi Gonder" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
+        NSString *t = ac.textFields.firstObject.text;
+        if (t.length > 0) { @try { void* mgr = chatGetInst(); void* s = mkStr(t); if (mgr && s) chatSend(mgr, s); } @catch (...) {} FLog(@"Ozel server mesaji gonderildi"); }
     }]];
     [ac addAction:[UIAlertAction actionWithTitle:@"Iptal" style:UIAlertActionStyleCancel handler:nil]];
     [self present:ac];
@@ -3341,6 +3692,12 @@ static void restoreSettings(void) {
     { NSString *lt = loadStr(@"lyricsText", @"");
       if (lt.length) { g_lyrics = [[NSMutableArray alloc] init];
         for (NSString *l in [lt componentsSeparatedByString:@"\n"]) [g_lyrics addObject:[l stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]]]; } }
+    isAnnounceEnabled      = false;
+    isGodmode              = false;   // godmode her aciliste kapali (guvenlik)
+    isSelektor             = false;   // selektor her aciliste kapali
+    g_selFlashRate         = loadInt(@"selRate", 1);
+    announceInterval       = (float)loadInt(@"announceIv", 5);
+    { NSString *at = loadStr(@"announceText", @""); if (at.length) { strncpy(announceText, at.UTF8String, sizeof(announceText)-1); announceText[sizeof(announceText)-1]='\0'; } }
     carAccelPower          = loadFloat(@"caraccel", 3.0f);
     carSteerPower          = loadFloat(@"carsteer", 1.0f);
     carTopSpeed            = loadFloat(@"cartop",   300.0f);
@@ -3394,6 +3751,8 @@ static void InstallEverything(uintptr_t b) {
     tmp_get_text              = (void*(*)(void*))(b + 0x65F4CC0);
     rinfo_getName             = (void*(*)(void*))(b + 0x59293A4);   // RoomInfo.get_Name
     pn_setNickName            = (void(*)(void*))(b + 0x5933940);
+    pn_joinRoom               = (bool(*)(void*,void*))(b + 0x593A64C);
+    pn_getNickName            = (void*(*)(void))(b + 0x59338C0);
     lobbyGetInst              = (void*(*)(void))(b + 0x54A8098);
     playerManagerGetInst      = (void*(*)(void))(b + 0x5A2DE20);
     pm_updateNicknameInternal = (void(*)(void*,void*))(b + 0x5A3DDD4);
@@ -3447,7 +3806,7 @@ static void few1n_poll(void) {
 }
 
 %ctor {
-    FLog(@"v29.5 basladi, UnityFramework araniyor...");
+    FLog(@"v30.2 basladi, UnityFramework araniyor...");
     restoreSettings();
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 3 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{ few1n_poll(); });
 }
