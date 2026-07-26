@@ -1539,16 +1539,6 @@ static void h_chatSend(void* self, void* msg) {
     }
     if (o_chatSend) o_chatSend(self, msg);
 }
-    fChat++;
-    if (isColorChatEnabled && msg) {
-        NSString *orig = readStr(msg);
-        if (orig.length > 0) {
-            void* colored = mkStr([NSString stringWithFormat:@"<color=cyan><b>[FEW1N]</b></color> %@", orig]);
-            if (colored) { if (o_chatSend) o_chatSend(self, colored); return; }
-        }
-    }
-    if (o_chatSend) o_chatSend(self, msg);
-}
 
 // ===== PASSWORD BYPASS =====
 static void (*o_roomConnect)(void*) = NULL;
@@ -2663,18 +2653,6 @@ static void h_addMoney(void* self, int amount) {
         } completion:^(BOOL f){ self.panel.hidden = YES; }];
     }
 }
-    if (self.panel.hidden) {
-        [self refreshUI];
-        self.panel.hidden = NO;
-        [UIView animateWithDuration:0.35 delay:0 usingSpringWithDamping:0.8 initialSpringVelocity:0.5 options:0 animations:^{
-            self.panel.alpha = 1; self.panel.transform = CGAffineTransformIdentity;
-        } completion:nil];
-    } else {
-        [UIView animateWithDuration:0.2 animations:^{
-            self.panel.alpha = 0; self.panel.transform = CGAffineTransformMakeScale(0.9,0.9);
-        } completion:^(BOOL f){ self.panel.hidden = YES; }];
-    }
-}
 
 - (void)drag:(UIPanGestureRecognizer*)g {
     UIView *v = g.view; if (!v) return;
@@ -2799,13 +2777,6 @@ static void h_addMoney(void* self, int amount) {
     }
     [ac addAction:[UIAlertAction actionWithTitle:@"Iptal" style:UIAlertActionStyleCancel handler:nil]];
     [self present:ac];
-}
-    isSpamEnabled = !isSpamEnabled;
-    saveBool(@"chatspam", isSpamEnabled);
-    if (spamTimer) { [spamTimer invalidate]; spamTimer = nil; }
-    if (isSpamEnabled)
-        spamTimer = [NSTimer scheduledTimerWithTimeInterval:0.05 target:self selector:@selector(fireSpam) userInfo:nil repeats:YES];
-    [self refreshUI];
 }
 
 - (void)fireSpam {
@@ -3778,67 +3749,6 @@ static bool few1n_invoke0(void* method, void* obj, const char* label) {
     } @catch (...) { FLog(@"Oda master olma hatasi"); }
 }
 
-- (void)tapRoomContinuous {
-    roomSpamContinuous = !roomSpamContinuous;
-    saveBool(@"roomcont", roomSpamContinuous);
-    [self refreshUI];
-}
-- (void)tapRoomMaster {
-    if (!pn_getPlayerList || !ply_getIsMaster) { FLog(@"Oda master fonksiyonlari hazir degil"); return; }
-    @try {
-        void* arr = pn_getPlayerList();
-        if (!arr) { FLog(@"Oyuncu listesi alinamadi - odaya gir"); return; }
-        int cnt = (int)(*(uintptr_t*)((uintptr_t)arr + 0x18));
-        void** elems = (void**)((uintptr_t)arr + 0x20);
-        void* me = NULL;
-        void* currentMaster = NULL;
-        for (int i = 0; i < cnt; i++) {
-            void* p = elems[i];
-            if (!p) continue;
-            if (ply_getIsMaster(p)) currentMaster = p;
-            // Kendini bul: ActorNumber == 1 veya kendi NickName'i
-            if (ply_getActorNumber && ply_getActorNumber(p) == 1) me = p;
-        }
-        if (!me) { FLog(@"Kendinizi bulamadim - odaya gir"); return; }
-        BOOL alreadyMaster = ply_getIsMaster(me);
-        if (alreadyMaster) {
-            FLog(@"Zaten siz bu odanin master'isiniz 👑");
-            UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"👑 Oda Master"
-                                                                       message:@"Zaten bu odanin sahibisiniz!" preferredStyle:UIAlertControllerStyleAlert];
-            [ac addAction:[UIAlertAction actionWithTitle:@"Tamam" style:UIAlertActionStyleDefault handler:nil]];
-            [self present:ac];
-            return;
-        }
-        // YENI: Gercek SetMasterClient cagrisi - IL2CPP ile (hook olmadan)
-        if (pn_setMasterClient) {
-            BOOL success = pn_setMasterClient(me);
-            if (success) {
-                FLog(@"👑 ODA MASTER ALINDI! Artik siz bu odanin sahibisiniz.");
-                UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"👑 ODA MASTER ALINDI!"
-                                                                           message:@"Artik bu odanin sahibisiniz! Tum yetkiler sizde." preferredStyle:UIAlertControllerStyleAlert];
-                [ac addAction:[UIAlertAction actionWithTitle:@"Tamam" style:UIAlertActionStyleDefault handler:nil]];
-                [self present:ac];
-            } else {
-                FLog(@"Oda master alma BASARISIZ - sunucu reddetti veya zaten master degilsiniz");
-                UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"👑 Oda Master"
-                                                                           message:@"Master olma BASARISIZ.\nNedenler:\n- Zaten master olabilirsiniz\n- Sunucu reddetti\n- Photon baglantisi aktif degil" preferredStyle:UIAlertControllerStyleAlert];
-                [ac addAction:[UIAlertAction actionWithTitle:@"Kapat" style:UIAlertActionStyleCancel handler:nil]];
-                [self present:ac];
-            }
-        } else {
-            FLog(@"pn_setMasterClient pointeri hazir degil - il2cpp init bekleniyor");
-            UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"👑 Oda Master"
-                                                                       message:@"IL2CPP init bekleniyor - oyuna yeniden girin." preferredStyle:UIAlertControllerStyleAlert];
-            [ac addAction:[UIAlertAction actionWithTitle:@"Kapat" style:UIAlertActionStyleCancel handler:nil]];
-            [self present:ac];
-        }
-    } @catch (...) { FLog(@"Oda master olma hatasi"); }
-}
-    roomSpamContinuous = !roomSpamContinuous;
-    saveBool(@"roomcont", roomSpamContinuous);
-    [self refreshUI];
-}
-
 - (void)editRoomName {
     UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"\U0001F3E0 Oda Ismi (Rich Text)"
                                                                message:@"Rich text kodu da girebilirsin:" preferredStyle:UIAlertControllerStyleAlert];
@@ -4011,7 +3921,6 @@ static bool few1n_invoke0(void* method, void* obj, const char* label) {
     }]];
     [ac addAction:[UIAlertAction actionWithTitle:@"Iptal" style:UIAlertActionStyleCancel handler:nil]];
     [self present:ac];
-}
 
 // Rich text test: cesitli etiketleri chate gonder, hangileri render oluyor gor
 - (void)richTextTest {
