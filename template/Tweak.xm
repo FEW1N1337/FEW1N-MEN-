@@ -12,9 +12,9 @@
 #import <objc/runtime.h>
 
 // ============================================================
-//  v54.0 - FEW1N MOD MENU  (derlenir, hatasiz - bu dosyayi kullan)
-//  YENI: GIF/Resim -> ASCII Chat (ImageIO), Favori Panel, Kick fix (EnableCloseConnection),
-//        Ucusta Otomatik Gaz, Drift ucma fix, GIF ASCII olcu secimi
+//  v55.0 - FEW1N MOD MENU  (derlenir, hatasiz - bu dosyayi kullan)
+//  YENI: Temiz Renkli Oda Chat (kod yazisi gorunmez), GIF ASCII mspace (duzgun hizalama),
+//        GIF gercek-kare cekme (registeredTypeIdentifiers), Favori Panel, Kick fix, Oto Gaz
 //  DreamRoadMultiplayer | Unity 6 (6000.3.0b1) | Metadata v39
 // ------------------------------------------------------------
 //  ONEMLI: Oyun Unity 6'ya guncellendi + isim obfuscation eklendi.
@@ -1704,6 +1704,9 @@ static void h_roomLineSetup(void* self, void* a, void* b, unsigned char c, unsig
 - (NSString*)favTitleForKey:(NSString*)k;
 - (BOOL)favStateForKey:(NSString*)k;
 - (SEL)favSelForKey:(NSString*)k;
+- (void)promptStyledSend:(int)mode;
+- (void)sendMatrixMsg;
+- (void)sendGlitchMsg;
 @end
 
 static int g_bruteForceIdx = 0;
@@ -1844,7 +1847,11 @@ static NSString* few1n_cgimageToAscii(CGImageRef img, int cols) {
             unsigned char *px = buf + (size_t)srcY * bpr + (size_t)xx * bpp;
             int r = px[0], g = px[1], b = px[2];
             int lum = (r * 30 + g * 59 + b * 11) / 100;   // 0..255
-            int idx = lum * maxIdx / 255;
+            // kontrast artir -> resim net ASCII olur (gri bulamac olmasin)
+            int cl = ((lum - 128) * 165) / 100 + 128;
+            if (cl < 0) cl = 0;
+            if (cl > 255) cl = 255;
+            int idx = cl * maxIdx / 255;
             if (idx < 0) idx = 0;
             if (idx > maxIdx) idx = maxIdx;
             [out appendFormat:@"%c", ramp[idx]];
@@ -1992,7 +1999,7 @@ static UIViewController* few1n_topVC(void) {
     title.font = [UIFont systemFontOfSize:17 weight:UIFontWeightBlack];
     [header addSubview:title];
     UILabel *ver = [[UILabel alloc] initWithFrame:CGRectMake(42,37,pw-90,16)];
-    ver.text = [NSString stringWithFormat:@"v54.0  •  Base 0x%lX", (unsigned long)global_base];
+    ver.text = [NSString stringWithFormat:@"v55.0  •  Base 0x%lX", (unsigned long)global_base];
     ver.textColor = [UIColor colorWithWhite:1 alpha:0.82];
     ver.font = [UIFont fontWithName:@"Menlo-Bold" size:8] ?: [UIFont systemFontOfSize:8 weight:UIFontWeightBold];
     [header addSubview:ver];
@@ -2128,6 +2135,9 @@ static UIViewController* few1n_topVC(void) {
     // YENI: Hacker Chat Modlari
     y = [self toggle:@"🟢  Matrix Chat Modu" sub:@"Mesajlarin yesil sistem stili" key:@"matrixchat" atY:y action:@selector(tapMatrixChat)];
     y = [self toggle:@"💀  Glitch Chat Modu" sub:@"Mesajlarin mor/root stili" key:@"glitchchat" atY:y action:@selector(tapGlitchChat)];
+    // YENI: mod'dan yaz -> stilde gonder (hook gerektirmez, her zaman calisir)
+    y = [self actionRow:@"🟢  Matrix Mesaji Gonder (yaz→stil)" color:C_ON atY:y action:@selector(sendMatrixMsg)];
+    y = [self actionRow:@"💀  Glitch Mesaji Gonder (yaz→stil)" color:C_ON atY:y action:@selector(sendGlitchMsg)];
     y = [self actionRow:@"📋  Hacker Chat Sablonu Gonder" color:C_RED atY:y action:@selector(sendChatTemplate)];
 
     y = [self header:@"\U0001F3B5  SARKI SOZU (altyazi)" atY:y];
@@ -2996,6 +3006,26 @@ static UIViewController* few1n_topVC(void) {
     FLog(isGlitchChatEnabled ? @"Glitch Chat Modu ACIK" : @"Glitch Chat Modu KAPALI");
     [self refreshUI];
 }
+// YENI: Matrix/Glitch mesaji GONDER (hook olmadan - il2cpp chatSend ile calisir).
+// Toggle'lar kendi yazdigin mesaji yakalamak icin hook'a muhtac (bu ortamda olu),
+// bu butonlar ise mod'dan yazip DOGRUDAN o stilde gonderir -> her zaman calisir.
+- (void)promptStyledSend:(int)mode {
+    if (!chatGetInst || !chatSend) { FLog(@"Chat hazir degil - once odaya gir"); return; }
+    UIAlertController *ac = [UIAlertController alertControllerWithTitle:(mode==0?@"\U0001F7E2 Matrix Mesaji":@"\U0001F480 Glitch Mesaji")
+        message:@"Yaz -> o stilde chate gonderilir" preferredStyle:UIAlertControllerStyleAlert];
+    [ac addTextFieldWithConfigurationHandler:^(UITextField *tf){ tf.placeholder = @"mesajin..."; }];
+    [ac addAction:[UIAlertAction actionWithTitle:@"Gonder" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
+        NSString *t = ac.textFields.firstObject.text;
+        if (t.length == 0) { FLog(@"Bos mesaj"); return; }
+        NSString *styled = (mode==0) ? matrixWrapChat(t) : glitchWrapChat(t);
+        @try { void* mgr = chatGetInst(); void* s = mkStr(styled); if (mgr && s) chatSend(mgr, s); } @catch (...) {}
+        FLog(mode==0 ? @"Matrix mesaji gonderildi ✓" : @"Glitch mesaji gonderildi ✓");
+    }]];
+    [ac addAction:[UIAlertAction actionWithTitle:@"Iptal" style:UIAlertActionStyleCancel handler:nil]];
+    [self present:ac];
+}
+- (void)sendMatrixMsg { [self promptStyledSend:0]; }
+- (void)sendGlitchMsg { [self promptStyledSend:1]; }
 // Istedigin mesaji, sectigin renkte gonder (herkes gorur - exploit'in kullandigi richText)
 - (void)sendColoredChat {
     if (!chatGetInst || !chatSend) { FLog(@"Chat pointeri yok - odaya gir"); return; }
@@ -3019,8 +3049,9 @@ static UIViewController* few1n_topVC(void) {
     NSString *col = [NSString stringWithUTF8String:spamColorHex];
     @try {
         void* mgr = chatGetInst();
-        // Cift-katman injeksiyon (filtre atlar) + kapatilmamis -> sonraki tum yazilar bu renkte
-        NSString *msg = [NSString stringWithFormat:@"<col<color=#%@>or=#%@>", col, col];
+        // TEMIZ kapatilmamis renk etiketi -> sonraki TUM mesajlar bu renkte olur.
+        // Oyun renk etiketini render ediyor (filtre yok), o yuzden kod YAZISI gorunmez, sadece renk.
+        NSString *msg = [NSString stringWithFormat:@"<color=#%@>", col];
         void* s = mkStr(msg); if (mgr && s) chatSend(mgr, s);
     } @catch (...) {}
     FLog([NSString stringWithFormat:@"Oda chati #%@ rengine boyandi (herkes gorur)", col]);
@@ -3472,15 +3503,25 @@ static NSString* rainbowWrap(NSString* text, int idx) {
     [picker dismissViewControllerAnimated:YES completion:nil];
     if (results.count == 0) { FLog(@"Secim iptal"); return; }
     NSItemProvider *ip = results.firstObject.itemProvider;
-    NSString *gifType = @"com.compuserve.gif";
-    if ([ip hasItemConformingToTypeIdentifier:gifType]) {
+    // 1) GIF'in HAM verisini al (animasyon korunur). Once com.compuserve.gif, sonra "gif" iceren her tipi dene.
+    NSString *gifType = nil;
+    if ([ip hasItemConformingToTypeIdentifier:@"com.compuserve.gif"]) gifType = @"com.compuserve.gif";
+    else {
+        for (NSString *tid in ip.registeredTypeIdentifiers) {
+            if ([tid.lowercaseString containsString:@"gif"]) { gifType = tid; break; }
+        }
+    }
+    if (gifType) {
         [ip loadDataRepresentationForTypeIdentifier:gifType completionHandler:^(NSData *data, NSError *error) {
             dispatch_async(dispatch_get_main_queue(), ^{
                 if (data.length > 0) [self buildGifAsciiFromData:data];
                 else FLog(@"GIF verisi okunamadi");
             });
         }];
-    } else if ([ip canLoadObjectOfClass:[UIImage class]]) {
+        return;
+    }
+    // 2) Statik resim (tek kare)
+    if ([ip canLoadObjectOfClass:[UIImage class]]) {
         [ip loadObjectOfClass:[UIImage class] completionHandler:^(__kindof id<NSItemProviderReading> obj, NSError *error) {
             dispatch_async(dispatch_get_main_queue(), ^{
                 UIImage *img = [obj isKindOfClass:[UIImage class]] ? (UIImage*)obj : nil;
@@ -3519,6 +3560,8 @@ static NSString* rainbowWrap(NSString* text, int idx) {
         if (frames.count == 0) { FLog(@"GIF/resim ASCII'ye cevrilemedi"); return; }
         g_gifFrames = [frames mutableCopy];
         g_gifIdx = 0;
+        if (g_gifFrames.count <= 1)
+            FLog(@"⚠ Sadece 1 kare bulundu - HAREKETLI bir GIF sec (normal foto degil). Tek kare de oynar ama animasyon olmaz.");
         FLog([NSString stringWithFormat:@"✓ Hazir: %lu kare ASCII. Simdi '▶️ GIF'i Chatte Oynat'a bas.", (unsigned long)g_gifFrames.count]);
         [self refreshUI];
     } @catch (...) { FLog(@"GIF donusum hatasi"); }
@@ -3541,7 +3584,10 @@ static NSString* rainbowWrap(NSString* text, int idx) {
     }
     @try {
         if (g_gifIdx < 0 || g_gifIdx >= (int)g_gifFrames.count) g_gifIdx = 0;
-        NSString *frame = g_gifFrames[g_gifIdx++];
+        NSString *body = g_gifFrames[g_gifIdx++];
+        // mspace = her karakter ESIT genislik -> ASCII duzgun hizalanir (TMP proportional fontta bozulmaz).
+        // size%% = kucult ki uzun satirlar chate sigsin.
+        NSString *frame = [NSString stringWithFormat:@"<size=50%%><mspace=0.58em>%@</mspace></size>", body];
         if (g_gifColored) frame = rainbowWrap(frame, g_colorIdx++);
         void* mgr = chatGetInst();
         if (!mgr) return;
