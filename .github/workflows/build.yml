@@ -41,9 +41,9 @@ jobs:
           Package: com.few1n.dreamroadmod
           Name: FEW1N Mod Menu
           Depends: mobilesubstrate, firmware (>= 14.0)
-          Version: 51.0
+          Version: 54.0
           Architecture: iphoneos-arm64
-          Description: FEW1N Mod Menu v51.0 (Unity6) - IL2CPP Oda Master Alma, Zero-Day Renkli Oda Bypass, Matrix/Glitch Chat, Fake Admin/Dev Rozetleri, Stealth Mode, Hacker Animasyon Isimleri, Oyuncuyu Odadan Atma, il2cpp Rainbow Arac Boyasi, il2cpp Drift Modu, il2cpp Hiz Sabitleyici, 30 Exploit Oda Kurma, 13 Mega Chat Animasyonu, Hiz, Nitro, Ucus/Zipla, SifreKirici, Fake Oda Spam, Log
+          Description: FEW1N Mod Menu v54.0 (Unity6) - Favori Hizli Panel, GIF/Resim -> ASCII Chat (olcu secimi), Kendi Odanda Kick Fix (EnableCloseConnection), Ucusta Otomatik Gaz, Drift Stabil, IL2CPP, Matrix/Glitch Chat, Stealth Mode, Hacker Animasyon Isimleri, il2cpp Rainbow Arac Boyasi, il2cpp Hiz Sabitleyici, 30 Exploit Oda Kurma, 17 Mega Chat Animasyonu, Hiz, Nitro, Ucus/Zipla, SifreKirici, Log
           Maintainer: few1n
           Author: few1n
           Section: Tweaks
@@ -61,7 +61,7 @@ jobs:
 
           FEW1NMod_FILES = Tweak.xm
           FEW1NMod_CFLAGS = -fobjc-arc -Wno-deprecated-declarations -Wno-unused-variable -Wno-unused-function -Wno-unused-but-set-variable -Wno-format-invalid-specifier
-          FEW1NMod_FRAMEWORKS = UIKit Foundation QuartzCore CoreGraphics
+          FEW1NMod_FRAMEWORKS = UIKit Foundation QuartzCore CoreGraphics ImageIO PhotosUI
           FEW1NMod_LIBRARIES = substrate
 
           include $(THEOS_MAKE_PATH)/tweak.mk
@@ -80,7 +80,7 @@ jobs:
       - name: Rename Package
         run: |
           mkdir -p output
-          cp packages/*.deb output/FEW1NMod_51.0_${{ github.run_number }}.deb
+          cp packages/*.deb output/FEW1NMod_54.0_${{ github.run_number }}.deb
 
       - name: Extract dylib for sideloading
         run: |
@@ -96,11 +96,11 @@ jobs:
       - name: Upload .deb (jailbreak)
         uses: actions/upload-artifact@v4
         with:
-          name: FEW1N-ModMenu-v51.0-deb-${{ github.run_number }}
+          name: FEW1N-ModMenu-v54.0-deb-${{ github.run_number }}
           path: output/*.deb
 
       - name: Upload .dylib (sideload)
         uses: actions/upload-artifact@v4
         with:
-          name: FEW1N-ModMenu-v51.0-dylib-${{ github.run_number }}
+          name: FEW1N-ModMenu-v54.0-dylib-${{ github.run_number }}
           path: output/FEW1NMod.dylib
