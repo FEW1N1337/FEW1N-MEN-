@@ -1,6 +1,9 @@
 #import <Foundation/Foundation.h>
 #import <UIKit/UIKit.h>
 #import <QuartzCore/QuartzCore.h>
+#import <CoreGraphics/CoreGraphics.h>
+#import <ImageIO/ImageIO.h>
+#import <PhotosUI/PhotosUI.h>
 #include <substrate.h>
 #include <mach-o/dyld.h>
 #include <string.h>
@@ -9,7 +12,9 @@
 #import <objc/runtime.h>
 
 // ============================================================
-//  v51.0 MENU - FEW1N MOD MENU  (derlenir, hatasiz - bu dosyayi kullan)
+//  v54.0 - FEW1N MOD MENU  (derlenir, hatasiz - bu dosyayi kullan)
+//  YENI: GIF/Resim -> ASCII Chat (ImageIO), Favori Panel, Kick fix (EnableCloseConnection),
+//        Ucusta Otomatik Gaz, Drift ucma fix, GIF ASCII olcu secimi
 //  DreamRoadMultiplayer | Unity 6 (6000.3.0b1) | Metadata v39
 // ------------------------------------------------------------
 //  ONEMLI: Oyun Unity 6'ya guncellendi + isim obfuscation eklendi.
@@ -65,6 +70,8 @@ static bool isBypassPasswordEnabled = true;
 static bool isCustomPlateEnabled = false;
 static bool isAutoMoneyEnabled = false;
 static bool isFlyEnabled = false;       // hover (dikey hizi 0 tut -> havada surus)
+static bool flyAutoThrust = false;      // ucusta otomatik ileri -> sadece direksiyonla don (gaz+don sorunu cozer)
+static float flyAutoLevel = 0.7f;       // otomatik gaz seviyesi (0..1)
 static bool isLowGravEnabled = false;   // dususu yavaslat (floaty)
 static bool isDriftEnabled = false;     // drift modu (kusursuz yan kayma)
 static bool isCruiseEnabled = false;    // hiz sabitleyici (cruise control)
@@ -170,7 +177,39 @@ static NSArray* asciiAnims(void) {
           @"<mark=#FFCC00AA><size=150%><color=#000000><b> ★ FEW1N MOD MENU ★ </b></color></size></mark>"],
         // 13. DEV SIMSEKLI NEON KUTU
         @[@"<size=140%><color=#00FFFF><b>⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡\n⚡ FEW1N HACK ⚡\n⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡</b></color></size>",
-          @"<size=140%><color=#FF00FF><b>⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡\n⚡ FEW1N HACK ⚡\n⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡</b></color></size>"]
+          @"<size=140%><color=#FF00FF><b>⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡\n⚡ FEW1N HACK ⚡\n⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡</b></color></size>"],
+        // 14. ZIPLAYAN TOP (mini video)
+        @[@"<color=#00FF88><b>|            |\n|            |\n|            |\n| ●          |\n|____________|</b></color>",
+          @"<color=#00FF88><b>|            |\n|            |\n|   ●        |\n|            |\n|____________|</b></color>",
+          @"<color=#00FF88><b>|            |\n|     ●      |\n|            |\n|            |\n|____________|</b></color>",
+          @"<color=#00FF88><b>|            |\n|            |\n|       ●    |\n|            |\n|____________|</b></color>",
+          @"<color=#00FF88><b>|            |\n|            |\n|            |\n|         ●  |\n|____________|</b></color>",
+          @"<color=#00FF88><b>|            |\n|            |\n|       ●    |\n|            |\n|____________|</b></color>",
+          @"<color=#00FF88><b>|            |\n|     ●      |\n|            |\n|            |\n|____________|</b></color>",
+          @"<color=#00FF88><b>|            |\n|            |\n|   ●        |\n|            |\n|____________|</b></color>"],
+        // 15. DALGA (temiz su dalgasi - yazisiz)
+        @[@"<color=#00CCFF>▁▂▃▄▅▆▇█▇▆▅▄▃▂▁▁▂▃▄▅▆▇█▇▆▅▄▃▂▁</color>",
+          @"<color=#22B8FF>▂▃▄▅▆▇█▇▆▅▄▃▂▁▁▂▃▄▅▆▇█▇▆▅▄▃▂▁▂</color>",
+          @"<color=#44A8FF>▃▄▅▆▇█▇▆▅▄▃▂▁▁▂▃▄▅▆▇█▇▆▅▄▃▂▁▂▃</color>",
+          @"<color=#6699FF>▄▅▆▇█▇▆▅▄▃▂▁▁▂▃▄▅▆▇█▇▆▅▄▃▂▁▂▃▄</color>",
+          @"<color=#8888FF>▅▆▇█▇▆▅▄▃▂▁▁▂▃▄▅▆▇█▇▆▅▄▃▂▁▂▃▄▅</color>",
+          @"<color=#6699FF>▆▇█▇▆▅▄▃▂▁▁▂▃▄▅▆▇█▇▆▅▄▃▂▁▂▃▄▅▆</color>",
+          @"<color=#44A8FF>▇█▇▆▅▄▃▂▁▁▂▃▄▅▆▇█▇▆▅▄▃▂▁▂▃▄▅▆▇</color>",
+          @"<color=#22B8FF>█▇▆▅▄▃▂▁▁▂▃▄▅▆▇█▇▆▅▄▃▂▁▂▃▄▅▆▇█</color>"],
+        // 16. HACKLENIYOR (yukleme cubugu)
+        @[@"<color=#00FF00><b>[█░░░░░░░] FEW1N BAGLANIYOR</b></color>",
+          @"<color=#00FF00><b>[██░░░░░░] FEW1N TARANIYOR</b></color>",
+          @"<color=#00FF00><b>[███░░░░░] FEW1N SIFRE KIRILIYOR</b></color>",
+          @"<color=#00FF00><b>[████░░░░] FEW1N VERI ALINIYOR</b></color>",
+          @"<color=#00FF00><b>[█████░░░] FEW1N ENJEKTE</b></color>",
+          @"<color=#00FF00><b>[██████░░] FEW1N BYPASS</b></color>",
+          @"<color=#00FF00><b>[███████░] FEW1N YETKI ALINDI</b></color>",
+          @"<color=#00FF00><b>[████████] FEW1N HACKLENDI!</b></color>"],
+        // 17. FEW1N HACK RENKSIZ (duz beyaz - renk yok)
+        @[@"<b>F E W 1 N   H A C K</b>",
+          @"<b>>>  FEW1N HACK  <<</b>",
+          @"<b>>>>>  FEW1N HACK  <<<<</b>",
+          @"<b>>>  FEW1N HACK  <<</b>"]
     ];
 }
 
@@ -345,6 +384,7 @@ static float g_hudSpeed = 0, g_hudRPM = 0; static int g_hudGear = 0;
 // metodlar: SelectCar / PositiveCarIndex / NegativeCarIndex / BuyCar
 static void* (*i_class_get_field_from_name)(void*, const char*) = NULL;
 static void  (*i_field_static_get_value)(void*, void*) = NULL;
+static void  (*i_field_static_set_value)(void*, void*) = NULL;   // static alan YAZ (EnableCloseConnection icin)
 static size_t (*i_field_get_offset)(void*) = NULL;
 static void* g_mmhClass   = NULL;   // HR_MainMenuHandler Il2CppClass*
 static void* g_mmhField   = NULL;   // 'iiz' static field
@@ -405,6 +445,7 @@ static void few1n_initIl2cpp(void) {
     i_object_new                = (void*(*)(void*))dlsym(RTLD_DEFAULT, "il2cpp_object_new");
     i_class_get_field_from_name = (void*(*)(void*,const char*))dlsym(RTLD_DEFAULT, "il2cpp_class_get_field_from_name");
     i_field_static_get_value    = (void(*)(void*,void*))dlsym(RTLD_DEFAULT, "il2cpp_field_static_get_value");
+    i_field_static_set_value    = (void(*)(void*,void*))dlsym(RTLD_DEFAULT, "il2cpp_field_static_set_value");
     i_field_get_offset          = (size_t(*)(void*))dlsym(RTLD_DEFAULT, "il2cpp_field_get_offset");
     i_class_get_type            = (void*(*)(void*))dlsym(RTLD_DEFAULT, "il2cpp_class_get_type");
     i_type_get_object           = (void*(*)(void*))dlsym(RTLD_DEFAULT, "il2cpp_type_get_object");
@@ -552,6 +593,19 @@ static void few1n_initIl2cpp(void) {
                       if (g_fIsMine && i_field_get_offset) g_isMineOff  = (int)i_field_get_offset(g_fIsMine);
                       if (g_fOwner  && i_field_get_offset) g_pvOwnerOff = (int)i_field_get_offset(g_fOwner);
                       FLog([NSString stringWithFormat:@"PhotonView tipi=%p IsMineOff=%d OwnerOff=%d", g_photonViewType, g_isMineOff, g_pvOwnerOff]); }
+        }
+        // ===== KICK ACICI: PhotonNetwork.EnableCloseConnection = true =====
+        // PUN2'de bu FALSE ise CloseConnection master olsan bile FALSE doner (kendi odanda bile atamazsin).
+        if (!g_fEnableCloseConn) {
+            void* pnc = i_class_from_name(img, "Photon.Pun", "PhotonNetwork");
+            if (!pnc) pnc = few1n_findClassByName(img, "PhotonNetwork");
+            if (pnc && i_class_get_field_from_name) {
+                g_fEnableCloseConn = i_class_get_field_from_name(pnc, "EnableCloseConnection");
+                if (g_fEnableCloseConn && i_field_static_set_value) {
+                    bool t = true; i_field_static_set_value(g_fEnableCloseConn, &t);
+                    FLog(@"PhotonNetwork.EnableCloseConnection=TRUE -> kick artik calisir (kendi odanda)");
+                }
+            }
         }
         if (!g_playerHandlerType) {
             void* ph = i_class_from_name(img, "", "HR_PlayerHandler");
@@ -764,6 +818,8 @@ static bool  (*pn_setMasterClient)(void* player) = NULL;       // PhotonNetwork.
 // ==== ODADAKI OYUNCULAR (script.json dogrulandi) ====
 static void* (*pn_getPlayerList)(void) = NULL;      // PhotonNetwork.get_PlayerList -> Player[]  0x59339D0
 static void* (*pn_getPlayerListOthers)(void) = NULL; // PhotonNetwork.get_PlayerListOthers (kendisi haric) 0x5933B88
+static void* (*pn_getLocalPlayer)(void) = NULL;     // PhotonNetwork.get_LocalPlayer 0x5933814 (master miyim kontrolu)
+static void* g_fEnableCloseConn = NULL;             // PhotonNetwork.EnableCloseConnection static field (kick acar)
 static void* (*ply_getNickName)(void*) = NULL;      // Player.get_NickName          0x5924574
 static int   (*ply_getActorNumber)(void*) = NULL;   // Player.get_ActorNumber       0x592455C
 static bool  (*ply_getIsMaster)(void*) = NULL;      // Player.get_IsMasterClient    0x5924640
@@ -835,17 +891,30 @@ static bool h_closeConnection(void* kickPlayer) {
     if (g_isManualKick) return o_closeConnection ? o_closeConnection(kickPlayer) : false;
     return false; // Anti-kick: baskalari seni atamasin
 }
+// EnableCloseConnection'i her kick oncesi TRUE zorla (oyun oda girisinde sifirlayabilir)
+static void few1n_forceEnableKick(void) {
+    if (g_fEnableCloseConn && i_field_static_set_value) {
+        @try { bool t = true; i_field_static_set_value(g_fEnableCloseConn, &t); } @catch (...) {}
+    }
+}
 static void few1n_kickPlayer(void* playerObj) {
     if (!playerObj) return;
+    few1n_forceEnableKick();   // PUN2: bu olmadan CloseConnection master olsan bile FALSE doner
     // hook olu -> direkt il2cpp cagrisi kullan (o_closeConnection yedek)
     bool (*fn)(void*) = pn_closeConnection ? pn_closeConnection : o_closeConnection;
     if (!fn) { FLog(@"Kick: CloseConnection pointeri yok"); return; }
+    // Master miyim? (kendi odanda TRUE olmali)
+    bool amMaster = false;
+    if (pn_getLocalPlayer && ply_getIsMaster) {
+        @try { void* lp = pn_getLocalPlayer(); if (lp) amMaster = ply_getIsMaster(lp); } @catch (...) {}
+    }
     @try {
         g_isManualKick = true;
         bool ok = fn(playerObj);   // CloseConnection master degilsen FALSE doner
         g_isManualKick = false;
-        FLog(ok ? @"Kick GONDERILDI (basarili - kisi dusmeli)"
-                : @"Kick REDDEDILDI: sen MASTER/host DEGILSIN. Photon izin vermedi.");
+        if (ok)            FLog(@"Kick GONDERILDI ✓ (kisi sunucudan dusmeli)");
+        else if (!amMaster) FLog(@"Kick REDDEDILDI: bu odada MASTER/host DEGILSIN (oyun seni master yapmamis). Kendi kurdugun odada dene.");
+        else                FLog(@"Kick REDDEDILDI: master'sin ama EnableCloseConnection kapali kaldi - tekrar dene.");
     } @catch (...) { g_isManualKick = false; FLog(@"Kick hatasi (exception)"); }
 }
 
@@ -1596,7 +1665,7 @@ static void h_roomLineSetup(void* self, void* a, void* b, unsigned char c, unsig
 
 // ===== ODA KURMA HATASI TESHIS + OTOMATIK RETRY (BRUTE FORCE) =====
 // FEW1NMenu @interface yukari alindi ki hook'lar (h_onCreateFail brute-force) menuye erisebilsin
-@interface FEW1NMenu : NSObject
+@interface FEW1NMenu : NSObject <PHPickerViewControllerDelegate, UINavigationControllerDelegate, UIImagePickerControllerDelegate>
 @property (nonatomic, strong) UIButton *fab;
 @property (nonatomic, strong) UIView *panel;
 @property (nonatomic, strong) UIScrollView *scrollView;
@@ -1616,10 +1685,25 @@ static void h_roomLineSetup(void* self, void* a, void* b, unsigned char c, unsig
 @property (nonatomic, strong) UIButton *moneyBtn;
 @property (nonatomic, strong) UIView *logOverlay;
 @property (nonatomic, strong) UITextView *logText;
+@property (nonatomic, strong) UIView *favOverlay;
 @property (nonatomic, strong) CADisplayLink *dl;
 + (instancetype)shared;
 - (void)build;
 - (void)createOneRoom;
+- (void)pickGifForAscii;
+- (void)playGifAscii;
+- (void)tapGifColored;
+- (void)pickGifSize:(UIButton*)b;
+- (void)fireGifFrame;
+- (void)buildGifAsciiFromData:(NSData*)data;
+- (void)openFavorites;
+- (void)closeFavorites;
+- (void)editFavorites;
+- (void)favToggle:(UIButton*)b;
+- (NSArray*)favAllKeys;
+- (NSString*)favTitleForKey:(NSString*)k;
+- (BOOL)favStateForKey:(NSString*)k;
+- (SEL)favSelForKey:(NSString*)k;
 @end
 
 static int g_bruteForceIdx = 0;
@@ -1705,6 +1789,117 @@ static void h_addMoney(void* self, int amount) {
 #define C_CYAN   [UIColor colorWithRed:0.10 green:0.62 blue:0.92 alpha:1.0]
 #define C_TEXT   [UIColor colorWithRed:0.06 green:0.12 blue:0.20 alpha:1.0]   // koyu lacivert metin
 #define C_SUB    [UIColor colorWithRed:0.30 green:0.42 blue:0.52 alpha:0.85]  // gri-mavi alt metin
+
+// =============================================================
+//  GIF -> ASCII  (cihaz uzerinde, harici API YOK - ImageIO + CoreGraphics)
+//  GIF karelerini cozup her pikselin parlakligini ASCII karaktere cevirir.
+// =============================================================
+static NSMutableArray *g_gifFrames = nil;   // GIF'ten cevrilen ASCII kareler
+static bool     g_gifColored = false;       // Acik=gokkusagi renkli oynat
+static NSTimer *g_gifTimer = nil;
+static int      g_gifIdx = 0;
+static int      g_gifCols = 24;             // ASCII genislik (olcu): 16=kucuk 24=orta 32=buyuk 40=dev
+
+// ================= FAVORILER (hizli erisim paneli) =================
+static NSMutableArray *g_favorites = nil;   // favori ozellik anahtarlari (kalici)
+static void loadFavorites(void) {
+    if (g_favorites) return;
+    NSArray *a = [[NSUserDefaults standardUserDefaults] arrayForKey:@"few1n_favorites"];
+    g_favorites = a ? [a mutableCopy] : [NSMutableArray array];
+}
+static void saveFavorites(void) {
+    if (g_favorites) {
+        [[NSUserDefaults standardUserDefaults] setObject:g_favorites forKey:@"few1n_favorites"];
+        [[NSUserDefaults standardUserDefaults] synchronize];
+    }
+}
+
+// Tek CGImage -> ASCII metin (cols genislik; satir sayisi en-boy oranindan)
+static NSString* few1n_cgimageToAscii(CGImageRef img, int cols) {
+    if (!img || cols < 4) return nil;
+    size_t iw = CGImageGetWidth(img);
+    size_t ih = CGImageGetHeight(img);
+    if (iw == 0 || ih == 0) return nil;
+    int rows = (int)((double)cols * ((double)ih / (double)iw) * 0.5);  // 0.5: karakter ~2x uzun
+    if (rows < 2)  rows = 2;
+    if (rows > 12) rows = 12;                                          // chat uzunluk siniri icin
+    size_t bpp = 4;
+    size_t bpr = (size_t)cols * bpp;
+    unsigned char *buf = (unsigned char*)calloc((size_t)rows * bpr, 1);
+    if (!buf) return nil;
+    CGColorSpaceRef csp = CGColorSpaceCreateDeviceRGB();
+    CGContextRef ctx = CGBitmapContextCreate(buf, (size_t)cols, (size_t)rows, 8, bpr, csp,
+                            (CGBitmapInfo)(kCGImageAlphaPremultipliedLast | kCGBitmapByteOrder32Big));
+    CGColorSpaceRelease(csp);
+    if (!ctx) { free(buf); return nil; }
+    CGContextSetInterpolationQuality(ctx, kCGInterpolationHigh);
+    CGContextDrawImage(ctx, CGRectMake(0, 0, cols, rows), img);
+    CGContextRelease(ctx);
+    const char *ramp = " .:-=+*#%@";     // koyu -> acik (10 karakter)
+    int maxIdx = 9;
+    NSMutableString *out = [NSMutableString string];
+    for (int yy = 0; yy < rows; yy++) {
+        int srcY = rows - 1 - yy;        // CGBitmap alt-sol orijin -> dikey cevir
+        for (int xx = 0; xx < cols; xx++) {
+            unsigned char *px = buf + (size_t)srcY * bpr + (size_t)xx * bpp;
+            int r = px[0], g = px[1], b = px[2];
+            int lum = (r * 30 + g * 59 + b * 11) / 100;   // 0..255
+            int idx = lum * maxIdx / 255;
+            if (idx < 0) idx = 0;
+            if (idx > maxIdx) idx = maxIdx;
+            [out appendFormat:@"%c", ramp[idx]];
+        }
+        if (yy < rows - 1) [out appendString:@"\n"];
+    }
+    free(buf);
+    return out;
+}
+
+// GIF verisi -> ASCII kare dizisi
+static NSArray* few1n_gifDataToAscii(NSData *data, int maxFrames, int cols) {
+    if (!data || data.length == 0) return nil;
+    CGImageSourceRef src = CGImageSourceCreateWithData((__bridge CFDataRef)data, NULL);
+    if (!src) return nil;
+    size_t count = CGImageSourceGetCount(src);
+    if (count == 0) { CFRelease(src); return nil; }
+    NSMutableArray *out = [NSMutableArray array];
+    int step = 1;
+    if ((int)count > maxFrames) step = (int)count / maxFrames;
+    if (step < 1) step = 1;
+    for (size_t i = 0; i < count; i += (size_t)step) {
+        CGImageRef img = CGImageSourceCreateImageAtIndex(src, i, NULL);
+        if (img) {
+            NSString *frame = few1n_cgimageToAscii(img, cols);
+            CGImageRelease(img);
+            if (frame.length > 0) [out addObject:frame];
+        }
+        if ((int)out.count >= maxFrames) break;
+    }
+    CFRelease(src);
+    return out;
+}
+
+// En ustteki view controller (picker sunmak icin)
+static UIViewController* few1n_topVC(void) {
+    UIWindow *win = nil;
+    NSArray *scenes = [[[UIApplication sharedApplication] connectedScenes] allObjects];
+    for (id sc in scenes) {
+        if ([sc isKindOfClass:[UIWindowScene class]]) {
+            for (UIWindow *w in ((UIWindowScene*)sc).windows) {
+                if (w.isKeyWindow) { win = w; break; }
+            }
+        }
+        if (win) break;
+    }
+    if (!win) {
+        NSArray *ws = [[UIApplication sharedApplication] windows];
+        for (UIWindow *w in ws) { if (w.isKeyWindow) { win = w; break; } }
+        if (!win && ws.count > 0) win = ws.firstObject;
+    }
+    UIViewController *vc = win.rootViewController;
+    while (vc.presentedViewController) vc = vc.presentedViewController;
+    return vc;
+}
 
 @implementation FEW1NMenu
 
@@ -1797,7 +1992,7 @@ static void h_addMoney(void* self, int amount) {
     title.font = [UIFont systemFontOfSize:17 weight:UIFontWeightBlack];
     [header addSubview:title];
     UILabel *ver = [[UILabel alloc] initWithFrame:CGRectMake(42,37,pw-90,16)];
-    ver.text = [NSString stringWithFormat:@"v51.0 MENU  •  Base 0x%lX", (unsigned long)global_base];
+    ver.text = [NSString stringWithFormat:@"v54.0  •  Base 0x%lX", (unsigned long)global_base];
     ver.textColor = [UIColor colorWithWhite:1 alpha:0.82];
     ver.font = [UIFont fontWithName:@"Menlo-Bold" size:8] ?: [UIFont systemFontOfSize:8 weight:UIFontWeightBold];
     [header addSubview:ver];
@@ -1820,6 +2015,11 @@ static void h_addMoney(void* self, int amount) {
     [self.scrollView addSubview:self.contentView];
 
     CGFloat y = 12;
+
+    // ===== FAVORILER (en ust - hizli erisim) =====
+    y = [self header:@"⭐  FAVORILER" atY:y];
+    y = [self actionRow:@"⭐  Favori Panelini Ac (hizli ac/kapat)" color:C_GOLD atY:y action:@selector(openFavorites)];
+    y = [self actionRow:@"➕  Favori Ekle / Cikar" color:C_ACCENT atY:y action:@selector(editFavorites)];
 
     y = [self header:@"⚡  HIZ (timeScale)" atY:y];
     UIView *sr = [[UIView alloc] initWithFrame:CGRectMake(12,y,pw-24,44)];
@@ -1855,8 +2055,10 @@ static void h_addMoney(void* self, int amount) {
     y = [self toggle:@"🚗  Hız Sabitleyici (Cruise Control)" sub:@"Gaza basmadan belirlenen hızda git" key:@"cruise" atY:y action:@selector(tapCruise)];
     y = [self actionRow:@"✏️  Sabit Hız Ayarla (km/h)" color:C_CYAN atY:y action:@selector(editCruiseSpeed)];
     y = [self toggle:@"\U0001F681  Ucus (Havada Surus)" sub:@"Gaz=ileri it, direksiyon=havada don" key:@"fly" atY:y action:@selector(tapFly)];
+    y = [self toggle:@"\U0001F6E9  Ucusta Otomatik Gaz" sub:@"Otomatik ileri gider -> parmak sadece direksiyonda (gaz+don sorunu biter)" key:@"flyauto" atY:y action:@selector(tapFlyAuto)];
     y = [self toggle:@"\U0001FAB6  Dusuk Yercekimi" sub:@"Dusus yavas, floaty" key:@"lowgrav" atY:y action:@selector(tapLowGrav)];
     y = [self toggle:@"\U0001F319  Anti-Gravity (Ay modu)" sub:@"Yercekimi kapali, suzul (asili kal)" key:@"antigrav" atY:y action:@selector(tapAntiGrav)];
+    y = [self toggle:@"\U0001F47B  No-Clip (Araclardan Gec)" sub:@"Trafikten/duvardan gec - godmode gibi ama fiziksel gecis" key:@"noclip" atY:y action:@selector(tapNoClip)];
     y = [self toggle:@"\U0001F6E1  GODMODE (Kaza Yapma)" sub:@"Trafige carpsan bile olmezsin" key:@"godmode" atY:y action:@selector(tapGodmode)];
     y = [self toggle:@"\U0001F4A1  Hizli Selektor (far cakma)" sub:@"On farlari hizli ac/kapat (RCCP)" key:@"selektor" atY:y action:@selector(tapSelektor)];
     y = [self actionRow:@"✏️  Selektor Hizi Ayarla" color:C_CYAN atY:y action:@selector(editSelektorSpeed)];
@@ -1904,6 +2106,25 @@ static void h_addMoney(void* self, int amount) {
     }
     y = [self toggle:@"\U0001F308  ASCII Renk Dongusu" sub:@"Her kareyi farkli renkte gonder" key:@"asciicolor" atY:y action:@selector(tapAsciiColor)];
     y = [self actionRow:@"🧪  Exploit Test (Chat Filtresi Atlat)" color:C_RED atY:y action:@selector(exploitChatTest)];
+    y = [self actionRow:@"🌈  TUM Oda Chatini Renklendir (secili renk)" color:C_ON atY:y action:@selector(colorAllChat)];
+    // YENI: GIF -> ASCII (cihaz uzerinde cevirir, harici API yok)
+    {
+        UIView *grow = [[UIView alloc] initWithFrame:CGRectMake(12,y,pw-24,44)];
+        grow.backgroundColor = C_CARD; grow.layer.cornerRadius = 12;
+        UIButton *gb = [UIButton buttonWithType:UIButtonTypeSystem];
+        gb.frame = CGRectMake(0,0,pw-24,44);
+        NSString *snm = (g_gifCols<=16)?@"Kucuk (16)":(g_gifCols<=24)?@"Orta (24)":(g_gifCols<=32)?@"Buyuk (32)":@"Dev (40)";
+        [gb setTitle:[NSString stringWithFormat:@"\U0001F4D0 GIF ASCII Olcu: %@", snm] forState:UIControlStateNormal];
+        [gb setTitleColor:C_ACCENT forState:UIControlStateNormal];
+        gb.titleLabel.font = [UIFont systemFontOfSize:13 weight:UIFontWeightSemibold];
+        [gb addTarget:self action:@selector(pickGifSize:) forControlEvents:UIControlEventTouchUpInside];
+        [grow addSubview:gb];
+        [self.contentView addSubview:grow];
+        y += 52;
+    }
+    y = [self actionRow:@"📂  GIF/Resim Yukle → ASCII'ye Cevir" color:C_ON atY:y action:@selector(pickGifForAscii)];
+    y = [self actionRow:@"▶️  GIF'i Chatte Oynat (baslat/durdur)" color:C_ACCENT atY:y action:@selector(playGifAscii)];
+    y = [self toggle:@"🌈  GIF Renkli Oynat" sub:@"Kapali=renksiz ASCII, Acik=gokkusagi" key:@"gifColored" atY:y action:@selector(tapGifColored)];
     // YENI: Hacker Chat Modlari
     y = [self toggle:@"🟢  Matrix Chat Modu" sub:@"Mesajlarin yesil sistem stili" key:@"matrixchat" atY:y action:@selector(tapMatrixChat)];
     y = [self toggle:@"💀  Glitch Chat Modu" sub:@"Mesajlarin mor/root stili" key:@"glitchchat" atY:y action:@selector(tapGlitchChat)];
@@ -2124,9 +2345,11 @@ static void h_addMoney(void* self, int amount) {
         b.layer.shadowOpacity = on ? 0.45 : 0.0;
     }
     [self setToggle:@"fly"       on:isFlyEnabled];
+    [self setToggle:@"flyauto"   on:flyAutoThrust];
     [self setToggle:@"lowgrav"   on:isLowGravEnabled];
     [self setToggle:@"chatspam"  on:isSpamEnabled];
     [self setToggle:@"asciianim" on:isAsciiAnimEnabled];
+    [self setToggle:@"gifColored" on:g_gifColored];
     [self setToggle:@"bypass"    on:isBypassPasswordEnabled];
     [self setToggle:@"roomspam"  on:isRoomSpamEnabled];
     [self setToggle:@"roomcont"  on:roomSpamContinuous];
@@ -2194,6 +2417,8 @@ static void h_addMoney(void* self, int amount) {
                 str = *(float*)((uintptr_t)g_myRccp + 0x170);   // steerInput_V
             }
             float drive = thr - brk;   // gaz ileri, fren geri (-1..1)
+            // OTOMATIK GAZ: fren basili degilse otomatik ileri git -> parmak sadece direksiyonda
+            if (flyAutoThrust && brk < 0.05f) drive = fmaxf(drive, flyAutoLevel);
             if (haveFwd && fabsf(drive) > 0.05f) {
                 float tx = fwd.x * drive * flyDriveSpeed, tz = fwd.z * drive * flyDriveSpeed;
                 v.x += (tx - v.x) * 0.35f;   // yumusak gecis (ani degil -> titremez)
@@ -2230,12 +2455,15 @@ static void h_addMoney(void* self, int amount) {
         } @catch (...) {}
     }
 
-    // ===== DRIFT MODU (KUSURSIZ KAYMA - il2cpp) =====
+    // ===== DRIFT MODU (STABIL - il2cpp) araba UCMAZ, hizlanmaz =====
     if (isDriftEnabled && unityAlive(g_rb)) {
         @try {
             Vec3 v = {0,0,0}; rbGetVelIl(g_rb, &v);
-            // Donuslerde yanal ivmeyi artirarak yumusak drift yaptir
-            v.x *= 1.015f; v.z *= 1.015f;
+            // 1) Dikey hizi TAMAMEN kes -> asla yukari firlamaz (ucmaz)
+            if (v.y > 0.0f) v.y = 0.0f;
+            // 2) Yatay hizi ASLA arttirma; sadece asiri hizi (>70 m/s) sinirla -> runaway yok
+            float horiz = sqrtf(v.x*v.x + v.z*v.z);
+            if (horiz > 70.0f) { float k = 70.0f / horiz; v.x *= k; v.z *= k; }
             rbSetVelIl(g_rb, &v);
         } @catch (...) {}
     }
@@ -2689,6 +2917,7 @@ static void h_addMoney(void* self, int amount) {
     [self present:ac];
 }
 - (void)tapAntiGrav  { isAntiGrav = !isAntiGrav; saveBool(@"antigrav", isAntiGrav); [self refreshUI]; }
+- (void)tapNoClip    { isNoClip = !isNoClip; saveBool(@"noclip", isNoClip); FLog(isNoClip ? @"No-Clip ACIK - araclardan gec (uc ile birlestir)" : @"No-Clip KAPALI"); [self refreshUI]; }
 - (void)tapGodmode   { isGodmode = !isGodmode; saveBool(@"godmode", isGodmode); if(!isGodmode) g_myPlayerHandler = NULL; FLog(isGodmode ? @"GODMODE acik - kaza yapmazsin" : @"Godmode kapali"); [self refreshUI]; }
 - (void)tapSelektor  { isSelektor = !isSelektor; saveBool(@"selektor", isSelektor); if(!isSelektor) g_myLights = NULL; FLog(isSelektor ? @"Selektor acik - far cakiyor" : @"Selektor kapali"); [self refreshUI]; }
 - (void)editSelektorSpeed {
@@ -2736,6 +2965,7 @@ static void h_addMoney(void* self, int amount) {
     [self present:ac];
 }
 - (void)tapFly       { isFlyEnabled            = !isFlyEnabled;            saveBool(@"fly", isFlyEnabled);                  [self refreshUI]; }
+- (void)tapFlyAuto   { flyAutoThrust           = !flyAutoThrust;          saveBool(@"flyauto", flyAutoThrust); FLog(flyAutoThrust ? @"Ucusta Otomatik Gaz ACIK - sadece direksiyonla don" : @"Otomatik Gaz KAPALI"); [self refreshUI]; }
 - (void)tapLowGrav   { isLowGravEnabled        = !isLowGravEnabled;        saveBool(@"lowgrav", isLowGravEnabled);          [self refreshUI]; }
 - (void)tapBypass    { isBypassPasswordEnabled  = !isBypassPasswordEnabled; saveBool(@"bypass", isBypassPasswordEnabled);    [self refreshUI]; }
 - (void)tapAutoMoney { isAutoMoneyEnabled        = !isAutoMoneyEnabled;      saveBool(@"automoney", isAutoMoneyEnabled);      [self refreshUI]; }
@@ -2782,6 +3012,18 @@ static void h_addMoney(void* self, int amount) {
     }]];
     [ac addAction:[UIAlertAction actionWithTitle:@"Iptal" style:UIAlertActionStyleCancel handler:nil]];
     [self present:ac];
+}
+// TUM ODA CHATINI senin sectigin renge boya (kapatilmamis renk tag'i -> tum mesajlar boyanir)
+- (void)colorAllChat {
+    if (!chatGetInst || !chatSend) { FLog(@"Chat hazir degil - odaya gir"); return; }
+    NSString *col = [NSString stringWithUTF8String:spamColorHex];
+    @try {
+        void* mgr = chatGetInst();
+        // Cift-katman injeksiyon (filtre atlar) + kapatilmamis -> sonraki tum yazilar bu renkte
+        NSString *msg = [NSString stringWithFormat:@"<col<color=#%@>or=#%@>", col, col];
+        void* s = mkStr(msg); if (mgr && s) chatSend(mgr, s);
+    } @catch (...) {}
+    FLog([NSString stringWithFormat:@"Oda chati #%@ rengine boyandi (herkes gorur)", col]);
 }
 - (void)sendChatTemplate {
     if (!chatGetInst || !chatSend) { FLog(@"Chat pointeri yok - odaya gir"); return; }
@@ -3201,6 +3443,248 @@ static NSString* rainbowWrap(NSString* text, int idx) {
     asciiFrameIdx = 0;
     saveInt(@"asciiIdx", asciiAnimIndex);
     [b setTitle:[NSString stringWithFormat:@"\U0001F3AC Animasyon Sec (%d/%d)", asciiAnimIndex + 1, (int)asciiAnims().count] forState:UIControlStateNormal];
+}
+
+// ===== GIF -> ASCII: menuden GIF/resim sec, chate ASCII olarak oynat =====
+- (void)pickGifForAscii {
+    @try {
+        UIViewController *top = few1n_topVC();
+        if (!top) { FLog(@"Ekran bulunamadi - menuyu kapatip tekrar dene"); return; }
+        if (@available(iOS 14.0, *)) {
+            PHPickerConfiguration *cfg = [[PHPickerConfiguration alloc] init];
+            cfg.selectionLimit = 1;
+            cfg.filter = [PHPickerFilter imagesFilter];
+            PHPickerViewController *pk = [[PHPickerViewController alloc] initWithConfiguration:cfg];
+            pk.delegate = self;
+            [top presentViewController:pk animated:YES completion:nil];
+            FLog(@"GIF veya resim sec...");
+        } else {
+            UIImagePickerController *ipc = [[UIImagePickerController alloc] init];
+            ipc.sourceType = UIImagePickerControllerSourceTypePhotoLibrary;
+            ipc.delegate = self;
+            [top presentViewController:ipc animated:YES completion:nil];
+        }
+    } @catch (NSException *e) { FLog([NSString stringWithFormat:@"GIF secici hata: %@", e.reason]); }
+}
+
+// PHPicker sonucu (iOS 14+)
+- (void)picker:(PHPickerViewController *)picker didFinishPicking:(NSArray<PHPickerResult *> *)results API_AVAILABLE(ios(14.0)) {
+    [picker dismissViewControllerAnimated:YES completion:nil];
+    if (results.count == 0) { FLog(@"Secim iptal"); return; }
+    NSItemProvider *ip = results.firstObject.itemProvider;
+    NSString *gifType = @"com.compuserve.gif";
+    if ([ip hasItemConformingToTypeIdentifier:gifType]) {
+        [ip loadDataRepresentationForTypeIdentifier:gifType completionHandler:^(NSData *data, NSError *error) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                if (data.length > 0) [self buildGifAsciiFromData:data];
+                else FLog(@"GIF verisi okunamadi");
+            });
+        }];
+    } else if ([ip canLoadObjectOfClass:[UIImage class]]) {
+        [ip loadObjectOfClass:[UIImage class] completionHandler:^(__kindof id<NSItemProviderReading> obj, NSError *error) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                UIImage *img = [obj isKindOfClass:[UIImage class]] ? (UIImage*)obj : nil;
+                NSData *d = img ? UIImagePNGRepresentation(img) : nil;
+                if (d.length > 0) [self buildGifAsciiFromData:d];
+                else FLog(@"Resim okunamadi");
+            });
+        }];
+    } else {
+        FLog(@"Desteklenmeyen dosya turu");
+    }
+}
+
+// Eski iOS icin UIImagePicker sonucu
+- (void)imagePickerController:(UIImagePickerController *)picker didFinishPickingMediaWithInfo:(NSDictionary<UIImagePickerControllerInfoKey,id> *)info {
+    [picker dismissViewControllerAnimated:YES completion:nil];
+    @try {
+        NSURL *url = info[UIImagePickerControllerImageURL];
+        NSData *data = url ? [NSData dataWithContentsOfURL:url] : nil;
+        if (!data.length) {
+            UIImage *img = info[UIImagePickerControllerOriginalImage];
+            if (img) data = UIImagePNGRepresentation(img);
+        }
+        if (data.length > 0) [self buildGifAsciiFromData:data];
+        else FLog(@"Resim okunamadi");
+    } @catch (...) {}
+}
+- (void)imagePickerControllerDidCancel:(UIImagePickerController *)picker {
+    [picker dismissViewControllerAnimated:YES completion:nil];
+    FLog(@"Secim iptal");
+}
+
+- (void)buildGifAsciiFromData:(NSData*)data {
+    @try {
+        NSArray *frames = few1n_gifDataToAscii(data, 20, g_gifCols);   // en fazla 20 kare, secili genislik (olcu)
+        if (frames.count == 0) { FLog(@"GIF/resim ASCII'ye cevrilemedi"); return; }
+        g_gifFrames = [frames mutableCopy];
+        g_gifIdx = 0;
+        FLog([NSString stringWithFormat:@"✓ Hazir: %lu kare ASCII. Simdi '▶️ GIF'i Chatte Oynat'a bas.", (unsigned long)g_gifFrames.count]);
+        [self refreshUI];
+    } @catch (...) { FLog(@"GIF donusum hatasi"); }
+}
+
+- (void)playGifAscii {
+    if (!chatGetInst || !chatSend) { FLog(@"Chat hazir degil - once odaya gir"); return; }
+    if (!g_gifFrames || g_gifFrames.count == 0) { FLog(@"Once '📂 GIF Yukle' ile bir GIF sec"); return; }
+    if (g_gifTimer) { [g_gifTimer invalidate]; g_gifTimer = nil; FLog(@"GIF oynatma durduruldu"); [self refreshUI]; return; }
+    g_gifIdx = 0;
+    g_gifTimer = [NSTimer scheduledTimerWithTimeInterval:0.5 target:self selector:@selector(fireGifFrame) userInfo:nil repeats:YES];
+    FLog([NSString stringWithFormat:@"GIF chate oynatiliyor (%@)...", g_gifColored ? @"renkli" : @"renksiz"]);
+    [self refreshUI];
+}
+
+- (void)fireGifFrame {
+    if (!chatGetInst || !chatSend || !g_gifFrames || g_gifFrames.count == 0) {
+        if (g_gifTimer) { [g_gifTimer invalidate]; g_gifTimer = nil; }
+        return;
+    }
+    @try {
+        if (g_gifIdx < 0 || g_gifIdx >= (int)g_gifFrames.count) g_gifIdx = 0;
+        NSString *frame = g_gifFrames[g_gifIdx++];
+        if (g_gifColored) frame = rainbowWrap(frame, g_colorIdx++);
+        void* mgr = chatGetInst();
+        if (!mgr) return;
+        void* s = mkStr(frame);
+        if (s) chatSend(mgr, s);
+    } @catch (...) {}
+}
+
+- (void)tapGifColored { g_gifColored = !g_gifColored; saveBool(@"gifColored", g_gifColored); [self refreshUI]; }
+- (void)pickGifSize:(UIButton*)b {
+    if      (g_gifCols <= 16) g_gifCols = 24;
+    else if (g_gifCols <= 24) g_gifCols = 32;
+    else if (g_gifCols <= 32) g_gifCols = 40;
+    else                      g_gifCols = 16;
+    saveInt(@"gifCols", g_gifCols);
+    NSString *snm = (g_gifCols<=16)?@"Kucuk (16)":(g_gifCols<=24)?@"Orta (24)":(g_gifCols<=32)?@"Buyuk (32)":@"Dev (40)";
+    [b setTitle:[NSString stringWithFormat:@"\U0001F4D0 GIF ASCII Olcu: %@", snm] forState:UIControlStateNormal];
+    FLog([NSString stringWithFormat:@"GIF olcu: %@ (yeni olcu icin GIF'i tekrar yukle)", snm]);
+}
+
+// ================= FAVORILER =================
+- (NSArray*)favAllKeys {
+    return @[@"godmode",@"fly",@"flyauto",@"noclip",@"drift",@"cruise",@"selektor",
+             @"antigrav",@"lowgrav",@"asciianim",@"matrixchat",@"glitchchat",@"carcolor"];
+}
+- (NSString*)favTitleForKey:(NSString*)k {
+    NSDictionary *m = @{@"godmode":@"\U0001F6E1 Godmode",@"fly":@"\U0001F6E9 Ucus",@"flyauto":@"\U0001F6E9 Oto Gaz",
+      @"noclip":@"\U0001F47B No-Clip",@"drift":@"\U0001F9CA Drift",@"cruise":@"\U0001F697 Cruise",
+      @"selektor":@"\U0001F4A1 Selektor",@"antigrav":@"\U0001F319 Anti-Grav",@"lowgrav":@"\U0001FAB6 Dusuk Gravite",
+      @"asciianim":@"\U0001F3AC ASCII Anim",@"matrixchat":@"\U0001F7E2 Matrix Chat",@"glitchchat":@"\U0001F480 Glitch Chat",
+      @"carcolor":@"\U0001F308 Arac Boya"};
+    return m[k] ?: k;
+}
+- (BOOL)favStateForKey:(NSString*)k {
+    if ([k isEqualToString:@"godmode"])   return isGodmode;
+    if ([k isEqualToString:@"fly"])       return isFlyEnabled;
+    if ([k isEqualToString:@"flyauto"])   return flyAutoThrust;
+    if ([k isEqualToString:@"noclip"])    return isNoClip;
+    if ([k isEqualToString:@"drift"])     return isDriftEnabled;
+    if ([k isEqualToString:@"cruise"])    return isCruiseEnabled;
+    if ([k isEqualToString:@"selektor"])  return isSelektor;
+    if ([k isEqualToString:@"antigrav"])  return isAntiGrav;
+    if ([k isEqualToString:@"lowgrav"])   return isLowGravEnabled;
+    if ([k isEqualToString:@"asciianim"]) return isAsciiAnimEnabled;
+    if ([k isEqualToString:@"matrixchat"])return isMatrixChatEnabled;
+    if ([k isEqualToString:@"glitchchat"])return isGlitchChatEnabled;
+    if ([k isEqualToString:@"carcolor"])  return isCarColorEnabled;
+    return NO;
+}
+- (SEL)favSelForKey:(NSString*)k {
+    NSDictionary *m = @{@"godmode":@"tapGodmode",@"fly":@"tapFly",@"flyauto":@"tapFlyAuto",
+      @"noclip":@"tapNoClip",@"drift":@"tapDrift",@"cruise":@"tapCruise",@"selektor":@"tapSelektor",
+      @"antigrav":@"tapAntiGrav",@"lowgrav":@"tapLowGrav",@"asciianim":@"tapAsciiAnim",
+      @"matrixchat":@"tapMatrixChat",@"glitchchat":@"tapGlitchChat",@"carcolor":@"tapCarColor"};
+    NSString *s = m[k];
+    return s ? NSSelectorFromString(s) : NULL;
+}
+- (void)openFavorites {
+    loadFavorites();
+    UIWindow *w = getKeyWindow(); if (!w) return;
+    if (self.favOverlay) { [self.favOverlay removeFromSuperview]; self.favOverlay = nil; }
+    CGFloat W = w.bounds.size.width, H = w.bounds.size.height;
+    CGFloat ow = MIN(360.0, W-20), oh = MIN(470.0, H-20);
+    UIView *ov = [[UIView alloc] initWithFrame:CGRectMake((W-ow)/2,(H-oh)/2,ow,oh)];
+    ov.backgroundColor = [UIColor colorWithRed:0.97 green:0.99 blue:1.0 alpha:0.99];
+    ov.layer.cornerRadius = 16; ov.layer.borderWidth = 1.5; ov.layer.borderColor = C_GOLD.CGColor;
+    self.favOverlay = ov;
+    UILabel *tl = [[UILabel alloc] initWithFrame:CGRectMake(14,10,ow-100,24)];
+    tl.text = @"⭐ Favoriler"; tl.textColor = C_TEXT; tl.font = [UIFont boldSystemFontOfSize:15];
+    [ov addSubview:tl];
+    UIButton *ed = [UIButton buttonWithType:UIButtonTypeSystem];
+    ed.frame = CGRectMake(ow-84,8,40,32); [ed setTitle:@"➕" forState:UIControlStateNormal];
+    ed.titleLabel.font = [UIFont systemFontOfSize:18];
+    [ed addTarget:self action:@selector(editFavorites) forControlEvents:UIControlEventTouchUpInside];
+    [ov addSubview:ed];
+    UIButton *x = [UIButton buttonWithType:UIButtonTypeSystem];
+    x.frame = CGRectMake(ow-42,8,32,32); [x setTitle:@"✕" forState:UIControlStateNormal];
+    [x setTitleColor:C_TEXT forState:UIControlStateNormal]; x.titleLabel.font = [UIFont systemFontOfSize:18];
+    [x addTarget:self action:@selector(closeFavorites) forControlEvents:UIControlEventTouchUpInside];
+    [ov addSubview:x];
+    UIScrollView *sc = [[UIScrollView alloc] initWithFrame:CGRectMake(8,44,ow-16,oh-52)];
+    [ov addSubview:sc];
+    CGFloat yy = 0;
+    if (g_favorites.count == 0) {
+        UILabel *hint = [[UILabel alloc] initWithFrame:CGRectMake(6,8,ow-28,70)];
+        hint.numberOfLines = 4;
+        hint.text = @"Henuz favori yok.\n➕ ile istedigin ozellikleri ekle — buradan tek dokunusla ac/kapat.";
+        hint.textColor = C_SUB; hint.font = [UIFont systemFontOfSize:12];
+        [sc addSubview:hint]; yy += 80;
+    }
+    for (NSString *key in g_favorites) {
+        BOOL on = [self favStateForKey:key];
+        UIView *row = [[UIView alloc] initWithFrame:CGRectMake(0,yy,ow-16,48)];
+        row.layer.cornerRadius = 10;
+        row.backgroundColor = on ? [UIColor colorWithRed:0.85 green:0.95 blue:1.0 alpha:1.0]
+                                 : [UIColor colorWithRed:0.93 green:0.95 blue:0.97 alpha:1.0];
+        row.layer.borderWidth = 1.0; row.layer.borderColor = (on?C_ON:C_OFF).CGColor;
+        UILabel *lb = [[UILabel alloc] initWithFrame:CGRectMake(12,0,ow-16-24,48)];
+        lb.text = [NSString stringWithFormat:@"%@    %@", [self favTitleForKey:key], on?@"ACIK ✅":@"KAPALI"];
+        lb.textColor = on ? C_ON : C_SUB; lb.font = [UIFont systemFontOfSize:14 weight:UIFontWeightBold];
+        [row addSubview:lb];
+        UIButton *tap = [UIButton buttonWithType:UIButtonTypeCustom];
+        tap.frame = row.bounds;
+        objc_setAssociatedObject(tap, "favkey", key, OBJC_ASSOCIATION_RETAIN);
+        [tap addTarget:self action:@selector(favToggle:) forControlEvents:UIControlEventTouchUpInside];
+        [row addSubview:tap];
+        [sc addSubview:row]; yy += 54;
+    }
+    sc.contentSize = CGSizeMake(ow-16, yy);
+    [w addSubview:ov];
+}
+- (void)closeFavorites { if (self.favOverlay) { [self.favOverlay removeFromSuperview]; self.favOverlay = nil; } }
+- (void)favToggle:(UIButton*)b {
+    NSString *key = objc_getAssociatedObject(b, "favkey");
+    if (!key) return;
+    SEL sel = [self favSelForKey:key];
+    if (sel && [self respondsToSelector:sel]) {
+        #pragma clang diagnostic push
+        #pragma clang diagnostic ignored "-Warc-performSelector-leaks"
+        [self performSelector:sel];
+        #pragma clang diagnostic pop
+    }
+    [self openFavorites];   // paneli yenile -> durum guncellensin
+}
+- (void)editFavorites {
+    loadFavorites();
+    UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"⭐ Favori Ekle / Cikar" message:@"Dokun: favorilere ekle / cikar" preferredStyle:UIAlertControllerStyleActionSheet];
+    for (NSString *key in [self favAllKeys]) {
+        BOOL isFav = [g_favorites containsObject:key];
+        NSString *t = [NSString stringWithFormat:@"%@ %@", isFav?@"⭐":@"☆", [self favTitleForKey:key]];
+        [ac addAction:[UIAlertAction actionWithTitle:t style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
+            if ([g_favorites containsObject:key]) [g_favorites removeObject:key];
+            else [g_favorites addObject:key];
+            saveFavorites();
+            [self openFavorites];
+        }]];
+    }
+    [ac addAction:[UIAlertAction actionWithTitle:@"Kapat" style:UIAlertActionStyleCancel handler:nil]];
+    if (ac.popoverPresentationController) {
+        ac.popoverPresentationController.sourceView = self.panel;
+        ac.popoverPresentationController.sourceRect = CGRectMake(self.panel.bounds.size.width/2, 80, 1, 1);
+    }
+    [self present:ac];
 }
 
 - (void)addMoneyTap {
@@ -4339,8 +4823,12 @@ static void restoreSettings(void) {
     isSpamEnabled          = loadBool(@"chatspam", false);
     isBypassPasswordEnabled= loadBool(@"bypass", true);
     isFlyEnabled           = loadBool(@"fly", false);
+    flyAutoThrust          = loadBool(@"flyauto", false);
     isLowGravEnabled       = loadBool(@"lowgrav", false);
     isAsciiAnimEnabled     = loadBool(@"asciianim", false);
+    g_gifColored           = loadBool(@"gifColored", false);
+    g_gifCols              = loadInt(@"gifCols", 24);
+    loadFavorites();
     asciiAnimIndex         = loadInt(@"asciiIdx", 0);
     isRoomSpamEnabled      = false;   // spam her acilista kapali baslasin (guvenlik)
     roomSpamMaxCount       = loadInt(@"roomMax", 0);
@@ -4406,6 +4894,7 @@ static void InstallEverything(uintptr_t b) {
     pn_setMasterClient        = (bool(*)(void*))(b + 0x5938B3C);   // YENI: Oda master alma
     pn_getPlayerList          = (void*(*)(void))(b + 0x59339D0);
     pn_getPlayerListOthers    = (void*(*)(void))(b + 0x5933B88);
+    pn_getLocalPlayer         = (void*(*)(void))(b + 0x5933814);   // master miyim kontrolu
     ply_getNickName           = (void*(*)(void*))(b + 0x5924574);
     ply_getActorNumber        = (int(*)(void*))(b + 0x592455C);
     ply_getIsMaster           = (bool(*)(void*))(b + 0x5924640);
@@ -4444,7 +4933,7 @@ static void few1n_poll(void) {
 }
 
 %ctor {
-    FLog(@"v51.0 MENU basladi, UnityFramework araniyor...");
+    FLog(@"v52.0 basladi, UnityFramework araniyor...");
     restoreSettings();
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 3 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{ few1n_poll(); });
 }
