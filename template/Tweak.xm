@@ -2053,7 +2053,7 @@ static UIViewController* few1n_topVC(void) {
     title.font = [UIFont systemFontOfSize:17 weight:UIFontWeightBlack];
     [header addSubview:title];
     UILabel *ver = [[UILabel alloc] initWithFrame:CGRectMake(42,37,pw-90,16)];
-    ver.text = [NSString stringWithFormat:@"v63.0  •  Base 0x%lX", (unsigned long)global_base];
+    ver.text = [NSString stringWithFormat:@"v64.0  •  Base 0x%lX", (unsigned long)global_base];
     ver.textColor = [UIColor colorWithWhite:1 alpha:0.82];
     ver.font = [UIFont fontWithName:@"Menlo-Bold" size:8] ?: [UIFont systemFontOfSize:8 weight:UIFontWeightBold];
     [header addSubview:ver];
@@ -4677,40 +4677,16 @@ static bool few1n_invoke0(void* method, void* obj, const char* label) {
     [self refreshUI];
 }
 
-// YENI: Oda Master Ol (Fake / Hack)
+// YENI: Oda Master Ol (Gercek SetMasterClient)
 - (void)tapRoomMaster {
-    if (!pn_getPlayerList || !ply_getIsMaster || !ply_getNickName) { FLog(@"Oda master fonksiyonlari hazir degil"); return; }
+    if (!pn_setMasterClient || !pn_getLocalPlayer) {
+        FLog(@"Oda master alma fonksiyonlari hazir degil"); return;
+    }
     @try {
-        void* arr = pn_getPlayerList();
-        if (!arr) { FLog(@"Oyuncu listesi alinamadi - odaya gir"); return; }
-        int cnt = (int)(*(uintptr_t*)((uintptr_t)arr + 0x18));
-        void* me = (pn_getLocalPlayer) ? pn_getLocalPlayer() : NULL;
-        void* currentMaster = NULL;
-        // Kendi nickName'ini al (en guvenli kendini bulma yontemi)
-        NSString *myNick = @"";
-        if (pn_getNickName) {
-            void* nn = pn_getNickName();
-            if (nn) myNick = readStr(nn) ?: @"";
-        }
-        for (int i = 0; i < cnt; i++) {
-            void* p = elems[i];
-            if (!p) continue;
-            if (ply_getIsMaster(p)) currentMaster = p;
-            // Kendini bul: NickName eslesmesi (en guvenli)
-            NSString *pNick = readStr(ply_getNickName(p)) ?: @"";
-            if ([pNick isEqualToString:myNick] && myNick.length > 0) me = p;
-        }
-        // NickName bulunamazsa ActorNumber == 1 dene (yedek)
-        if (!me) {
-            for (int i = 0; i < cnt; i++) {
-                void* p = elems[i];
-                if (!p) continue;
-                if (ply_getActorNumber && ply_getActorNumber(p) == 1) { me = p; break; }
-            }
-        }
-        if (!me) { FLog(@"Kendinizi bulamadim - odaya gir"); return; }
-        BOOL alreadyMaster = ply_getIsMaster(me);
-        if (alreadyMaster) {
+        void* me = pn_getLocalPlayer();
+        if (!me) { FLog(@"Kullanici alinamadi - odaya girin"); return; }
+
+        if (ply_getIsMaster && ply_getIsMaster(me)) {
             FLog(@"Zaten siz bu odanin master'isiniz 👑");
             UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"👑 Oda Master"
                                                                        message:@"Zaten bu odanin sahibisiniz!" preferredStyle:UIAlertControllerStyleAlert];
@@ -4718,30 +4694,22 @@ static bool few1n_invoke0(void* method, void* obj, const char* label) {
             [self present:ac];
             return;
         }
-        // Gercek SetMasterClient cagrisi - IL2CPP ile (hook olmadan)
-        if (pn_setMasterClient) {
-            BOOL success = pn_setMasterClient(me);
-            if (success) {
-                FLog(@"👑 ODA MASTER ALINDI! Artik siz bu odanin sahibisiniz.");
-                UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"👑 ODA MASTER ALINDI!"
-                                                                           message:@"Artik bu odanin sahibisiniz! Tum yetkiler sizde." preferredStyle:UIAlertControllerStyleAlert];
-                [ac addAction:[UIAlertAction actionWithTitle:@"Tamam" style:UIAlertActionStyleDefault handler:nil]];
-                [self present:ac];
-            } else {
-                FLog(@"Oda master alma BASARISIZ - sunucu reddetti veya zaten master degilsiniz");
-                UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"👑 Oda Master"
-                                                                           message:@"Master olma BASARISIZ.\nNedenler:\n- Zaten master olabilirsiniz\n- Sunucu reddetti\n- Photon baglantisi aktif degil" preferredStyle:UIAlertControllerStyleAlert];
-                [ac addAction:[UIAlertAction actionWithTitle:@"Kapat" style:UIAlertActionStyleCancel handler:nil]];
-                [self present:ac];
-            }
+
+        BOOL success = pn_setMasterClient(me);
+        if (success) {
+            FLog(@"👑 ODA MASTER ALINDI! Artik siz bu odanin sahibisiniz.");
+            UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"👑 ODA MASTER ALINDI!"
+                                                                       message:@"Artik bu odanin sahibisiniz! Tum yetkiler sizde." preferredStyle:UIAlertControllerStyleAlert];
+            [ac addAction:[UIAlertAction actionWithTitle:@"Tamam" style:UIAlertActionStyleDefault handler:nil]];
+            [self present:ac];
         } else {
-            FLog(@"pn_setMasterClient pointeri hazir degil - il2cpp init bekleniyor");
+            FLog(@"Oda master alma BASARISIZ");
             UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"👑 Oda Master"
-                                                                       message:@"IL2CPP init bekleniyor - oyuna yeniden girin." preferredStyle:UIAlertControllerStyleAlert];
+                                                                       message:@"Master alma BASARISIZ.\nSunucu veya baglanti reddetti." preferredStyle:UIAlertControllerStyleAlert];
             [ac addAction:[UIAlertAction actionWithTitle:@"Kapat" style:UIAlertActionStyleCancel handler:nil]];
             [self present:ac];
         }
-    } @catch (...) { FLog(@"Oda master olma hatasi"); }
+    } @catch (...) { FLog(@"Oda master alma hatasi"); }
 }
 
 - (void)nukeRoom {
