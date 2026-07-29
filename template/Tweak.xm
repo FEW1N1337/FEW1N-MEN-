@@ -12,9 +12,9 @@
 #import <objc/runtime.h>
 
 // ============================================================
-//  v62.0 - FEW1N MOD MENU  (derlenir, hatasiz - bu dosyayi kullan)
-//  YENI: GERCEK Kick - Oyuncu Sec & At (liste), Herkesi At, Isimle At (disassemble ile dogrulandi),
-//        Ucus D-pad, Emoji sprite + test, Otomatik Karsilama, Belirli Odaya Gir, Normal Oda 31 kisilik
+//  v63.0 - FEW1N MOD MENU  (derlenir, hatasiz - bu dosyayi kullan)
+//  DUZELTME: rainbowWrap forward-decl (tanim sirasi), decl-order taramasi temiz, autogreet poll optimize.
+//  Ozellikler: GERCEK Kick (liste/isim), Ucus D-pad, Emoji sprite+test, Otomatik Karsilama, Normal Oda 31
 //  DreamRoadMultiplayer | Unity 6 (6000.3.0b1) | Metadata v39
 // ------------------------------------------------------------
 //  ONEMLI: Oyun Unity 6'ya guncellendi + isim obfuscation eklendi.
@@ -276,6 +276,8 @@ static NSString* glitchWrapChat(NSString* msg) {
     if (!msg || msg.length == 0) return msg;
     return [NSString stringWithFormat:@"<color=#FF00FF><b>[ROOT]</b></color> <color=#00FFFF>%@</color>", msg];
 }
+// forward decl: rainbowWrap fireSpam icinde tanimindan (asagida) once kullaniliyor -> kesin cozum
+static NSString* rainbowWrap(NSString* text, int idx);
 static NSArray* chatTemplates(void) {
     return @[
         @"<color=#FF0000><b>SYSTEM BREACH DETECTED</b></color>",
@@ -2033,7 +2035,7 @@ static UIViewController* few1n_topVC(void) {
     title.font = [UIFont systemFontOfSize:17 weight:UIFontWeightBlack];
     [header addSubview:title];
     UILabel *ver = [[UILabel alloc] initWithFrame:CGRectMake(42,37,pw-90,16)];
-    ver.text = [NSString stringWithFormat:@"v62.0  •  Base 0x%lX", (unsigned long)global_base];
+    ver.text = [NSString stringWithFormat:@"v63.0  •  Base 0x%lX", (unsigned long)global_base];
     ver.textColor = [UIColor colorWithWhite:1 alpha:0.82];
     ver.font = [UIFont fontWithName:@"Menlo-Bold" size:8] ?: [UIFont systemFontOfSize:8 weight:UIFontWeightBold];
     [header addSubview:ver];
@@ -2470,10 +2472,11 @@ static UIViewController* few1n_topVC(void) {
 - (void)frameTick {
     enforceScale();          // her ekran frame'inde timeScale'i zorla
     // ===== OTOMATIK KARSILAMA: odaya YENI girince (false->true kenari) mesaj at =====
-    if (pn_getInRoom) {
+    // Optimizasyon: sadece ozellik ACIKKEN poll et (kapaliyken her frame cagri yok)
+    if (isAutoGreetEnabled && pn_getInRoom) {
         bool inRoom = false;
         @try { inRoom = pn_getInRoom(); } @catch (...) {}
-        if (inRoom && !g_wasInRoom && isAutoGreetEnabled && chatGetInst && chatSend) {
+        if (inRoom && !g_wasInRoom && chatGetInst && chatSend) {
             NSString *greet = [NSString stringWithUTF8String:g_greetText];
             // chat hazir olsun diye 1.5sn sonra gonder
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
