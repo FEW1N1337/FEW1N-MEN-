@@ -12,9 +12,9 @@
 #import <objc/runtime.h>
 
 // ============================================================
-//  v55.0 - FEW1N MOD MENU  (derlenir, hatasiz - bu dosyayi kullan)
-//  YENI: Temiz Renkli Oda Chat (kod yazisi gorunmez), GIF ASCII mspace (duzgun hizalama),
-//        GIF gercek-kare cekme (registeredTypeIdentifiers), Favori Panel, Kick fix, Oto Gaz
+//  v62.0 - FEW1N MOD MENU  (derlenir, hatasiz - bu dosyayi kullan)
+//  YENI: GERCEK Kick - Oyuncu Sec & At (liste), Herkesi At, Isimle At (disassemble ile dogrulandi),
+//        Ucus D-pad, Emoji sprite + test, Otomatik Karsilama, Belirli Odaya Gir, Normal Oda 31 kisilik
 //  DreamRoadMultiplayer | Unity 6 (6000.3.0b1) | Metadata v39
 // ------------------------------------------------------------
 //  ONEMLI: Oyun Unity 6'ya guncellendi + isim obfuscation eklendi.
@@ -72,6 +72,9 @@ static bool isAutoMoneyEnabled = false;
 static bool isFlyEnabled = false;       // hover (dikey hizi 0 tut -> havada surus)
 static bool flyAutoThrust = false;      // ucusta otomatik ileri -> sadece direksiyonla don (gaz+don sorunu cozer)
 static float flyAutoLevel = 0.7f;       // otomatik gaz seviyesi (0..1)
+// ==== UCUS D-PAD (ekran kumandasi - mod butonlariyla ucus, g_myRccp gerekmez) ====
+static bool isFlyPadShown = false;
+static bool g_dpFwd=false, g_dpBack=false, g_dpLeft=false, g_dpRight=false, g_dpUp=false, g_dpDown=false;
 static bool isLowGravEnabled = false;   // dususu yavaslat (floaty)
 static bool isDriftEnabled = false;     // drift modu (kusursuz yan kayma)
 static bool isCruiseEnabled = false;    // hiz sabitleyici (cruise control)
@@ -88,6 +91,7 @@ static int  roomSpamMaxCount = 0;       // hedef (0 = sinirsiz)
 static float roomSpamInterval = 0.4f;   // aralik (sn) - hizli
 static int  roomSpamTTL = 300000;       // oda acik kalma (ms)
 static bool roomSpamContinuous = true;  // surekli mod
+static int  roomMaxPlayers = 31;        // odaya girebilecek MAX oyuncu (oyun 10 sinirli; 0=Photon sinirsiz)
 static int  spamStyle = 0;              // 0=duz 1=cerceveli 2=sembol 3=renkli
 static char customPlateText[64] = "FEW1N";
 static char chatSpamText[128] = "FEW1N MOD MENU!";
@@ -98,6 +102,10 @@ static bool  isAnnounceEnabled = false;
 static float announceInterval = 5.0f;
 static int   g_announceIdx = 0;
 static char  announceText[512] = "FEW1N MOD MENU aktif!\nHerkese selam!\nIyi oyunlar";
+// ==== OTOMATIK KARSILAMA (odaya girince) ====
+static bool  isAutoGreetEnabled = false;
+static char  g_greetText[256] = "Selam millet! FEW1N burada 🔥";
+static bool  g_wasInRoom = false;          // oda giris/cikis kenar tespiti
 // ==== SARKI SOZU -> CHAT (altyazi gibi) ====
 static bool isLyricsEnabled = false;
 static int  g_lyricsIdx = 0;             // hangi satir
@@ -608,6 +616,13 @@ static void few1n_initIl2cpp(void) {
                 }
             }
         }
+        if (!g_lobbyDummyType) {
+            void* ldc = i_class_from_name(img, "", "HR_PhotonLobbyManagerDummy");
+            if (!ldc) ldc = few1n_findClassByName(img, "HR_PhotonLobbyManagerDummy");
+            if (ldc) { g_lobbyDummyType = few1n_typeObjOf(ldc);
+                       if (i_class_get_method_from_name) g_mDummyKick = i_class_get_method_from_name(ldc, "KickPlayer", 0);
+                       FLog([NSString stringWithFormat:@"LobbyDummy tipi=%p kick=%p (GERCEK kick RPC)", g_lobbyDummyType, g_mDummyKick]); }
+        }
         if (!g_playerHandlerType) {
             void* ph = i_class_from_name(img, "", "HR_PlayerHandler");
             if (!ph) ph = few1n_findClassByName(img, "HR_PlayerHandler");
@@ -813,6 +828,10 @@ static void  (*lobby_createRoom)(void* self) = NULL;   // HR_PhotonLobbyManager.
 static void  (*lobby_leaveRoom)(void* self) = NULL;    // HR_PhotonLobbyManager.LeaveRoom
 static bool  (*pn_createRoom)(void* name, void* opts, void* lobby, void* users) = NULL; // PhotonNetwork.CreateRoom
 static bool  (*pn_joinRoom)(void* name, void* users) = NULL;   // PhotonNetwork.JoinRoom 0x593A64C (goz at)
+static bool  (*pn_getInRoom)(void) = NULL;                     // PhotonNetwork.get_InRoom 0x5934FA4 (oda tespiti)
+static void* g_lobbyDummyType = NULL;   // HR_PhotonLobbyManagerDummy tipi (FindObjectsOfType icin)
+static void* g_mDummyKick = NULL;       // HR_PhotonLobbyManagerDummy.KickPlayer() -> photonView.RPC("KickPlayerRPC", All, ipg)
+                                         // disassemble ile dogrulandi: this+0x108 (ipg) = hedef nickname, RPC ile tum clientlara gider
 static void* (*pn_getNickName)(void) = NULL;                   // PhotonNetwork.get_NickName 0x59338C0 (isim kaydet)
 static bool  (*pn_leaveRoom)(bool) = NULL;                     // PhotonNetwork.LeaveRoom 0x593B2D8 (goz at cikis)
 static bool  (*pn_setMasterClient)(void* player) = NULL;       // PhotonNetwork.SetMasterClient (kullanicinin eklemesi)
@@ -1311,7 +1330,7 @@ static void few1n_applyCar(void) {
             else if (g_noClipApplied && g_mRbSetDetect) { bool t=true; void* a[1]={&t}; i_runtime_invoke(g_mRbSetDetect, g_rb, a, NULL); g_noClipApplied=false; }
             // Ucus/no-clip'te de yercekimini kapat -> hover sabit kalir, karsiya PURUZSUZ gider
             // (yoksa yercekimi vs velocity.y=0 cakismasi titremeye sebep olur)
-            bool gravOff = isAntiGrav || isFlyEnabled || isNoClip;
+            bool gravOff = isAntiGrav || isFlyEnabled || isNoClip || isFlyPadShown;
             if (gravOff && g_mRbUseGrav) { bool f=false; void* a[1]={&f}; i_runtime_invoke(g_mRbUseGrav, g_rb, a, NULL); g_antiGravApplied=true; }
             else if (g_antiGravApplied && g_mRbUseGrav) { bool t=true; void* a[1]={&t}; i_runtime_invoke(g_mRbUseGrav, g_rb, a, NULL); g_antiGravApplied=false; }
             // ARAC BOYUTU: g_rb'nin transformunu olcekle - CarDriveSystem GEREKMEZ (g_rb yeterli)
@@ -1686,6 +1705,7 @@ static void h_roomLineSetup(void* self, void* a, void* b, unsigned char c, unsig
 @property (nonatomic, strong) UIView *logOverlay;
 @property (nonatomic, strong) UITextView *logText;
 @property (nonatomic, strong) UIView *favOverlay;
+@property (nonatomic, strong) UIView *flyPad;
 @property (nonatomic, strong) CADisplayLink *dl;
 + (instancetype)shared;
 - (void)build;
@@ -1707,6 +1727,21 @@ static void h_roomLineSetup(void* self, void* a, void* b, unsigned char c, unsig
 - (void)promptStyledSend:(int)mode;
 - (void)sendMatrixMsg;
 - (void)sendGlitchMsg;
+- (void)createNormalRoom;
+- (void)pickRoomMax:(UIButton*)b;
+- (void)nativeKickAll;
+- (void)nativeKickByName;
+- (void)nativeKickPick;
+- (BOOL)doNativeKick:(NSString*)nm;
+- (void)emojiRain;
+- (void)emojiSpriteTest;
+- (void)tapFlyPad;
+- (void)buildFlyPad;
+- (void)dpDown:(UIButton*)b;
+- (void)dpUp:(UIButton*)b;
+- (void)tapAutoGreet;
+- (void)editGreet;
+- (void)joinRoomByName;
 @end
 
 static int g_bruteForceIdx = 0;
@@ -1760,7 +1795,7 @@ static void h_createRoomBtn(void* self) {
             if (ns && opts) {
                 *(bool*)((uintptr_t)opts + 0x10) = true;
                 *(bool*)((uintptr_t)opts + 0x11) = true;
-                *(int*) ((uintptr_t)opts + 0x14) = 8;
+                *(int*) ((uintptr_t)opts + 0x14) = roomMaxPlayers;   // MAX oyuncu (oyun 10 sinirini as)
                 *(int*) ((uintptr_t)opts + 0x1C) = roomSpamTTL;
                 pn_createRoom(ns, opts, NULL, NULL);
                 FLog(@"Oda kuruldu (direkt pn_createRoom, dogrulama atlandi)");
@@ -1999,7 +2034,7 @@ static UIViewController* few1n_topVC(void) {
     title.font = [UIFont systemFontOfSize:17 weight:UIFontWeightBlack];
     [header addSubview:title];
     UILabel *ver = [[UILabel alloc] initWithFrame:CGRectMake(42,37,pw-90,16)];
-    ver.text = [NSString stringWithFormat:@"v55.0  •  Base 0x%lX", (unsigned long)global_base];
+    ver.text = [NSString stringWithFormat:@"v62.0  •  Base 0x%lX", (unsigned long)global_base];
     ver.textColor = [UIColor colorWithWhite:1 alpha:0.82];
     ver.font = [UIFont fontWithName:@"Menlo-Bold" size:8] ?: [UIFont systemFontOfSize:8 weight:UIFontWeightBold];
     [header addSubview:ver];
@@ -2063,6 +2098,7 @@ static UIViewController* few1n_topVC(void) {
     y = [self actionRow:@"✏️  Sabit Hız Ayarla (km/h)" color:C_CYAN atY:y action:@selector(editCruiseSpeed)];
     y = [self toggle:@"\U0001F681  Ucus (Havada Surus)" sub:@"Gaz=ileri it, direksiyon=havada don" key:@"fly" atY:y action:@selector(tapFly)];
     y = [self toggle:@"\U0001F6E9  Ucusta Otomatik Gaz" sub:@"Otomatik ileri gider -> parmak sadece direksiyonda (gaz+don sorunu biter)" key:@"flyauto" atY:y action:@selector(tapFlyAuto)];
+    y = [self toggle:@"\U0001F579  Ucus Kumandasi (D-pad)" sub:@"Ekranda ok tuslari -> mod'un butonlariyla uc (gaz+don ayni anda)" key:@"flypad" atY:y action:@selector(tapFlyPad)];
     y = [self toggle:@"\U0001FAB6  Dusuk Yercekimi" sub:@"Dusus yavas, floaty" key:@"lowgrav" atY:y action:@selector(tapLowGrav)];
     y = [self toggle:@"\U0001F319  Anti-Gravity (Ay modu)" sub:@"Yercekimi kapali, suzul (asili kal)" key:@"antigrav" atY:y action:@selector(tapAntiGrav)];
     y = [self toggle:@"\U0001F47B  No-Clip (Araclardan Gec)" sub:@"Trafikten/duvardan gec - godmode gibi ama fiziksel gecis" key:@"noclip" atY:y action:@selector(tapNoClip)];
@@ -2138,6 +2174,10 @@ static UIViewController* few1n_topVC(void) {
     // YENI: mod'dan yaz -> stilde gonder (hook gerektirmez, her zaman calisir)
     y = [self actionRow:@"🟢  Matrix Mesaji Gonder (yaz→stil)" color:C_ON atY:y action:@selector(sendMatrixMsg)];
     y = [self actionRow:@"💀  Glitch Mesaji Gonder (yaz→stil)" color:C_ON atY:y action:@selector(sendGlitchMsg)];
+    y = [self actionRow:@"🌧  Emoji Yagmuru (oyun sprite'lari)" color:C_ACCENT atY:y action:@selector(emojiRain)];
+    y = [self actionRow:@"🧪  Emoji Test (0-29 hangisi gecerli?)" color:C_CYAN atY:y action:@selector(emojiSpriteTest)];
+    y = [self toggle:@"👋  Otomatik Karsilama" sub:@"Odaya girince otomatik mesaj at" key:@"autogreet" atY:y action:@selector(tapAutoGreet)];
+    y = [self actionRow:@"✏️  Karsilama Mesajini Duzenle" color:C_CYAN atY:y action:@selector(editGreet)];
     y = [self actionRow:@"📋  Hacker Chat Sablonu Gonder" color:C_RED atY:y action:@selector(sendChatTemplate)];
 
     y = [self header:@"\U0001F3B5  SARKI SOZU (altyazi)" atY:y];
@@ -2155,9 +2195,27 @@ static UIViewController* few1n_topVC(void) {
     [self.nameBtn setTitleColor:C_CYAN forState:UIControlStateNormal];
     [self.nameBtn addTarget:self action:@selector(changeName) forControlEvents:UIControlEventTouchUpInside];
     y = [self actionRow:@"\U0001F3AD  Isim Hileleri (rozet/gorunmez/kayan)" color:C_GOLD atY:y action:@selector(nameTricks)];
-    y = [self actionRow:@"⚔️  Tum Oyunculari At (SADECE kendi odanda)" color:C_RED atY:y action:@selector(kickAllPlayers)];
+    y = [self actionRow:@"⚔️  Tum Oyunculari At (CloseConnection)" color:C_RED atY:y action:@selector(kickAllPlayers)];
+    y = [self actionRow:@"🔨  GERCEK Kick: Herkesi At (oyunun RPC'si)" color:C_RED atY:y action:@selector(nativeKickAll)];
+    y = [self actionRow:@"🎯  GERCEK Kick: Oyuncu Seç & At (liste)" color:C_RED atY:y action:@selector(nativeKickPick)];
+    y = [self actionRow:@"✏️  GERCEK Kick: İsimle At (elle yaz)" color:C_RED atY:y action:@selector(nativeKickByName)];
 
     y = [self header:@"\U0001F511  ODA" atY:y];
+    y = [self actionRow:@"🚪  Belirli Odaya Gir (isim/ID yaz)" color:C_ON atY:y action:@selector(joinRoomByName)];
+    y = [self actionRow:@"🏠  Normal Oda Kur (isim yaz — 10 sinirini as)" color:C_ON atY:y action:@selector(createNormalRoom)];
+    {
+        UIView *rmrow = [[UIView alloc] initWithFrame:CGRectMake(12,y,pw-24,44)];
+        rmrow.backgroundColor = C_CARD; rmrow.layer.cornerRadius = 12;
+        UIButton *rmb = [UIButton buttonWithType:UIButtonTypeSystem];
+        rmb.frame = CGRectMake(0,0,pw-24,44);
+        [rmb setTitle:[NSString stringWithFormat:@"\U0001F465 Oda Max Oyuncu: %d", roomMaxPlayers] forState:UIControlStateNormal];
+        [rmb setTitleColor:C_ACCENT forState:UIControlStateNormal];
+        rmb.titleLabel.font = [UIFont systemFontOfSize:13 weight:UIFontWeightSemibold];
+        [rmb addTarget:self action:@selector(pickRoomMax:) forControlEvents:UIControlEventTouchUpInside];
+        [rmrow addSubview:rmb];
+        [self.contentView addSubview:rmrow];
+        y += 52;
+    }
     y = [self toggle:@"🎨  Zorla Renkli Oda (Client-Side)" sub:@"Tum oda isimlerini renklendir" key:@"colorroomforce" atY:y action:@selector(tapColorRoomForce)];
     y = [self actionRow:@"\U0001F513  Oda Sifrelerini Goster (il2cpp)" color:C_ON atY:y action:@selector(showRoomPasswords)];
     y = [self actionRow:@"\U0001F465  Odadaki Oyuncular (isim kopyala)" color:C_CYAN atY:y action:@selector(showPlayers)];
@@ -2356,10 +2414,12 @@ static UIViewController* few1n_topVC(void) {
     }
     [self setToggle:@"fly"       on:isFlyEnabled];
     [self setToggle:@"flyauto"   on:flyAutoThrust];
+    [self setToggle:@"flypad"    on:isFlyPadShown];
     [self setToggle:@"lowgrav"   on:isLowGravEnabled];
     [self setToggle:@"chatspam"  on:isSpamEnabled];
     [self setToggle:@"asciianim" on:isAsciiAnimEnabled];
     [self setToggle:@"gifColored" on:g_gifColored];
+    [self setToggle:@"autogreet" on:isAutoGreetEnabled];
     [self setToggle:@"bypass"    on:isBypassPasswordEnabled];
     [self setToggle:@"roomspam"  on:isRoomSpamEnabled];
     [self setToggle:@"roomcont"  on:roomSpamContinuous];
@@ -2410,13 +2470,26 @@ static UIViewController* few1n_topVC(void) {
 
 - (void)frameTick {
     enforceScale();          // her ekran frame'inde timeScale'i zorla
+    // ===== OTOMATIK KARSILAMA: odaya YENI girince (false->true kenari) mesaj at =====
+    if (pn_getInRoom) {
+        bool inRoom = false;
+        @try { inRoom = pn_getInRoom(); } @catch (...) {}
+        if (inRoom && !g_wasInRoom && isAutoGreetEnabled && chatGetInst && chatSend) {
+            NSString *greet = [NSString stringWithUTF8String:g_greetText];
+            // chat hazir olsun diye 1.5sn sonra gonder
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                @try { void* mgr = chatGetInst(); void* s = mkStr(greet); if (mgr && s && greet.length > 0) chatSend(mgr, s); } @catch (...) {}
+            });
+        }
+        g_wasInRoom = inRoom;
+    }
     few1n_applyCar();        // onbellekten nitro/hiz/panel uygula (arama YAPMAZ - ucuz)
     few1n_applyColor();      // arac rengini uygula (onbellek materyaller - ucuz)
     few1n_applyGodmode();    // godmode: canCrash=false (hic kaza yapma)
     few1n_applySelektor();   // selektor: RCCP high/low beam hizli cakma
     // ===== UCUS: havada GERCEK surus (gaz=ileri, fren=geri, direksiyon=don) - PURUZSUZ =====
     // Hepsi hiz/acisal-hiz (fizik) ile -> Photon dogal senkronlar -> baskalarinda titremez.
-    if (isFlyEnabled && unityAlive(g_rb)) {
+    if (isFlyEnabled && !isFlyPadShown && unityAlive(g_rb)) {
         @try {
             Vec3 v = {0,0,0}; rbGetVelIl(g_rb, &v);
             Vec3 fwd; bool haveFwd = few1n_fwd(g_rb, &fwd);
@@ -2448,6 +2521,29 @@ static UIViewController* few1n_topVC(void) {
             if (isNoClip || isAntiGrav) v.y *= 0.80f;              // no-clip/anti-grav: yumusak asili kal (titremez)
             else if (isLowGravEnabled && v.y < 0.0f) v.y *= 0.25f; // floaty dusus
             rbSetVelIl(g_rb, &v);
+        } @catch (...) {}
+    }
+
+    // ===== UCUS D-PAD: ekran butonlariyla ucus (g_myRccp GEREKMEZ - carDrive=YOK olsa bile calisir) =====
+    if (isFlyPadShown && unityAlive(g_rb)) {
+        @try {
+            Vec3 v = {0,0,0}; rbGetVelIl(g_rb, &v);
+            Vec3 fwd; bool hf = few1n_fwd(g_rb, &fwd);
+            float sp = flyDriveSpeed;
+            float tx = 0.0f, tz = 0.0f;
+            if (hf) {
+                if (g_dpFwd)  { tx += fwd.x * sp; tz += fwd.z * sp; }
+                if (g_dpBack) { tx -= fwd.x * sp; tz -= fwd.z * sp; }
+            }
+            v.x += (tx - v.x) * 0.35f;   // yumusak gecis -> titremez
+            v.z += (tz - v.z) * 0.35f;
+            if (g_dpUp)        v.y = 12.0f;
+            else if (g_dpDown) v.y = -12.0f;
+            else               v.y = 0.0f;   // tus yoksa havada asili kal
+            rbSetVelIl(g_rb, &v);
+            float yaw = (g_dpLeft ? -2.4f : 0.0f) + (g_dpRight ? 2.4f : 0.0f);
+            Vec3 av = {0.0f, yaw, 0.0f};     // sag/sol -> yaw don
+            rbSetAngVelIl(g_rb, &av);
         } @catch (...) {}
     }
 
@@ -2658,6 +2754,123 @@ static UIViewController* few1n_topVC(void) {
     }]];
     [ac addAction:[UIAlertAction actionWithTitle:@"Iptal" style:UIAlertActionStyleCancel handler:nil]];
     [self present:ac];
+}
+
+// ===== GERCEK KICK: oyunun KENDI KickPlayerRPC'si (disassemble ile dogrulandi) =====
+// LobbyDummy.KickPlayer() -> this+0x108 (ipg) hedef nickname'i okur -> photonView.RPC("KickPlayerRPC", All, isim)
+// KickPlayerRPC her clientte: gelen isim == kendi nickname ise LeaveRoom() -> GERCEKTEN duser (clientlar kendi kodu).
+- (void)nativeKickAll {
+    if (!g_lobbyDummyType || !g_mFindObjectsPlural || !i_runtime_invoke || !g_mDummyKick || !pn_getPlayerListOthers) {
+        FLog(@"Gercek kick hazir degil - oda/lobi ekraninda dene"); return;
+    }
+    UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"🔨 GERCEK Kick (oyunun RPC'si)"
+        message:@"Oyunun kendi KickPlayerRPC'sini kullanir -> tum clientlar dinler, GERCEKTEN duser. Kendi odandaki tum digerlerini at?" preferredStyle:UIAlertControllerStyleAlert];
+    [ac addAction:[UIAlertAction actionWithTitle:@"Evet, At" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *a2){
+        @try {
+            // 1) Lobi yoneticisi (HR_PhotonLobbyManagerDummy) instance'ini bul
+            void* a[1]; a[0] = g_lobbyDummyType;
+            void* larr = i_runtime_invoke(g_mFindObjectsPlural, NULL, a, NULL);
+            if (!ptrOk(larr)) { FLog(@"Lobi yoneticisi yok (oda/lobi ekraninda dene)"); return; }
+            int lc = (int)(*(uintptr_t*)((uintptr_t)larr + 0x18));
+            if (lc <= 0) { FLog(@"Lobi yoneticisi bulunamadi"); return; }
+            void* mgr = ((void**)((uintptr_t)larr + 0x20))[0];
+            if (!unityAlive(mgr)) { FLog(@"Lobi instance gecersiz"); return; }
+            // 2) Odadaki DIGER oyuncularin nickname'lerini al, her birini at
+            void* pa = pn_getPlayerListOthers();
+            if (!ptrOk(pa)) { FLog(@"Odada baska oyuncu yok"); return; }
+            int cnt = (int)(*(uintptr_t*)((uintptr_t)pa + 0x18));
+            if (cnt <= 0 || cnt > 64) { FLog(@"Baska oyuncu yok"); return; }
+            void** ps = (void**)((uintptr_t)pa + 0x20);
+            int k = 0;
+            for (int i = 0; i < cnt; i++) {
+                void* p = ps[i]; if (!ptrOk(p)) continue;
+                void* nmeStr = ply_getNickName ? ply_getNickName(p) : NULL;
+                if (!ptrOk(nmeStr)) continue;
+                *(void**)((uintptr_t)mgr + 0x108) = nmeStr;   // hedef ismi ipg (+0x108) alanina yaz
+                @try { i_runtime_invoke(g_mDummyKick, mgr, NULL, NULL); k++; } @catch (...) {}
+            }
+            FLog([NSString stringWithFormat:@"%d oyuncuya KickPlayerRPC gonderildi -> GERCEKTEN dusmeli (oyunun kendi kick'i)", k]);
+        } @catch (...) { FLog(@"Gercek kick hatasi"); }
+    }]];
+    [ac addAction:[UIAlertAction actionWithTitle:@"Iptal" style:UIAlertActionStyleCancel handler:nil]];
+    [self present:ac];
+}
+// Tek oyuncuyu ismiyle at (oyunun KickPlayerRPC'si)
+- (void)nativeKickByName {
+    if (!g_lobbyDummyType || !g_mFindObjectsPlural || !i_runtime_invoke || !g_mDummyKick) { FLog(@"Gercek kick hazir degil - oda/lobi ekraninda dene"); return; }
+    UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"🔨 Oyuncuyu At (isimle)"
+        message:@"Atmak istedigin oyuncunun TAM nickname'ini yaz:" preferredStyle:UIAlertControllerStyleAlert];
+    [ac addTextFieldWithConfigurationHandler:^(UITextField *tf){ tf.placeholder = @"nickname"; tf.clearButtonMode = UITextFieldViewModeAlways; }];
+    [ac addAction:[UIAlertAction actionWithTitle:@"At" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *a2){
+        NSString *nm = ac.textFields.firstObject.text;
+        if (!nm || nm.length == 0) { FLog(@"Bos isim"); return; }
+        @try {
+            void* a[1]; a[0] = g_lobbyDummyType;
+            void* larr = i_runtime_invoke(g_mFindObjectsPlural, NULL, a, NULL);
+            if (!ptrOk(larr)) { FLog(@"Lobi yoneticisi yok"); return; }
+            int lc = (int)(*(uintptr_t*)((uintptr_t)larr + 0x18));
+            if (lc <= 0) { FLog(@"Lobi yoneticisi bulunamadi"); return; }
+            void* mgr = ((void**)((uintptr_t)larr + 0x20))[0];
+            if (!unityAlive(mgr)) { FLog(@"Lobi instance gecersiz"); return; }
+            void* ns = mkStr(nm);
+            if (!ns) return;
+            *(void**)((uintptr_t)mgr + 0x108) = ns;
+            @try { i_runtime_invoke(g_mDummyKick, mgr, NULL, NULL); } @catch (...) {}
+            FLog([NSString stringWithFormat:@"'%@' icin KickPlayerRPC gonderildi -> dusmeli", nm]);
+        } @catch (...) { FLog(@"Gercek kick hatasi"); }
+    }]];
+    [ac addAction:[UIAlertAction actionWithTitle:@"Iptal" style:UIAlertActionStyleCancel handler:nil]];
+    [self present:ac];
+}
+// Ortak kick helper: verilen nickname'i lobi yoneticisine yazip KickPlayerRPC gonderir
+- (BOOL)doNativeKick:(NSString*)nm {
+    if (!g_lobbyDummyType || !g_mFindObjectsPlural || !i_runtime_invoke || !g_mDummyKick || nm.length == 0) return NO;
+    @try {
+        void* a[1]; a[0] = g_lobbyDummyType;
+        void* larr = i_runtime_invoke(g_mFindObjectsPlural, NULL, a, NULL);
+        if (!ptrOk(larr)) { FLog(@"Lobi yoneticisi yok (oda/lobi ekraninda dene)"); return NO; }
+        int lc = (int)(*(uintptr_t*)((uintptr_t)larr + 0x18));
+        if (lc <= 0) { FLog(@"Lobi yoneticisi bulunamadi"); return NO; }
+        void* mgr = ((void**)((uintptr_t)larr + 0x20))[0];
+        if (!unityAlive(mgr)) { FLog(@"Lobi instance gecersiz"); return NO; }
+        void* ns = mkStr(nm);
+        if (!ns) return NO;
+        *(void**)((uintptr_t)mgr + 0x108) = ns;   // hedef ismi ipg (+0x108)
+        @try { i_runtime_invoke(g_mDummyKick, mgr, NULL, NULL); } @catch (...) {}
+        return YES;
+    } @catch (...) { return NO; }
+}
+// Odadaki oyuncularu LISTELE, secilen(ler)i at
+- (void)nativeKickPick {
+    if (!g_lobbyDummyType || !g_mFindObjectsPlural || !i_runtime_invoke || !g_mDummyKick || !pn_getPlayerListOthers || !ply_getNickName) {
+        FLog(@"Gercek kick hazir degil - oda/lobi ekraninda dene"); return;
+    }
+    @try {
+        void* pa = pn_getPlayerListOthers();
+        if (!ptrOk(pa)) { FLog(@"Odada baska oyuncu yok"); return; }
+        int cnt = (int)(*(uintptr_t*)((uintptr_t)pa + 0x18));
+        if (cnt <= 0 || cnt > 64) { FLog(@"Baska oyuncu yok"); return; }
+        void** ps = (void**)((uintptr_t)pa + 0x20);
+        UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"🎯 Oyuncu Sec & At"
+            message:@"Atmak istedigin oyuncuya dokun (oyunun kendi RPC'si -> gercekten duser)" preferredStyle:UIAlertControllerStyleActionSheet];
+        int added = 0;
+        for (int i = 0; i < cnt; i++) {
+            void* p = ps[i]; if (!ptrOk(p)) continue;
+            void* nsObj = ply_getNickName(p);
+            NSString *nm = ptrOk(nsObj) ? (readStr(nsObj) ?: @"") : @"";
+            if (nm.length == 0) continue;
+            NSString *nmCopy = [nm copy];
+            [ac addAction:[UIAlertAction actionWithTitle:[NSString stringWithFormat:@"⛔ %@", nm] style:UIAlertActionStyleDestructive handler:^(UIAlertAction *a){
+                BOOL ok = [self doNativeKick:nmCopy];
+                FLog(ok ? [NSString stringWithFormat:@"'%@' atildi (KickPlayerRPC) -> dusmeli", nmCopy] : @"Kick basarisiz (oda/lobi ekraninda dene)");
+            }]];
+            added++;
+        }
+        if (added == 0) { FLog(@"Atilacak oyuncu ismi okunamadi"); return; }
+        [ac addAction:[UIAlertAction actionWithTitle:@"Iptal" style:UIAlertActionStyleCancel handler:nil]];
+        if (ac.popoverPresentationController) { ac.popoverPresentationController.sourceView = self.panel; ac.popoverPresentationController.sourceRect = CGRectMake(self.panel.bounds.size.width/2, 80, 1, 1); }
+        [self present:ac];
+    } @catch (...) { FLog(@"Oyuncu listesi hatasi"); }
 }
 
 // ===== ODAYA GOZ AT: isimsiz anlik gir, oyuncularu oku, cik, ismi geri yukle =====
@@ -2976,6 +3189,70 @@ static UIViewController* few1n_topVC(void) {
 }
 - (void)tapFly       { isFlyEnabled            = !isFlyEnabled;            saveBool(@"fly", isFlyEnabled);                  [self refreshUI]; }
 - (void)tapFlyAuto   { flyAutoThrust           = !flyAutoThrust;          saveBool(@"flyauto", flyAutoThrust); FLog(flyAutoThrust ? @"Ucusta Otomatik Gaz ACIK - sadece direksiyonla don" : @"Otomatik Gaz KAPALI"); [self refreshUI]; }
+// ===== UCUS D-PAD: ekran kumandasi =====
+- (void)dpSet:(int)tag on:(BOOL)on {
+    switch (tag) {
+        case 1: g_dpFwd = on;  break;
+        case 2: g_dpBack = on; break;
+        case 3: g_dpLeft = on; break;
+        case 4: g_dpRight = on; break;
+        case 5: g_dpUp = on;   break;
+        case 6: g_dpDown = on; break;
+    }
+}
+- (void)dpDown:(UIButton*)b { [self dpSet:(int)b.tag on:YES]; }
+- (void)dpUp:(UIButton*)b   { [self dpSet:(int)b.tag on:NO]; }
+- (void)dragPad:(UIPanGestureRecognizer*)g {
+    UIView *v = g.view; CGPoint t = [g translationInView:v.superview];
+    v.center = CGPointMake(v.center.x + t.x, v.center.y + t.y);
+    [g setTranslation:CGPointZero inView:v.superview];
+}
+- (void)buildFlyPad {
+    UIWindow *w = getKeyWindow(); if (!w) return;
+    if (self.flyPad) { [self.flyPad removeFromSuperview]; self.flyPad = nil; }
+    CGFloat sz = 214;
+    UIView *pad = [[UIView alloc] initWithFrame:CGRectMake(w.bounds.size.width - sz - 20, w.bounds.size.height - sz - 70, sz, sz)];
+    pad.backgroundColor = [UIColor colorWithWhite:0.0 alpha:0.14];
+    pad.layer.cornerRadius = 18;
+    self.flyPad = pad;
+    [pad addGestureRecognizer:[[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(dragPad:)]];
+    CGFloat g = 6, cell = (sz - 4*g) / 3.0;
+    // @[baslik, tag, col, row]
+    NSArray *specs = @[
+        @[@"⬆", @5, @1, @0],   // yukari
+        @[@"◀", @3, @0, @1],   // sol don
+        @[@"🚀", @1, @1, @1],  // ileri
+        @[@"▶", @4, @2, @1],   // sag don
+        @[@"⬇", @6, @1, @2],   // asagi
+        @[@"⤵", @2, @2, @2],   // geri
+    ];
+    for (NSArray *sp in specs) {
+        int tg = [sp[1] intValue], col = [sp[2] intValue], row = [sp[3] intValue];
+        UIButton *btn = [UIButton buttonWithType:UIButtonTypeCustom];
+        btn.frame = CGRectMake(g + col*(cell+g), g + row*(cell+g), cell, cell);
+        btn.backgroundColor = [UIColor colorWithRed:0.0 green:0.55 blue:0.85 alpha:0.80];
+        btn.layer.cornerRadius = 12;
+        [btn setTitle:sp[0] forState:UIControlStateNormal];
+        [btn setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+        btn.titleLabel.font = [UIFont systemFontOfSize:20 weight:UIFontWeightBold];
+        btn.tag = tg;
+        [btn addTarget:self action:@selector(dpDown:) forControlEvents:UIControlEventTouchDown];
+        [btn addTarget:self action:@selector(dpUp:) forControlEvents:UIControlEventTouchUpInside|UIControlEventTouchUpOutside|UIControlEventTouchCancel];
+        [pad addSubview:btn];
+    }
+    [w addSubview:pad];
+}
+- (void)tapFlyPad {
+    isFlyPadShown = !isFlyPadShown;
+    saveBool(@"flypad", isFlyPadShown);
+    if (isFlyPadShown) { [self buildFlyPad]; FLog(@"Ucus D-pad ACIK - butonlarla uc (araca bin). Ok tuslarini basili tut."); }
+    else {
+        if (self.flyPad) { [self.flyPad removeFromSuperview]; self.flyPad = nil; }
+        g_dpFwd = g_dpBack = g_dpLeft = g_dpRight = g_dpUp = g_dpDown = false;
+        FLog(@"Ucus D-pad KAPALI");
+    }
+    [self refreshUI];
+}
 - (void)tapLowGrav   { isLowGravEnabled        = !isLowGravEnabled;        saveBool(@"lowgrav", isLowGravEnabled);          [self refreshUI]; }
 - (void)tapBypass    { isBypassPasswordEnabled  = !isBypassPasswordEnabled; saveBool(@"bypass", isBypassPasswordEnabled);    [self refreshUI]; }
 - (void)tapAutoMoney { isAutoMoneyEnabled        = !isAutoMoneyEnabled;      saveBool(@"automoney", isAutoMoneyEnabled);      [self refreshUI]; }
@@ -3818,7 +4095,7 @@ static NSString* rainbowWrap(NSString* text, int idx) {
             if (opts) {
                 *(bool*)((uintptr_t)opts + 0x10) = true;     // isVisible
                 *(bool*)((uintptr_t)opts + 0x11) = true;     // isOpen
-                *(int*) ((uintptr_t)opts + 0x14) = 8;        // MaxPlayers
+                *(int*) ((uintptr_t)opts + 0x14) = roomMaxPlayers;   // MaxPlayers (10 sinirini as)
                 *(int*) ((uintptr_t)opts + 0x1C) = roomSpamTTL;   // EmptyRoomTtl (ayarlanabilir)
                 pn_createRoom(nameStr, opts, NULL, NULL);
                 return;
@@ -3835,6 +4112,51 @@ static NSString* rainbowWrap(NSString* text, int idx) {
             lobby_createRoom(lobby);
         }
     } @catch (...) {}
+}
+
+// ===== NORMAL ODA KUR (isim yaz + yuksek kapasite, oyunun 10 sinirini as) =====
+- (void)createNormalRoom {
+    if (!pn_createRoom || !i_object_new || !g_roomOptionsClass) { FLog(@"Oda kurma hazir degil - once oda listesine/lobiye gir"); return; }
+    UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"\U0001F3E0 Normal Oda Kur"
+        message:[NSString stringWithFormat:@"%d kisilik oda. Oda adini yaz:", roomMaxPlayers] preferredStyle:UIAlertControllerStyleAlert];
+    [ac addTextFieldWithConfigurationHandler:^(UITextField *tf){
+        tf.text = [NSString stringWithUTF8String:customRoomName];
+        tf.placeholder = @"Oda adi (istedigin isim)";
+        tf.clearButtonMode = UITextFieldViewModeAlways;
+    }];
+    [ac addAction:[UIAlertAction actionWithTitle:[NSString stringWithFormat:@"Kur (%d kisilik)", roomMaxPlayers] style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
+        NSString *nm = ac.textFields.firstObject.text;
+        if (!nm || nm.length == 0) nm = @"FEW1N ODA";
+        strncpy(customRoomName, nm.UTF8String, sizeof(customRoomName)-1); customRoomName[sizeof(customRoomName)-1]='\0';
+        // Photon oda ismi BENZERSIZ olmali -> sona 1 gorunmez karakter ekle (ekranda gorunmez)
+        NSString *uniq = [nm stringByAppendingString:@"​"];
+        @try {
+            void* nameStr = mkStr(uniq);
+            void* opts = i_object_new(g_roomOptionsClass);
+            if (nameStr && opts) {
+                *(bool*)((uintptr_t)opts + 0x10) = true;            // isVisible
+                *(bool*)((uintptr_t)opts + 0x11) = true;            // isOpen
+                *(int*) ((uintptr_t)opts + 0x14) = roomMaxPlayers;  // 10 sinirini as
+                *(int*) ((uintptr_t)opts + 0x1C) = 0;               // normal oda (spam TTL yok)
+                pn_createRoom(nameStr, opts, NULL, NULL);
+                FLog([NSString stringWithFormat:@"Normal oda kuruldu: '%@' (%d kisilik). Sunucu 10 sinirini zorluyorsa daha az girebilir.", nm, roomMaxPlayers]);
+            } else FLog(@"Oda kurma basarisiz");
+        } @catch (...) { FLog(@"Oda kurma hatasi"); }
+    }]];
+    [ac addAction:[UIAlertAction actionWithTitle:@"Iptal" style:UIAlertActionStyleCancel handler:nil]];
+    [self present:ac];
+}
+- (void)pickRoomMax:(UIButton*)b {
+    if      (roomMaxPlayers <= 10) roomMaxPlayers = 16;
+    else if (roomMaxPlayers <= 16) roomMaxPlayers = 20;
+    else if (roomMaxPlayers <= 20) roomMaxPlayers = 31;
+    else if (roomMaxPlayers <= 31) roomMaxPlayers = 50;
+    else if (roomMaxPlayers <= 50) roomMaxPlayers = 100;
+    else if (roomMaxPlayers <= 100) roomMaxPlayers = 255;
+    else                            roomMaxPlayers = 10;
+    saveInt(@"roomMaxP", roomMaxPlayers);
+    [b setTitle:[NSString stringWithFormat:@"\U0001F465 Oda Max Oyuncu: %d", roomMaxPlayers] forState:UIControlStateNormal];
+    FLog([NSString stringWithFormat:@"Oda max oyuncu: %d", roomMaxPlayers]);
 }
 
 // ===== GELISMIS RENKLI ODA KURUCU =====
@@ -4652,6 +4974,72 @@ static bool few1n_invoke0(void* method, void* obj, const char* label) {
     [ac addAction:[UIAlertAction actionWithTitle:@"Iptal" style:UIAlertActionStyleCancel handler:nil]];
     [self present:ac];
 }
+// ===== EMOJI YAGMURU: oyunun KENDI sprite emojileri (<sprite=N>) -> garanti cikar =====
+static int g_emojiMax = 12;   // gecerli emoji sprite sayisi (Emoji Test ile ogrenilir/ayarlanir)
+- (void)emojiRain {
+    if (!chatGetInst || !chatSend) { FLog(@"Chat hazir degil - once odaya gir"); return; }
+    int mx = (g_emojiMax > 0 && g_emojiMax <= 60) ? g_emojiMax : 12;
+    for (int i = 0; i < 14; i++) {
+        NSMutableString *line = [NSMutableString string];
+        for (int j = 0; j < 12; j++) [line appendFormat:@"<sprite=%d>", (int)arc4random_uniform((uint32_t)mx)];
+        NSString *out = [line copy];
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(i * 0.12 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            @try { void* mgr = chatGetInst(); void* s = mkStr(out); if (mgr && s) chatSend(mgr, s); } @catch (...) {}
+        });
+    }
+    FLog(@"Emoji yagmuru gonderildi (oyun sprite'lari)");
+}
+// ===== EMOJI TEST: 0-29 arasi sprite'lari numarali gonder -> hangisi emoji cikiyorsa o gecerli =====
+- (void)emojiSpriteTest {
+    if (!chatGetInst || !chatSend) { FLog(@"Chat hazir degil - once odaya gir"); return; }
+    for (int block = 0; block < 3; block++) {
+        NSMutableString *line = [NSMutableString string];
+        for (int i = block*10; i < block*10+10; i++) [line appendFormat:@"%d=<sprite=%d> ", i, i];
+        NSString *out = [line copy];
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(block * 0.45 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            @try { void* mgr = chatGetInst(); void* s = mkStr(out); if (mgr && s) chatSend(mgr, s); } @catch (...) {}
+        });
+    }
+    FLog(@"Emoji test gonderildi: hangi numaralar emoji olarak ciktiysa onlar gecerli. Bana soyle, yagmuru ona gore ayarlayayim.");
+}
+
+// ===== OTOMATIK KARSILAMA (odaya girince) =====
+- (void)tapAutoGreet {
+    isAutoGreetEnabled = !isAutoGreetEnabled;
+    saveBool(@"autogreet", isAutoGreetEnabled);
+    FLog(isAutoGreetEnabled ? @"Otomatik karsilama ACIK (odaya girince mesaj atar)" : @"Otomatik karsilama KAPALI");
+    [self refreshUI];
+}
+- (void)editGreet {
+    UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"👋 Karsilama Mesaji"
+        message:@"Odaya girince otomatik gonderilecek mesaj:" preferredStyle:UIAlertControllerStyleAlert];
+    [ac addTextFieldWithConfigurationHandler:^(UITextField *tf){ tf.text = [NSString stringWithUTF8String:g_greetText]; tf.clearButtonMode = UITextFieldViewModeAlways; }];
+    [ac addAction:[UIAlertAction actionWithTitle:@"Kaydet" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
+        NSString *t = ac.textFields.firstObject.text;
+        if (t.length > 0) { strncpy(g_greetText, t.UTF8String, sizeof(g_greetText)-1); g_greetText[sizeof(g_greetText)-1]='\0'; saveStr(@"greetText", t); FLog(@"Karsilama mesaji kaydedildi"); }
+    }]];
+    [ac addAction:[UIAlertAction actionWithTitle:@"Iptal" style:UIAlertActionStyleCancel handler:nil]];
+    [self present:ac];
+}
+
+// ===== BELIRLI ISIM/ID ILE ODAYA GIR =====
+- (void)joinRoomByName {
+    if (!pn_joinRoom) { FLog(@"JoinRoom hazir degil (lobiye gir)"); return; }
+    UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"🚪 Odaya Gir (isim/ID)"
+        message:@"Oda adini TAM yaz (buyuk/kucuk harf onemli):" preferredStyle:UIAlertControllerStyleAlert];
+    [ac addTextFieldWithConfigurationHandler:^(UITextField *tf){ tf.placeholder = @"oda adi / ID"; tf.clearButtonMode = UITextFieldViewModeAlways; }];
+    [ac addAction:[UIAlertAction actionWithTitle:@"Gir" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
+        NSString *nm = ac.textFields.firstObject.text;
+        if (!nm || nm.length == 0) { FLog(@"Bos oda adi"); return; }
+        @try {
+            void* ns = mkStr(nm);
+            if (ns) { bool ok = pn_joinRoom(ns, NULL); FLog(ok ? [NSString stringWithFormat:@"'%@' odasina giriliyor...", nm] : @"JoinRoom reddedildi (oda yok, dolu ya da lobide degilsin)"); }
+        } @catch (...) { FLog(@"Odaya giris hatasi"); }
+    }]];
+    [ac addAction:[UIAlertAction actionWithTitle:@"Iptal" style:UIAlertActionStyleCancel handler:nil]];
+    [self present:ac];
+}
+
 - (void)fakeServerMsg {
     if (!chatGetInst || !chatSend) { FLog(@"Chat pointeri yok - odaya gir"); return; }
     NSArray *presets = @[
@@ -4862,6 +5250,8 @@ static void restoreSettings(void) {
     g_selFlashRate         = loadInt(@"selRate", 1);
     announceInterval       = (float)loadInt(@"announceIv", 5);
     { NSString *at = loadStr(@"announceText", @""); if (at.length) { strncpy(announceText, at.UTF8String, sizeof(announceText)-1); announceText[sizeof(announceText)-1]='\0'; } }
+    isAutoGreetEnabled     = loadBool(@"autogreet", false);
+    { NSString *gt = loadStr(@"greetText", @""); if (gt.length) { strncpy(g_greetText, gt.UTF8String, sizeof(g_greetText)-1); g_greetText[sizeof(g_greetText)-1]='\0'; } }
     carAccelPower          = loadFloat(@"caraccel", 3.0f);
     carSteerPower          = loadFloat(@"carsteer", 1.0f);
     carTopSpeed            = loadFloat(@"cartop",   300.0f);
@@ -4870,6 +5260,7 @@ static void restoreSettings(void) {
     isBypassPasswordEnabled= loadBool(@"bypass", true);
     isFlyEnabled           = loadBool(@"fly", false);
     flyAutoThrust          = loadBool(@"flyauto", false);
+    isFlyPadShown          = false;   // D-pad her aciliste kapali (ekrani kapamasin)
     isLowGravEnabled       = loadBool(@"lowgrav", false);
     isAsciiAnimEnabled     = loadBool(@"asciianim", false);
     g_gifColored           = loadBool(@"gifColored", false);
@@ -4878,6 +5269,7 @@ static void restoreSettings(void) {
     asciiAnimIndex         = loadInt(@"asciiIdx", 0);
     isRoomSpamEnabled      = false;   // spam her acilista kapali baslasin (guvenlik)
     roomSpamMaxCount       = loadInt(@"roomMax", 0);
+    roomMaxPlayers         = loadInt(@"roomMaxP", 31);
     roomSpamTTL            = loadInt(@"roomTTL", 300000);
     roomSpamInterval       = loadInt(@"roomIv", 40) / 100.0f;
     roomSpamContinuous     = loadBool(@"roomcont", true);
@@ -4920,6 +5312,7 @@ static void InstallEverything(uintptr_t b) {
     rinfo_getName             = (void*(*)(void*))(b + 0x59293A4);   // RoomInfo.get_Name
     pn_setNickName            = (void(*)(void*))(b + 0x5933940);
     pn_joinRoom               = (bool(*)(void*,void*))(b + 0x593A64C);
+    pn_getInRoom              = (bool(*)(void))(b + 0x5934FA4);   // oda tespiti (otomatik karsilama)
     pn_getNickName            = (void*(*)(void))(b + 0x59338C0);
     pn_leaveRoom              = (bool(*)(bool))(b + 0x593B2D8);
     pn_closeConnection        = (bool(*)(void*))(b + 0x5938844);   // kick direkt (hook olmadan)
