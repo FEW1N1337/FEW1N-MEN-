@@ -41,9 +41,9 @@ jobs:
           Package: com.few1n.dreamroadmod
           Name: FEW1N Mod Menu
           Depends: mobilesubstrate, firmware (>= 14.0)
-          Version: 62.0
+          Version: 63.0
           Architecture: iphoneos-arm64
-          Description: FEW1N Mod Menu v62.0 (Unity6) - Favori Hizli Panel, GIF/Resim -> ASCII Chat (olcu secimi), Kendi Odanda Kick Fix (EnableCloseConnection), Ucusta Otomatik Gaz, Drift Stabil, IL2CPP, Matrix/Glitch Chat, Stealth Mode, Hacker Animasyon Isimleri, il2cpp Rainbow Arac Boyasi, il2cpp Hiz Sabitleyici, 30 Exploit Oda Kurma, 17 Mega Chat Animasyonu, Hiz, Nitro, Ucus/Zipla, SifreKirici, Log
+          Description: FEW1N Mod Menu v63.0 (Unity6) - Favori Hizli Panel, GIF/Resim -> ASCII Chat (olcu secimi), Kendi Odanda Kick Fix (EnableCloseConnection), Ucusta Otomatik Gaz, Drift Stabil, IL2CPP, Matrix/Glitch Chat, Stealth Mode, Hacker Animasyon Isimleri, il2cpp Rainbow Arac Boyasi, il2cpp Hiz Sabitleyici, 30 Exploit Oda Kurma, 17 Mega Chat Animasyonu, Hiz, Nitro, Ucus/Zipla, SifreKirici, Log
           Maintainer: few1n
           Author: few1n
           Section: Tweaks
@@ -80,7 +80,7 @@ jobs:
       - name: Rename Package
         run: |
           mkdir -p output
-          cp packages/*.deb output/FEW1NMod_62.0_${{ github.run_number }}.deb
+          cp packages/*.deb output/FEW1NMod_63.0_${{ github.run_number }}.deb
 
       - name: Extract dylib for sideloading
         run: |
@@ -96,11 +96,11 @@ jobs:
       - name: Upload .deb (jailbreak)
         uses: actions/upload-artifact@v4
         with:
-          name: FEW1N-ModMenu-v62.0-deb-${{ github.run_number }}
+          name: FEW1N-ModMenu-v63.0-deb-${{ github.run_number }}
           path: output/*.deb
 
       - name: Upload .dylib (sideload)
         uses: actions/upload-artifact@v4
         with:
-          name: FEW1N-ModMenu-v62.0-dylib-${{ github.run_number }}
+          name: FEW1N-ModMenu-v63.0-dylib-${{ github.run_number }}
           path: output/FEW1NMod.dylib
