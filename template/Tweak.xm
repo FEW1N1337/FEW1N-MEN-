@@ -44,6 +44,7 @@
 
 struct PlateHolder { void* c; void* t; };   // c@0x0, t@0x8
 typedef struct { float x, y, z; } Vec3;      // Unity Vector3
+typedef struct { float x, y, z, w; } Quaternion; // Unity Quaternion
 
 // ===== PERSIST =====
 #define DEF_SUITE @"com.few1n.dreamroadmod"
@@ -350,6 +351,13 @@ static void* g_fIsMine = NULL;         // PhotonView.<IsMine>k__BackingField (Fi
 static int   g_isMineOff = 0;          // IsMine byte offset @0x68 (dogrudan okuma - cokme YOK)
 static void* g_fOwner = NULL;          // PhotonView.<Owner>k__BackingField (FieldInfo)
 static int   g_pvOwnerOff = 0;         // Owner (Player*) byte offset @0x80 (isim icin)
+// ==== OYUNCUYU ISINLAMA RPC (CarPhotonSync & HR_PhotonHandler) ====
+static void* g_carPhotonSyncTypeObj = NULL;   // typeof(CarPhotonSync)
+static void* g_hrPhotonHandlerTypeObj = NULL; // typeof(HR_PhotonHandler)
+static void (*cps_TeleportCar_RPC)(void* cps, Vec3 pos, Quaternion rot, void* method) = NULL;
+static void (*rbps_TeleportCar_RPC)(void* rbps, Vec3 pos, Quaternion rot, void* method) = NULL;
+static void (*hrph_TeleportPlayerRPC)(void* hrph, Vec3 pos, void* method) = NULL;
+static void (*ssrcc_RpcTeleport)(void* ssrcc, Vec3 pos, Vec3 rot, Vec3 scale, float time, void* method) = NULL;
 // ==== GODMODE (HR_PlayerHandler.canCrash=false -> hic kaza yapma) ====
 static void* g_playerHandlerType = NULL;   // typeof(HR_PlayerHandler)
 static void* g_myPlayerHandler = NULL;     // benim handler (PhotonView@0xB8.IsMine)
@@ -636,6 +644,16 @@ static void few1n_initIl2cpp(void) {
             void* rl = i_class_from_name(img, "", "RCCP_Lights");
             if (!rl) rl = few1n_findClassByName(img, "RCCP_Lights");
             if (rl) { g_rccpLightsType = few1n_typeObjOf(rl); FLog([NSString stringWithFormat:@"RCCP_Lights tipi=%p (selektor)", g_rccpLightsType]); }
+        }
+        if (!g_carPhotonSyncTypeObj) {
+            void* cps = i_class_from_name(img, "", "CarPhotonSync");
+            if (!cps) cps = few1n_findClassByName(img, "CarPhotonSync");
+            if (cps) { g_carPhotonSyncTypeObj = few1n_typeObjOf(cps); FLog([NSString stringWithFormat:@"CarPhotonSync tipi=%p", g_carPhotonSyncTypeObj]); }
+        }
+        if (!g_hrPhotonHandlerTypeObj) {
+            void* hrph = i_class_from_name(img, "", "HR_PhotonHandler");
+            if (!hrph) hrph = few1n_findClassByName(img, "HR_PhotonHandler");
+            if (hrph) { g_hrPhotonHandlerTypeObj = few1n_typeObjOf(hrph); FLog([NSString stringWithFormat:@"HR_PhotonHandler tipi=%p", g_hrPhotonHandlerTypeObj]); }
         }
         if (!g_roomOptionsClass) {
             void* roc = i_class_from_name(img, "Photon.Realtime", "RoomOptions");
@@ -2114,6 +2132,7 @@ static UIViewController* few1n_topVC(void) {
     y = [self actionRow:@"\U0001F4CD  Konum Kaydet" color:C_GOLD atY:y action:@selector(saveTeleportPos)];
     y = [self actionRow:@"\U0001F680  Kayitli Konuma Isinlan" color:C_GOLD atY:y action:@selector(teleportSaved)];
     y = [self actionRow:@"\U0001F3AF  Oyuncuya Isinlan (yanina git)" color:C_ON atY:y action:@selector(teleportToPlayer)];
+    y = [self actionRow:@"\U0001F9F2  Oyuncuyu Yanima Cek (RPC Isinla)" color:C_ON atY:y action:@selector(bringPlayerToMe)];
 
     y = [self header:@"\U0001F4AC  CHAT" atY:y];
     y = [self toggle:@"\U0001F4E2  Chat Spam" sub:@"50ms araligla mesaj" key:@"chatspam" atY:y action:@selector(tapChatSpam)];
@@ -2221,7 +2240,8 @@ static UIViewController* few1n_topVC(void) {
     y = [self actionRow:@"\U0001F513  Oda Sifrelerini Goster (il2cpp)" color:C_ON atY:y action:@selector(showRoomPasswords)];
     y = [self actionRow:@"\U0001F465  Odadaki Oyuncular (isim kopyala)" color:C_CYAN atY:y action:@selector(showPlayers)];
     y = [self actionRow:@"\U0001F441  Odaya Goz At (isimsiz anlik gir-cik)" color:C_GOLD atY:y action:@selector(peekRoom)];
-    y = [self actionRow:@"👑  Oda Master Ol (Fake)" color:C_GOLD atY:y action:@selector(tapRoomMaster)];
+    y = [self actionRow:@"👑  Oda Master Ol" color:C_GOLD atY:y action:@selector(tapRoomMaster)];
+    y = [self actionRow:@"💥  ODAYI KAPAT (Herkesi At & Odayi Sonlandir)" color:C_RED atY:y action:@selector(nukeRoom)];
     y = [self actionRow:@"🎨  Renkli Oda Kur (Dinamik Stil Paneli)" color:C_GOLD atY:y action:@selector(createColoredRoom)];
     y = [self actionRow:@"🧪  Exploit Ile Oda Kur (30 Yontem)" color:C_RED atY:y action:@selector(exploitCreateRoom)];
     y = [self actionRow:@"🏠  Düz Özel İsimli Oda Kur" color:C_CYAN atY:y action:@selector(createOneRoom)];
@@ -3040,6 +3060,96 @@ static UIViewController* few1n_topVC(void) {
         [ac addAction:[UIAlertAction actionWithTitle:@"Iptal" style:UIAlertActionStyleCancel handler:nil]];
         [self present:ac];
     } @catch (...) { FLog(@"Isinlanma hatasi"); }
+}
+
+- (void)bringPlayerToMe {
+    if (!unityAlive(g_rb)) { FLog(@"Once arabana bin"); return; }
+    @try {
+        Vec3 myPos = {0,0,0}; rbGetPosIl(g_rb, &myPos);
+        NSMutableArray *rows = [NSMutableArray array];   // @[nm, dist, pvPtr]
+
+        if (g_photonViewType && g_isMineOff > 0 && g_pvOwnerOff > 0 && g_mFindObjectsPlural && i_runtime_invoke) {
+            void* a[1]; a[0] = g_photonViewType;
+            void* arr = i_runtime_invoke(g_mFindObjectsPlural, NULL, a, NULL);
+            if (ptrOk(arr)) {
+                int n = (int)(*(uintptr_t*)((uintptr_t)arr + 0x18));
+                if (n > 0 && n <= 512) {
+                    void** pvs = (void**)((uintptr_t)arr + 0x20);
+                    NSMutableArray *seen = [NSMutableArray array];
+                    for (int i = 0; i < n; i++) {
+                        void* pv = pvs[i]; if (!unityAlive(pv)) continue;
+                        bool mine = *(bool*)((uintptr_t)pv + g_isMineOff);
+                        if (mine) continue;
+                        void* owner = *(void**)((uintptr_t)pv + g_pvOwnerOff);
+                        if (!ptrOk(owner)) continue;
+                        NSValue *ov = [NSValue valueWithPointer:owner];
+                        if ([seen containsObject:ov]) continue;
+                        Vec3 p; if (!few1n_objPos(pv, &p)) continue;
+                        [seen addObject:ov];
+                        NSString *nm = (ply_getNickName) ? readStr(ply_getNickName(owner)) : nil;
+                        if (nm.length == 0) nm = @"(isimsiz)";
+                        float dx=p.x-myPos.x, dy=p.y-myPos.y, dz=p.z-myPos.z;
+                        float dist = sqrtf(dx*dx+dy*dy+dz*dz);
+                        [rows addObject:@[nm, @(dist), [NSValue valueWithPointer:pv]]];
+                    }
+                }
+            }
+        }
+
+        if (rows.count == 0) { FLog(@"Baska oyuncu yok (yarista/odada dene)"); return; }
+        [rows sortUsingComparator:^NSComparisonResult(NSArray *a, NSArray *b){ return [a[1] compare:b[1]]; }];
+
+        UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"\U0001F9F2 Oyuncuyu Yanima Cek"
+                                                                   message:[NSString stringWithFormat:@"%lu oyuncu - yanina isinlamak istedigini sec", (unsigned long)rows.count] preferredStyle:UIAlertControllerStyleAlert];
+        for (NSArray *r in rows) {
+            NSString *nm = r[0];
+            float dist = [r[1] floatValue];
+            void* pv = [r[2] pointerValue];
+            [ac addAction:[UIAlertAction actionWithTitle:[NSString stringWithFormat:@"\U0001F697 %@ (%.0fm)", nm, dist]
+                style:UIAlertActionStyleDefault handler:^(UIAlertAction *act){
+                if (!unityAlive(g_rb)) return;
+                Vec3 curMyPos = {0,0,0}; rbGetPosIl(g_rb, &curMyPos);
+                Vec3 targetPos = { curMyPos.x + 3.0f, curMyPos.y + 0.5f, curMyPos.z + 3.0f };
+                Quaternion rotZero = { 0.0f, 0.0f, 0.0f, 1.0f };
+
+                // 1) Yerel Rigidbody konumunu ayarla
+                void* targetRb = NULL;
+                if (ptrOk(pv) && g_rbTypeObj && g_mGetCompInParent && i_runtime_invoke) {
+                    void* args[2]; args[0] = g_rbTypeObj; bool inc = true; args[1] = &inc;
+                    targetRb = i_runtime_invoke(g_mGetCompInParent, pv, args, NULL);
+                }
+                if (ptrOk(targetRb)) {
+                    rbSetPosIl(targetRb, &targetPos);
+                    Vec3 zero = {0,0,0}; rbSetVelIl(targetRb, &zero);
+                }
+
+                // 2) RPC Teleport cagrilari
+                int rpcCount = 0;
+                if (g_carPhotonSyncTypeObj && g_mGetCompInParent && i_runtime_invoke && cps_TeleportCar_RPC) {
+                    void* args[2]; args[0] = g_carPhotonSyncTypeObj; bool inc = true; args[1] = &inc;
+                    void* cps = i_runtime_invoke(g_mGetCompInParent, pv, args, NULL);
+                    if (ptrOk(cps)) {
+                        cps_TeleportCar_RPC(cps, targetPos, rotZero, NULL);
+                        rpcCount++;
+                    }
+                }
+                if (hrph_TeleportPlayerRPC) {
+                    void* hrph = NULL;
+                    if (g_hrPhotonHandlerTypeObj && g_mFindObjectOfType && i_runtime_invoke) {
+                        void* args[1]; args[0] = g_hrPhotonHandlerTypeObj;
+                        hrph = i_runtime_invoke(g_mFindObjectOfType, NULL, args, NULL);
+                    }
+                    if (ptrOk(hrph)) {
+                        hrph_TeleportPlayerRPC(hrph, targetPos, NULL);
+                        rpcCount++;
+                    }
+                }
+                FLog([NSString stringWithFormat:@"'%@' yanina isinlandirildi! (%d RPC atildi)", nm, rpcCount]);
+            }]];
+        }
+        [ac addAction:[UIAlertAction actionWithTitle:@"Iptal" style:UIAlertActionStyleCancel handler:nil]];
+        [self present:ac];
+    } @catch (...) { FLog(@"Isinlama hatasi"); }
 }
 
 - (void)tick {
@@ -4574,8 +4684,7 @@ static bool few1n_invoke0(void* method, void* obj, const char* label) {
         void* arr = pn_getPlayerList();
         if (!arr) { FLog(@"Oyuncu listesi alinamadi - odaya gir"); return; }
         int cnt = (int)(*(uintptr_t*)((uintptr_t)arr + 0x18));
-        void** elems = (void**)((uintptr_t)arr + 0x20);
-        void* me = NULL;
+        void* me = (pn_getLocalPlayer) ? pn_getLocalPlayer() : NULL;
         void* currentMaster = NULL;
         // Kendi nickName'ini al (en guvenli kendini bulma yontemi)
         NSString *myNick = @"";
@@ -4633,6 +4742,25 @@ static bool few1n_invoke0(void* method, void* obj, const char* label) {
             [self present:ac];
         }
     } @catch (...) { FLog(@"Oda master olma hatasi"); }
+}
+
+- (void)nukeRoom {
+    UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"💥 Odayi Kapat & Herkesi At"
+        message:@"Bu odanin kontrolunu (Master) alip odadaki HERKESI oyundan atarak odayi sonlandiracak. Emin misin?" preferredStyle:UIAlertControllerStyleAlert];
+    [ac addAction:[UIAlertAction actionWithTitle:@"Evet, Odayi Kapat!" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *act){
+        @try {
+            // 1) Master Client al
+            if (pn_setMasterClient && pn_getLocalPlayer) {
+                void* me = pn_getLocalPlayer();
+                if (me) pn_setMasterClient(me);
+            }
+            // 2) Kendi kick helper'imiz ile herkesi at
+            [self nativeKickAll];
+            FLog(@"Oda sonlandirma komutu iletildi! 💥");
+        } @catch (...) { FLog(@"Oda kapatma hatasi"); }
+    }]];
+    [ac addAction:[UIAlertAction actionWithTitle:@"Iptal" style:UIAlertActionStyleCancel handler:nil]];
+    [self present:ac];
 }
 
 - (void)editRoomName {
@@ -5341,6 +5469,10 @@ static void InstallEverything(uintptr_t b) {
     ply_getIsMaster           = (bool(*)(void*))(b + 0x5924640);
     ply_getUserId             = (void*(*)(void*))(b + 0x5924630);
     lobby_carSelectMenu       = (void(*)(void*))(b + 0x54ABFD4);
+    cps_TeleportCar_RPC       = (void(*)(void*,Vec3,Quaternion,void*))(b + 0x5A49AE0);
+    rbps_TeleportCar_RPC      = (void(*)(void*,Vec3,Quaternion,void*))(b + 0x5A4C494);
+    hrph_TeleportPlayerRPC    = (void(*)(void*,Vec3,void*))(b + 0x54A6F00);
+    ssrcc_RpcTeleport         = (void(*)(void*,Vec3,Vec3,Vec3,float,void*))(b + 0x5A5B788);
 
     safeHook((void*)(b + 0x6771918), (void*)h_setTimeScale,  (void**)&o_setTimeScale,     "set_timeScale");
     safeHook((void*)(b + 0x5938844), (void*)h_closeConnection,(void**)&o_closeConnection, "CloseConnection");
