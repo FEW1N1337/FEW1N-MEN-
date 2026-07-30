@@ -43,7 +43,7 @@ jobs:
           Depends: mobilesubstrate, firmware (>= 14.0)
           Version: 64.0
           Architecture: iphoneos-arm64
-          Description: FEW1N Mod Menu v64.0 (Unity6) - RPC Oyuncu Isinlama (Yanima Cek), Odayi Kapat (Master Nuke), Favori Hizli Panel, GIF/Resim -> ASCII Chat, Kendi Odanda Kick Fix (EnableCloseConnection), Ucusta Otomatik Gaz, Drift Stabil, IL2CPP, Matrix/Glitch Chat, Stealth Mode, Hacker Animasyon Isimleri, il2cpp Rainbow Arac Boyasi, il2cpp Hiz Sabitleyici, 30 Exploit Oda Kurma, Mega Chat Animasyonu, Hiz, Nitro, Ucus/Zipla, SifreKirici, Log
+          Description: FEW1N Mod Menu v65.0 (Unity6) - RPC Oyuncu Isinlama (Yanima Cek), Odayi Kapat (Master Nuke), Favori Hizli Panel, GIF/Resim -> ASCII Chat, Kendi Odanda Kick Fix (EnableCloseConnection), Ucusta Otomatik Gaz, Drift Stabil, IL2CPP, Matrix/Glitch Chat, Stealth Mode, Hacker Animasyon Isimleri, il2cpp Rainbow Arac Boyasi, il2cpp Hiz Sabitleyici, 30 Exploit Oda Kurma, Mega Chat Animasyonu, Hiz, Nitro, Ucus/Zipla, SifreKirici, Log
           Maintainer: few1n
           Author: few1n
           Section: Tweaks
@@ -96,11 +96,11 @@ jobs:
       - name: Upload .deb (jailbreak)
         uses: actions/upload-artifact@v4
         with:
-          name: FEW1N-ModMenu-v64.0-deb-${{ github.run_number }}
+          name: FEW1N-ModMenu-v65.0-deb-${{ github.run_number }}
           path: output/*.deb
 
       - name: Upload .dylib (sideload)
         uses: actions/upload-artifact@v4
         with:
-          name: FEW1N-ModMenu-v64.0-dylib-${{ github.run_number }}
+          name: FEW1N-ModMenu-v65.0-dylib-${{ github.run_number }}
           path: output/FEW1NMod.dylib
