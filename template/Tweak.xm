@@ -946,6 +946,9 @@ static void few1n_forceEnableKick(void) {
         @try { bool t = true; i_field_static_set_value(g_fEnableCloseConn, &t); } @catch (...) {}
     }
 }
+// Forward declarations (tanimlari asagida; burada erken kullanimlar icin)
+static inline bool ptrOk(void* p);
+static inline bool unityAlive(void* obj);
 // DOGRU lobi yoneticisini bul: PhotonView'i OLAN instance (yoksa KickPlayer RPC'den once patlar).
 static void* few1n_findLobbyMgr(void) {
     if (!g_lobbyDummyType || !g_mFindObjectsPlural || !i_runtime_invoke) return NULL;
