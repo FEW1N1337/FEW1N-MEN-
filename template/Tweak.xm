@@ -78,6 +78,8 @@ static bool isNanCrashEnabled = false;
 static bool isRoomCrashActive = false;
 static int  nanCrashMode = 0;        // 0=kapali 1=yerel 2=uzak 3=oda
 static bool panicCrash = false;      // aninda cokert
+// ==== REKLAM BOZUCU ====
+static bool isAdBlockEnabled = true;  // varsayilan ACIK (reklam engelle)
 // ==== UCUS D-PAD (ekran kumandasi - mod butonlariyla ucus, g_myRccp gerekmez) ====
 static bool isFlyPadShown = false;
 static bool g_dpFwd=false, g_dpBack=false, g_dpLeft=false, g_dpRight=false, g_dpUp=false, g_dpDown=false;
@@ -1767,6 +1769,7 @@ static void h_roomLineSetup(void* self, void* a, void* b, unsigned char c, unsig
 @property (nonatomic, strong) UITextView *logText;
 @property (nonatomic, strong) UIView *favOverlay;
 @property (nonatomic, strong) UIView *nanOverlay;
+- (void)tapAdBlock;
 - (void)tapNanCrash;
 - (void)tapNanCrashRemote;
 - (void)tapRoomCrash;
@@ -1883,6 +1886,31 @@ static void (*o_addMoney)(void*, int) = NULL;
 static void h_addMoney(void* self, int amount) {
     if (isAutoMoneyEnabled && amount > 0) amount = customMoneyAmount;
     if (o_addMoney) o_addMoney(self, amount);
+}
+
+// ===== CAS IL2CPP REKLAM HOOKS (CANLI REKLAM BOZUCU) =====
+static void (*o_casShowAd)(void*, int, void*) = NULL;
+static void h_casShowAd(void* self, int adType, void* method) {
+    if (isAdBlockEnabled) { FLog(@"\U0001F6AB il2cpp CAS ShowAd ENGELLENDI"); return; }
+    if (o_casShowAd) o_casShowAd(self, adType, method);
+}
+
+static void (*o_casClientShowAd)(void*, int, void*, void*) = NULL;
+static void h_casClientShowAd(void* self, int adType, void* placement, void* method) {
+    if (isAdBlockEnabled) { FLog(@"\U0001F6AB il2cpp CAS Client ShowAd ENGELLENDI"); return; }
+    if (o_casClientShowAd) o_casClientShowAd(self, adType, placement, method);
+}
+
+static bool (*o_casIsReadyAd)(void*, int, void*) = NULL;
+static bool h_casIsReadyAd(void* self, int adType, void* method) {
+    if (isAdBlockEnabled) return false;
+    return o_casIsReadyAd ? o_casIsReadyAd(self, adType, method) : false;
+}
+
+static void (*o_casExternsShowAd)(intptr_t, int, void*, void*) = NULL;
+static void h_casExternsShowAd(intptr_t managerRef, int type, void* placement, void* method) {
+    if (isAdBlockEnabled) { FLog(@"\U0001F6AB il2cpp CAS Externs ShowAd ENGELLENDI"); return; }
+    if (o_casExternsShowAd) o_casExternsShowAd(managerRef, type, placement, method);
 }
 
 // =============================================================
@@ -2106,7 +2134,7 @@ static UIViewController* few1n_topVC(void) {
     title.font = [UIFont systemFontOfSize:17 weight:UIFontWeightBlack];
     [header addSubview:title];
     UILabel *ver = [[UILabel alloc] initWithFrame:CGRectMake(42,37,pw-90,16)];
-    ver.text = [NSString stringWithFormat:@"v64.0  •  Base 0x%lX", (unsigned long)global_base];
+    ver.text = [NSString stringWithFormat:@"v65.0  •  Base 0x%lX", (unsigned long)global_base];
     ver.textColor = [UIColor colorWithWhite:1 alpha:0.82];
     ver.font = [UIFont fontWithName:@"Menlo-Bold" size:8] ?: [UIFont systemFontOfSize:8 weight:UIFontWeightBold];
     [header addSubview:ver];
@@ -2130,6 +2158,9 @@ static UIViewController* few1n_topVC(void) {
 
     g_secBuildIdx = -1;   // accordion: bolum sayacini sifirla (her build basinda)
     CGFloat y = 12;
+
+    y = [self header:@"\U0001F6AB  REKLAM BOZUCU" atY:y];
+    y = [self toggle:@"\U0001F6AB  Reklam Engelle" sub:@"Tum reklamlari engeller (AdMob/AppLovin/CAS/Unity)" key:@"adblock" atY:y action:@selector(tapAdBlock)];
 
     y = [self header:@"⚡  HIZ (timeScale)" atY:y];
     UIView *sr = [[UIView alloc] initWithFrame:CGRectMake(12,y,pw-24,44)];
@@ -2568,6 +2599,7 @@ y = [self header:@"\U0001F4DB  OYUNCU" atY:y];
     [self setToggle:@"lyricsColor" on:lyricsColorCycle];
     [self setToggle:@"lyricsLoop" on:lyricsLoop];
     [self setToggle:@"nancrash" on:isNanCrashEnabled];
+    [self setToggle:@"adblock" on:isAdBlockEnabled];
 
     // canli durum rozeti
     if (self.statusLabel && self.statusCard) {
@@ -5335,6 +5367,14 @@ static int g_emojiMax = 12;   // gecerli emoji sprite sayisi (Emoji Test ile ogr
     [self present:ac];
 }
 
+// ===== REKLAM BOZUCU TOGGLE (CANLI / ANINDA) =====
+- (void)tapAdBlock {
+    isAdBlockEnabled = !isAdBlockEnabled;
+    saveBool(@"adblock", isAdBlockEnabled);
+    FLog(isAdBlockEnabled ? @"\U0001F6AB Reklam bozucu ACIK - il2cpp + native aninda aktif!" : @"\U0001F6AB Reklam bozucu KAPALI");
+    [self refreshUI];
+}
+
 // ===== NAN / CRASH PAKET INJECT =====
 - (void)tapNanCrash {
     isNanCrashEnabled = !isNanCrashEnabled;
@@ -5722,6 +5762,7 @@ static void restoreSettings(void) {
     isNanCrashEnabled      = false;
     isRoomCrashActive      = false;
     panicCrash             = false;
+    isAdBlockEnabled       = loadBool(@"adblock", true);  // varsayilan ACIK
     customMoneyAmount      = loadInt(@"moneyAmount", 100000000);
     NSString* pt = loadStr(@"plateText", @"FEW1N");
     strncpy(customPlateText, pt.UTF8String, sizeof(customPlateText)-1); customPlateText[sizeof(customPlateText)-1]='\0';
@@ -5811,6 +5852,10 @@ static void InstallEverything(uintptr_t b) {
     safeHook((void*)(b + 0x54A9498), (void*)h_onJoinFail,     (void**)&o_onJoinFail,      "OnJoinRoomFailed(teshis)");
     safeHook((void*)(b + 0x54A94A4), (void*)h_createRoomBtn,  (void**)&o_createRoomBtn,   "CreateRoomButton(richtext)");
     safeHook((void*)(b + 0x5A43A2C), (void*)h_addMoney,       (void**)&o_addMoney,        "PlayerManager.AddMoney");
+    safeHook((void*)(b + 0x3211FC0), (void*)h_casShowAd,        (void**)&o_casShowAd,        "CAS_CASManagerBase.ShowAd");
+    safeHook((void*)(b + 0x3217B18), (void*)h_casClientShowAd,  (void**)&o_casClientShowAd,  "CAS_iOS_CASManagerClient.ShowAd");
+    safeHook((void*)(b + 0x3217AF0), (void*)h_casIsReadyAd,     (void**)&o_casIsReadyAd,     "CAS_iOS_CASManagerClient.IsReadyAd");
+    safeHook((void*)(b + 0x32160C8), (void*)h_casExternsShowAd, (void**)&o_casExternsShowAd, "CAS_iOS_CASExterns.CASUShowAd");
 
     FLog([NSString stringWithFormat:@"Bitti: %d hook OK, %d fail", hookSuccessCount, hookFailCount]);
     [[FEW1NMenu shared] build];
@@ -5826,7 +5871,155 @@ static void few1n_poll(void) {
 }
 
 %ctor {
-    FLog(@"v52.0 basladi, UnityFramework araniyor...");
+    FLog(@"v65.0 basladi, UnityFramework araniyor...");
     restoreSettings();
+
+    // ===== REKLAM BOZUCU: TUM reklam SDK'larini engelle (Obj-C runtime swizzle) =====
+    // Bu blok il2cpp'ye BAGIMLI DEGIL - native Obj-C siniflarini hooklar.
+    // Oyun yukseltilse bile reklam SDK siniflari ayni kalir → kalici cozum.
+    if (isAdBlockEnabled) {
+        FLog(@"\U0001F6AB Reklam bozucu AKTIF - tum SDK'lar engelleniyor");
+
+        // Yardimci: bir sinifin belirtilen instance metodunu NOP'la (nil/false/0 dondur)
+        // SEL'in donen tipine gore uygun IMP sec
+        void (^swizzleToNop)(NSString*, NSString*) = ^(NSString* cls, NSString* sel) {
+            Class c = NSClassFromString(cls);
+            if (!c) return;
+            SEL s = NSSelectorFromString(sel);
+            Method m = class_getInstanceMethod(c, s);
+            if (!m) return;
+            // Tum reklam show/load/present metodlarini bos fonksiyonla degistir
+            IMP nop = imp_implementationWithBlock(^(id _self, ...) { return; });
+            method_setImplementation(m, nop);
+        };
+        // Class metodlari icin ayri blok
+        void (^swizzleClassToNop)(NSString*, NSString*) = ^(NSString* cls, NSString* sel) {
+            Class c = NSClassFromString(cls);
+            if (!c) return;
+            SEL s = NSSelectorFromString(sel);
+            Method m = class_getClassMethod(c, s);
+            if (!m) return;
+            IMP nop = imp_implementationWithBlock(^(id _self, ...) { return; });
+            method_setImplementation(m, nop);
+        };
+        // Bool false donduren NOP
+        void (^swizzleToBoolFalse)(NSString*, NSString*) = ^(NSString* cls, NSString* sel) {
+            Class c = NSClassFromString(cls);
+            if (!c) return;
+            SEL s = NSSelectorFromString(sel);
+            Method m = class_getInstanceMethod(c, s);
+            if (!m) m = class_getClassMethod(c, s);
+            if (!m) return;
+            IMP nop = imp_implementationWithBlock(^BOOL(id _self, ...) { return NO; });
+            method_setImplementation(m, nop);
+        };
+
+        // ===== GOOGLE ADMOB (GAD) =====
+        swizzleToNop(@"GADInterstitialAd", @"presentFromRootViewController:");
+        swizzleClassToNop(@"GADInterstitialAd", @"loadWithAdUnitID:request:completionHandler:");
+        swizzleToNop(@"GADRewardedAd", @"presentFromRootViewController:userDidEarnRewardHandler:");
+        swizzleClassToNop(@"GADRewardedAd", @"loadWithAdUnitID:request:completionHandler:");
+        swizzleToNop(@"GADBannerView", @"loadRequest:");
+        swizzleToNop(@"GADRewardedInterstitialAd", @"presentFromRootViewController:userDidEarnRewardHandler:");
+        swizzleClassToNop(@"GADRewardedInterstitialAd", @"loadWithAdUnitID:request:completionHandler:");
+
+        // ===== APPLOVIN (MAX) =====
+        swizzleToNop(@"MAInterstitialAd", @"showAd");
+        swizzleToNop(@"MAInterstitialAd", @"showAdForPlacement:");
+        swizzleToNop(@"MAInterstitialAd", @"loadAd");
+        swizzleToNop(@"MARewardedAd", @"showAd");
+        swizzleToNop(@"MARewardedAd", @"showAdForPlacement:");
+        swizzleToNop(@"MARewardedAd", @"loadAd");
+        swizzleToNop(@"MAAdView", @"loadAd");
+        swizzleToNop(@"MAAdView", @"startAutoRefresh");
+        swizzleToBoolFalse(@"MAInterstitialAd", @"isReady");
+        swizzleToBoolFalse(@"MARewardedAd", @"isReady");
+
+        // ===== CLEVER ADS SOLUTIONS (CAS - ana mediation) =====
+        swizzleToNop(@"CASMediationManager", @"presentInterstitialFromRootViewController:");
+        swizzleToNop(@"CASMediationManager", @"presentRewardedAdFromRootViewController:");
+        swizzleToNop(@"CASMediationManager", @"loadInterstitial");
+        swizzleToNop(@"CASMediationManager", @"loadRewardedAd");
+        swizzleToNop(@"CASBannerView", @"loadNextAd");
+        swizzleToBoolFalse(@"CASMediationManager", @"isInterstitialReady");
+        swizzleToBoolFalse(@"CASMediationManager", @"isRewardedAdReady");
+
+        // ===== UNITY ADS =====
+        swizzleClassToNop(@"UnityAds", @"show:placementId:showDelegate:");
+        swizzleClassToNop(@"UnityAds", @"show:placementId:");
+        swizzleClassToNop(@"UnityAds", @"load:loadDelegate:");
+        swizzleToBoolFalse(@"UnityAds", @"isReady");
+        swizzleClassToNop(@"UnityAds", @"initialize:testMode:initializationDelegate:");
+
+        // ===== IRONSOURCE =====
+        swizzleClassToNop(@"IronSource", @"showInterstitialWithViewController:");
+        swizzleClassToNop(@"IronSource", @"showRewardedVideoWithViewController:");
+        swizzleClassToNop(@"IronSource", @"loadInterstitial");
+        swizzleToBoolFalse(@"IronSource", @"hasRewardedVideo");
+        swizzleToBoolFalse(@"IronSource", @"hasInterstitial");
+        swizzleClassToNop(@"ISAd", @"showWithViewController:");
+
+        // ===== FACEBOOK AUDIENCE NETWORK =====
+        swizzleToNop(@"FBInterstitialAd", @"showAdFromRootViewController:");
+        swizzleToNop(@"FBInterstitialAd", @"loadAd");
+        swizzleToNop(@"FBRewardedVideoAd", @"showAdFromRootViewController:");
+        swizzleToNop(@"FBRewardedVideoAd", @"loadAd");
+        swizzleToNop(@"FBAdView", @"loadAd");
+        swizzleToBoolFalse(@"FBInterstitialAd", @"isAdValid");
+        swizzleToBoolFalse(@"FBRewardedVideoAd", @"isAdValid");
+
+        // ===== INMOBI =====
+        swizzleToNop(@"IMInterstitial", @"show");
+        swizzleToNop(@"IMInterstitial", @"load");
+        swizzleToNop(@"IMBanner", @"load");
+        swizzleToBoolFalse(@"IMInterstitial", @"isReady");
+
+        // ===== VUNGLE =====
+        swizzleClassToNop(@"VungleSDK", @"playAd:options:placementID:error:");
+        swizzleToBoolFalse(@"VungleSDK", @"isAdCachedForPlacementID:");
+
+        // ===== CHARTBOOST =====
+        swizzleClassToNop(@"Chartboost", @"showInterstitial:");
+        swizzleClassToNop(@"Chartboost", @"showRewardedVideo:");
+        swizzleToBoolFalse(@"Chartboost", @"hasInterstitial:");
+        swizzleToBoolFalse(@"Chartboost", @"hasRewardedVideo:");
+
+        // ===== MINTEGRAL =====
+        swizzleToNop(@"MTGInterstitialAdManager", @"showFromViewController:");
+        swizzleToNop(@"MTGRewardAdManager", @"showVideo:delegate:");
+
+        // ===== PANGLE (ByteDance) =====
+        swizzleToNop(@"BUNativeExpressInterstitialAd", @"showAdFromRootViewController:");
+        swizzleToNop(@"BURewardedVideoAd", @"showAdFromRootViewController:");
+
+        // ===== YANDEX =====
+        swizzleToNop(@"YMAInterstitialAd", @"show");
+        swizzleToNop(@"YMARewardedAd", @"show");
+
+        // ===== UIView TABANLI BANNER TEMIZLIGI =====
+        // GADBannerView, MAAdView, FBAdView gibi banner'lari gomulunce otomatik gizle
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(5.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            // Banner siniflarinin instance'larini gizle (varsa)
+            NSArray *bannerClasses = @[@"GADBannerView", @"MAAdView", @"FBAdView", @"IMBanner", @"CASBannerView"];
+            for (NSString *clsName in bannerClasses) {
+                Class cls = NSClassFromString(clsName);
+                if (!cls) continue;
+                // didMoveToWindow hook'u: banner ekrana eklenince gizle
+                SEL sel = @selector(didMoveToWindow);
+                Method m = class_getInstanceMethod(cls, sel);
+                if (m) {
+                    method_setImplementation(m, imp_implementationWithBlock(^(UIView* _self) {
+                        _self.hidden = YES;
+                        _self.alpha = 0;
+                        _self.frame = CGRectZero;
+                    }));
+                }
+            }
+            FLog(@"\U0001F6AB Banner gizleme hooklari kuruldu");
+        });
+
+        FLog(@"\U0001F6AB Reklam bozucu: tum SDK'lar engellendi (AdMob/AppLovin/CAS/Unity/IronSource/FB/InMobi/Vungle/Chartboost/Mintegral/Pangle/Yandex)");
+    }
+
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 3 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{ few1n_poll(); });
 }
