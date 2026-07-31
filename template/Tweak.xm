@@ -704,18 +704,18 @@ static void rbGetVelIl(void* rb, Vec3* out) {
     }
     if (rb_getVel) rb_getVel(rb, out);   // yedek: ham Injected
 }
-static void rbSetVelIl(void* rb, Vec3* v) {
+static void rbSetVelIl(void* rb, const Vec3* v) {
     if (!rb) return;
     if (i_runtime_invoke && g_mRbSetVel) {
-        void* params[1] = { v };
+        void* params[1] = { (void*)v };
         i_runtime_invoke(g_mRbSetVel, rb, params, NULL);
         return;
     }
-    if (rb_setVel) rb_setVel(rb, v);     // yedek: ham Injected
+    if (rb_setVel) rb_setVel(rb, (Vec3*)v);     // yedek: ham Injected
 }
-static void rbSetAngVelIl(void* rb, Vec3* v) {   // acisal hiz (ucusta yaw donme)
+static void rbSetAngVelIl(void* rb, const Vec3* v) {   // acisal hiz (ucusta yaw donme)
     if (!rb || !i_runtime_invoke || !g_mRbSetAngVel) return;
-    void* params[1] = { v };
+    void* params[1] = { (void*)v };
     i_runtime_invoke(g_mRbSetAngVel, rb, params, NULL);
 }
 
@@ -729,14 +729,14 @@ static void rbGetPosIl(void* rb, Vec3* out) {
     }
     if (rb_getPos) rb_getPos(rb, out);
 }
-static void rbSetPosIl(void* rb, Vec3* v) {
+static void rbSetPosIl(void* rb, const Vec3* v) {
     if (!rb) return;
     if (i_runtime_invoke && g_mRbSetPos) {
-        void* params[1] = { v };
+        void* params[1] = { (void*)v };
         i_runtime_invoke(g_mRbSetPos, rb, params, NULL);
         return;
     }
-    if (rb_setPos) rb_setPos(rb, v);
+    if (rb_setPos) rb_setPos(rb, (Vec3*)v);
 }
 
 static void setTimeScaleVal(float v) {
@@ -5550,7 +5550,7 @@ static int g_emojiMax = 12;   // gecerli emoji sprite sayisi (Emoji Test ile ogr
     if (!pn_createRoom || !i_object_new || !g_roomOptionsClass) { FLog(@"Oda kurma hazir degil"); return; }
     @try {
         // Kendi pozisyonunu kaydet
-        Vec3 savedPos = {0,0,0};
+        __block Vec3 savedPos = {0,0,0};
         if (unityAlive(g_rb)) rbGetPosIl(g_rb, &savedPos);
         void* ns = mkStr(@"OVERFLOW");
         void* opts = i_object_new(g_roomOptionsClass);
