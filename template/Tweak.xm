@@ -2500,7 +2500,8 @@ y = [self header:@"\U0001F4DB  OYUNCU" atY:y];
         BOOL vis = (curSec < 0) || (curSec < 24 && g_secOpen[curSec]);
         if (vis) {
             CGRect f = v.frame; f.origin.y = yy; v.frame = f; v.hidden = NO;
-            yy += v.frame.size.height + 8.0;
+            NSNumber *adv = objc_getAssociatedObject(v, "adv");   // gercek ilerleme (kayma yok)
+            yy += adv ? [adv floatValue] : (v.frame.size.height + 8.0);
         } else {
             v.hidden = YES;
         }
@@ -2539,6 +2540,7 @@ y = [self header:@"\U0001F4DB  OYUNCU" atY:y];
     [tap addTarget:self action:action forControlEvents:UIControlEventTouchUpInside];
     [card addSubview:tap];
     [self.contentView addSubview:card];
+    objc_setAssociatedObject(card, "adv", @(64.0), OBJC_ASSOCIATION_RETAIN);
     self.toggleViews[key] = pill;
     return y + 64;
 }
@@ -2561,6 +2563,7 @@ y = [self header:@"\U0001F4DB  OYUNCU" atY:y];
     [b addTarget:self action:action forControlEvents:UIControlEventTouchUpInside];
     [row addSubview:b];
     [self.contentView addSubview:row];
+    objc_setAssociatedObject(row, "adv", @(52.0), OBJC_ASSOCIATION_RETAIN);
     return y + 52;
 }
 
@@ -2574,6 +2577,7 @@ y = [self header:@"\U0001F4DB  OYUNCU" atY:y];
     b.titleLabel.font = [UIFont systemFontOfSize:14 weight:UIFontWeightBold];
     [card addSubview:b];
     [self.contentView addSubview:card];
+    objc_setAssociatedObject(card, "adv", @(60.0), OBJC_ASSOCIATION_RETAIN);
     *y += 60;
     return b;
 }
@@ -2641,6 +2645,9 @@ y = [self header:@"\U0001F4DB  OYUNCU" atY:y];
     [self setToggle:@"lyricsLoop" on:lyricsLoop];
     [self setToggle:@"nancrash" on:isNanCrashEnabled];
     [self setToggle:@"adblock" on:isAdBlockEnabled];
+    [self setToggle:@"popbangs" on:isPopBangsEnabled];
+    [self setToggle:@"autohorn" on:isAutoHornEnabled];
+    [self setToggle:@"revlimiter" on:isRevLimiterEnabled];
 
     // canli durum rozeti
     if (self.statusLabel && self.statusCard) {
@@ -4213,14 +4220,17 @@ static NSString* rainbowWrap(NSString* text, int idx) {
 - (void)tapPopBangs {
     isPopBangsEnabled = !isPopBangsEnabled;
     FLog(isPopBangsEnabled ? @"🔥 Pop & Bangs aktif!" : @"🔥 Pop & Bangs kapalı.");
+    [self refreshUI];
 }
 - (void)tapAutoHorn {
     isAutoHornEnabled = !isAutoHornEnabled;
     FLog(isAutoHornEnabled ? @"🔊 Otomatik Havalı Korna aktif!" : @"🔊 Otomatik Korna kapalı.");
+    [self refreshUI];
 }
 - (void)tapRevLimiter {
     isRevLimiterEnabled = !isRevLimiterEnabled;
     FLog(isRevLimiterEnabled ? @"🔥 Yüksek Devir / Kesici Ses Modu aktif!" : @"🔥 Kesici Modu kapalı.");
+    [self refreshUI];
 }
 
 - (void)fireGifFrame {
@@ -4264,7 +4274,7 @@ static NSString* rainbowWrap(NSString* text, int idx) {
       @"noclip":@"\U0001F47B No-Clip",@"drift":@"\U0001F9CA Drift",@"cruise":@"\U0001F697 Cruise",
       @"selektor":@"\U0001F4A1 Selektor",@"antigrav":@"\U0001F319 Anti-Grav",@"lowgrav":@"\U0001FAB6 Dusuk Gravite",
       @"asciianim":@"\U0001F3AC ASCII Anim",@"matrixchat":@"\U0001F7E2 Matrix Chat",@"glitchchat":@"\U0001F480 Glitch Chat",
-      @"carcolor":@"\U0001F308 Arac Boya"};
+      @"carcolor":@"\U0001F308 Arac Boya",@"popbangs":@"🔥 Pop&Bangs",@"autohorn":@"🔊 Auto Korna",@"revlimiter":@"🔥 Kesici Modu"};
     return m[k] ?: k;
 }
 - (BOOL)favStateForKey:(NSString*)k {
@@ -4281,13 +4291,17 @@ static NSString* rainbowWrap(NSString* text, int idx) {
     if ([k isEqualToString:@"matrixchat"])return isMatrixChatEnabled;
     if ([k isEqualToString:@"glitchchat"])return isGlitchChatEnabled;
     if ([k isEqualToString:@"carcolor"])  return isCarColorEnabled;
+    if ([k isEqualToString:@"popbangs"])  return isPopBangsEnabled;
+    if ([k isEqualToString:@"autohorn"])  return isAutoHornEnabled;
+    if ([k isEqualToString:@"revlimiter"])return isRevLimiterEnabled;
     return NO;
 }
 - (SEL)favSelForKey:(NSString*)k {
     NSDictionary *m = @{@"godmode":@"tapGodmode",@"fly":@"tapFly",@"flyauto":@"tapFlyAuto",
       @"noclip":@"tapNoClip",@"drift":@"tapDrift",@"cruise":@"tapCruise",@"selektor":@"tapSelektor",
       @"antigrav":@"tapAntiGrav",@"lowgrav":@"tapLowGrav",@"asciianim":@"tapAsciiAnim",
-      @"matrixchat":@"tapMatrixChat",@"glitchchat":@"tapGlitchChat",@"carcolor":@"tapCarColor"};
+      @"matrixchat":@"tapMatrixChat",@"glitchchat":@"tapGlitchChat",@"carcolor":@"tapCarColor",
+      @"popbangs":@"tapPopBangs",@"autohorn":@"tapAutoHorn",@"revlimiter":@"tapRevLimiter"};
     NSString *s = m[k];
     return s ? NSSelectorFromString(s) : NULL;
 }
@@ -4486,7 +4500,11 @@ static NSString* rainbowWrap(NSString* text, int idx) {
 // ===== GELISMIS OZEL ODA KURUCU (Harita, Gunun Saati, Mod, 31 Kisi) =====
 - (void)createAdvancedCustomRoom {
     if (!pn_createRoom || !i_object_new || !g_roomOptionsClass) {
-        FLog(@"Oda kurma hazir degil - once lobiye/oda listesine gir"); return;
+        UIAlertController *warn = [UIAlertController alertControllerWithTitle:@"⚠️ Lobiye Girin"
+            message:@"Oda kurabilmek için önce online Lobi / Oda Listesi ekranına girmeniz gerekmektedir." preferredStyle:UIAlertControllerStyleAlert];
+        [warn addAction:[UIAlertAction actionWithTitle:@"Tamam" style:UIAlertActionStyleDefault handler:nil]];
+        [self present:warn];
+        return;
     }
 
     UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"🏡 Gelişmiş Özel Oda Kur"
@@ -4647,7 +4665,13 @@ static NSString* rainbowWrap(NSString* text, int idx) {
 
 // ===== NORMAL ODA KUR (isim yaz + yuksek kapasite, oyunun 10 sinirini as) =====
 - (void)createNormalRoom {
-    if (!pn_createRoom || !i_object_new || !g_roomOptionsClass) { FLog(@"Oda kurma hazir degil - once oda listesine/lobiye gir"); return; }
+    if (!pn_createRoom || !i_object_new || !g_roomOptionsClass) {
+        UIAlertController *warn = [UIAlertController alertControllerWithTitle:@"⚠️ Lobiye Girin"
+            message:@"Oda kurabilmek için önce online Lobi / Oda Listesi ekranına girmeniz gerekmektedir." preferredStyle:UIAlertControllerStyleAlert];
+        [warn addAction:[UIAlertAction actionWithTitle:@"Tamam" style:UIAlertActionStyleDefault handler:nil]];
+        [self present:warn];
+        return;
+    }
     UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"\U0001F3E0 Normal Oda Kur"
         message:[NSString stringWithFormat:@"%d kisilik oda. Oda adini yaz:", roomMaxPlayers] preferredStyle:UIAlertControllerStyleAlert];
     [ac addTextFieldWithConfigurationHandler:^(UITextField *tf){
@@ -4773,16 +4797,25 @@ static NSString* rainbowWrap(NSString* text, int idx) {
     [self present:ac];
 }
 - (void)pickRoomMax:(UIButton*)b {
-    if      (roomMaxPlayers <= 10) roomMaxPlayers = 16;
-    else if (roomMaxPlayers <= 16) roomMaxPlayers = 20;
-    else if (roomMaxPlayers <= 20) roomMaxPlayers = 31;
-    else if (roomMaxPlayers <= 31) roomMaxPlayers = 50;
-    else if (roomMaxPlayers <= 50) roomMaxPlayers = 100;
-    else if (roomMaxPlayers <= 100) roomMaxPlayers = 255;
-    else                            roomMaxPlayers = 10;
-    saveInt(@"roomMaxP", roomMaxPlayers);
-    [b setTitle:[NSString stringWithFormat:@"\U0001F465 Oda Max Oyuncu: %d", roomMaxPlayers] forState:UIControlStateNormal];
-    FLog([NSString stringWithFormat:@"Oda max oyuncu: %d", roomMaxPlayers]);
+    UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"\U0001F465 Oda Max Oyuncu"
+        message:@"Kac kisilik? Istedigin sayiyi yaz (2-255):" preferredStyle:UIAlertControllerStyleAlert];
+    [ac addTextFieldWithConfigurationHandler:^(UITextField *tf){
+        tf.keyboardType = UIKeyboardTypeNumberPad;
+        tf.text = [NSString stringWithFormat:@"%d", roomMaxPlayers];
+        tf.placeholder = @"31";
+        tf.clearButtonMode = UITextFieldViewModeAlways;
+    }];
+    [ac addAction:[UIAlertAction actionWithTitle:@"Uygula" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
+        int v = [ac.textFields.firstObject.text intValue];
+        if (v < 2)   v = 2;
+        if (v > 255) v = 255;   // Photon MaxPlayers 0-255
+        roomMaxPlayers = v;
+        saveInt(@"roomMaxP", roomMaxPlayers);
+        [b setTitle:[NSString stringWithFormat:@"\U0001F465 Oda Max Oyuncu: %d", roomMaxPlayers] forState:UIControlStateNormal];
+        FLog([NSString stringWithFormat:@"Oda max oyuncu: %d (elle)", roomMaxPlayers]);
+    }]];
+    [ac addAction:[UIAlertAction actionWithTitle:@"Iptal" style:UIAlertActionStyleCancel handler:nil]];
+    [self present:ac];
 }
 
 // ===== GELISMIS RENKLI ODA KURUCU =====
@@ -6073,11 +6106,36 @@ static int g_emojiMax = 12;   // gecerli emoji sprite sayisi (Emoji Test ile ogr
 }
 
 - (void)present:(UIAlertController*)ac {
-    UIWindow *w = getKeyWindow(); if (!w) return;
-    UIViewController *vc = w.rootViewController; if (!vc) return;
-    while (vc.presentedViewController) vc = vc.presentedViewController;
-    if (vc.isBeingDismissed || vc.isBeingPresented) return;
-    [vc presentViewController:ac animated:YES completion:nil];
+    if (!ac) return;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        @try {
+            UIViewController *top = few1n_topVC();
+            if (!top) {
+                UIWindow *w = getKeyWindow();
+                top = w.rootViewController;
+            }
+            if (!top) return;
+
+            // Eger mevcut ekran zaten bir alert penceresi ise, onu kapatip yenisini ac
+            if ([top isKindOfClass:[UIAlertController class]]) {
+                UIViewController *parent = top.presentingViewController;
+                [top dismissViewControllerAnimated:NO completion:^{
+                    UIViewController *target = parent ?: few1n_topVC();
+                    if (target) [target presentViewController:ac animated:YES completion:nil];
+                }];
+                return;
+            }
+
+            if (top.isBeingPresented || top.isBeingDismissed) {
+                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.15 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                    [self present:ac];
+                });
+                return;
+            }
+
+            [top presentViewController:ac animated:YES completion:nil];
+        } @catch (...) {}
+    });
 }
 
 @end
