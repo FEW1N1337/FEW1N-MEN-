@@ -1780,6 +1780,7 @@ static void h_roomConnect(void* self) {
 static bool isColorRoomForce = false;  // TUM oda isimlerini renkli yap (client-side)
 static bool isMapTextOverrideEnabled = false;
 static char customMapTextOverride[128] = "<#FF0000><b>[ADMIN]</b></color>";
+static NSMutableArray<NSString*> *g_lobbyRoomNames = nil;
 static void (*o_roomLineSetup)(void*, void*, void*, unsigned char, unsigned char, void*, void*) = NULL;
 static void h_roomLineSetup(void* self, void* a, void* b, unsigned char c, unsigned char d, void* e, void* f) {
     fRoomLine++;
@@ -1798,6 +1799,12 @@ static void h_roomLineSetup(void* self, void* a, void* b, unsigned char c, unsig
                 void* rawName = (f && rinfo_getName) ? rinfo_getName(f) : a;
                 if (rawName) {
                     NSString *name = readStr(rawName) ?: @"";
+                    if (name.length > 0) {
+                        if (!g_lobbyRoomNames) g_lobbyRoomNames = [[NSMutableArray alloc] init];
+                        if (![g_lobbyRoomNames containsObject:name] && g_lobbyRoomNames.count < 25) {
+                            [g_lobbyRoomNames addObject:name];
+                        }
+                    }
                     // ToUpper() BYPASS TAMİRCİSİ: Oyun ToUpper() çağırıp renk/stil etiketlerini büyük harfe dönüştürürse anında düzelt
                     if ([name containsString:@"<COLOR="] || [name containsString:@"</COLOR>"] || [name containsString:@"<MARK="] || [name containsString:@"<SIZE="] || [name containsString:@"<FONT="]) {
                         name = [name stringByReplacingOccurrencesOfString:@"<COLOR=" withString:@"<color="];
@@ -6022,44 +6029,63 @@ static int g_emojiMax = 12;   // gecerli emoji sprite sayisi (Emoji Test ile ogr
     [self present:ac];
 }
 
-// ===== BELİRLİ İSİM/ID İLE ODAYA GİR (REJOIN DESTEKLİ) =====
+static void few1n_joinTargetRoom(NSString *nm) {
+    if (!nm || nm.length == 0 || !pn_joinRoom) return;
+    @try {
+        if (pn_getInRoom && pn_getInRoom()) {
+            if (pn_leaveRoom) pn_leaveRoom(false);
+            if (lobbyGetInst && lobby_leaveRoom) {
+                void* l = lobbyGetInst();
+                if (l) lobby_leaveRoom(l);
+            }
+        }
+        void* ns = mkStr(nm);
+        if (ns) {
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.15 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                bool ok = pn_joinRoom(ns, NULL);
+                if (!ok) {
+                    for (int r = 1; r <= 3 && !ok; r++) {
+                        NSMutableString *uName = [NSMutableString stringWithString:nm];
+                        for (int k = 0; k < r; k++) [uName appendString:@"​"];
+                        void* nsUniq = mkStr(uName);
+                        if (nsUniq) ok = pn_joinRoom(nsUniq, NULL);
+                    }
+                }
+                FLog(ok ? [NSString stringWithFormat:@"'%@' odasina giriliyor...", nm] : @"JoinRoom reddedildi");
+            });
+        }
+    } @catch (...) {}
+}
+
+// ===== BELİRLİ İSİM/ID İLE ODAYA GİR (DOLU ODA BYPASS & TIKLANABİLİR LİSTE) =====
 - (void)joinRoomByName {
     if (!pn_joinRoom) { FLog(@"JoinRoom hazir degil (lobiye gir)"); return; }
-    UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"🚪 Odaya Gir (isim/ID)"
-        message:@"Oda adini TAM yaz (buyuk/kucuk harf onemli):" preferredStyle:UIAlertControllerStyleAlert];
-    [ac addTextFieldWithConfigurationHandler:^(UITextField *tf){ tf.placeholder = @"oda adi / ID"; tf.clearButtonMode = UITextFieldViewModeAlways; }];
-    [ac addAction:[UIAlertAction actionWithTitle:@"Gir" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
+    
+    NSString *subTitle = (g_lobbyRoomNames && g_lobbyRoomNames.count > 0)
+        ? [NSString stringWithFormat:@"Lobide %lu aktif oda bulundu. Katılmak istediğin odaya dokun (Dolu 10/10 odalar dahil!):", (unsigned long)g_lobbyRoomNames.count]
+        : @"Dolu (10/10) veya şifreli odalara doğrudan katılmak için oda adını yazın:";
+        
+    UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"🚪 Canlı Odalara Gir (Dolu Oda Bypass)"
+                                                               message:subTitle preferredStyle:UIAlertControllerStyleAlert];
+
+    // 1) TESPİT EDİLEN ODALARI TIKLANABİLİR BUTON OLARAK EKLE
+    if (g_lobbyRoomNames && g_lobbyRoomNames.count > 0) {
+        for (NSString *roomNm in [g_lobbyRoomNames copy]) {
+            [ac addAction:[UIAlertAction actionWithTitle:[NSString stringWithFormat:@"🚪 🟢 %@", roomNm]
+                style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
+                few1n_joinTargetRoom(roomNm);
+            }]];
+        }
+    }
+
+    // 2) ELLE İSİM/ID YAZMA ALANI
+    [ac addTextFieldWithConfigurationHandler:^(UITextField *tf){ tf.placeholder = @"Veya Elle Oda Adı / ID Yazın"; tf.clearButtonMode = UITextFieldViewModeAlways; }];
+    [ac addAction:[UIAlertAction actionWithTitle:@"➡️ Yazılan Odaya Gir" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
         NSString *nm = ac.textFields.firstObject.text;
-        if (!nm || nm.length == 0) { FLog(@"Bos oda adi"); return; }
-        @try {
-            // 1) Eger mevcut bir odadaysak önce odadan temiz ayrıl
-            if (pn_getInRoom && pn_getInRoom()) {
-                if (pn_leaveRoom) pn_leaveRoom(false);
-                if (lobbyGetInst && lobby_leaveRoom) {
-                    void* l = lobbyGetInst();
-                    if (l) lobby_leaveRoom(l);
-                }
-            }
-            void* ns = mkStr(nm);
-            if (ns) {
-                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.15 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-                    // 2) Önce yazılan yalın isimle girilmeyi dene
-                    bool ok = pn_joinRoom(ns, NULL);
-                    if (!ok) {
-                        // 3) Yedek: Görünmez karakter (Zero-Width Space) eklenmiş oda ismiyle tekrar dene
-                        for (int r = 1; r <= 3 && !ok; r++) {
-                            NSMutableString *uName = [NSMutableString stringWithString:nm];
-                            for (int k = 0; k < r; k++) [uName appendString:@"​"];
-                            void* nsUniq = mkStr(uName);
-                            if (nsUniq) ok = pn_joinRoom(nsUniq, NULL);
-                        }
-                    }
-                    FLog(ok ? [NSString stringWithFormat:@"'%@' odasina giriliyor...", nm] : @"JoinRoom reddedildi (oda yok, dolu ya da lobide degilsin)");
-                });
-            }
-        } @catch (...) { FLog(@"Odaya giris hatasi"); }
+        if (nm.length > 0) few1n_joinTargetRoom(nm);
     }]];
-    [ac addAction:[UIAlertAction actionWithTitle:@"Iptal" style:UIAlertActionStyleCancel handler:nil]];
+
+    [ac addAction:[UIAlertAction actionWithTitle:@"İptal" style:UIAlertActionStyleCancel handler:nil]];
     [self present:ac];
 }
 
