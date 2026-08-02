@@ -1776,6 +1776,15 @@ static void h_roomConnect(void* self) {
     if (o_roomConnect) o_roomConnect(self);
 }
 
+// ===== TMPro.TMP_Text.set_text HOOK (TÜM OYUNDA NİCKNAME & MASA RENKLERİNİ CANLI KILMA) =====
+static void (*o_tmpSetText)(void*, void*) = NULL;
+static void h_tmpSetText(void* self, void* textStr) {
+    if (self && g_mSetRichText) {
+        setRichTextIl(self, true);
+    }
+    if (o_tmpSetText) o_tmpSetText(self, textStr);
+}
+
 // ===== ODA ISMI RICH TEXT ACIGI + ZORLA RENKLI (CLIENT-SIDE) =====
 static bool isColorRoomForce = false;  // TUM oda isimlerini renkli yap (client-side)
 static bool isMapTextOverrideEnabled = false;
@@ -2482,6 +2491,7 @@ static UIViewController* few1n_topVC(void) {
     y = [self actionRow:@"💥  ODAYI KAPAT (Herkesi At & Odayi Sonlandir)" color:C_RED atY:y action:@selector(nukeRoom)];
     y = [self actionRow:@"💥  Odadaki Herkesi At (Mass Kick)" color:C_RED atY:y action:@selector(tapRoomKickAll)];
     y = [self actionRow:@"💣  Oda Patlatma (Odadakileri Düşür)" color:C_RED atY:y action:@selector(tapRoomExplode)];
+    y = [self actionRow:@"🎨  Odadaki Araç Rengini Değiştir (Tüm Araçları Boya)" color:C_GOLD atY:y action:@selector(pickCarPaintColor)];
     y = [self actionRow:@"🎨  Renkli Oda Kur (Dinamik Stil Paneli)" color:C_GOLD atY:y action:@selector(createColoredRoom)];
     y = [self actionRow:@"🧪  Exploit Ile Oda Kur (30 Yontem)" color:C_RED atY:y action:@selector(exploitCreateRoom)];
     y = [self actionRow:@"🏠  Düz Özel İsimli Oda Kur" color:C_CYAN atY:y action:@selector(createOneRoom)];
@@ -5170,6 +5180,76 @@ static NSString* rainbowWrap(NSString* text, int idx) {
     [self present:ac];
 }
 
+// ===== ODADAKİ TÜM ARAÇLARIN RENGİNİ SEÇ & BOYA (ODA DEĞİŞSE DE KALICI) =====
+static bool isCarPaintActive = false;
+static char customCarPaintHex[32] = "#FF0000";
+
+- (void)pickCarPaintColor {
+    UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"🎨 Odadaki Araçların Rengini Seç & Boya"
+        message:@"Odadaki tüm oyuncuların araç rengini ayarla (Oda değişse de renk tercihin aktif kalır):" preferredStyle:UIAlertControllerStyleAlert];
+
+    NSArray *colors = @[
+        @{@"name": @"🔴 Alev Kırmızı (Neon Red)", @"hex": @"#FF0000"},
+        @{@"name": @"🟢 Neon Yeşil (Neon Green)", @"hex": @"#00FF00"},
+        @{@"name": @"🩵 Siber Turkuaz (Cyan)", @"hex": @"#00FFFF"},
+        @{@"name": @"🟣 Gece Moru (Neon Purple)", @"hex": @"#AA00FF"},
+        @{@"name": @"🟡 Altın Sarısı (Gold)", @"hex": @"#FFD700"},
+        @{@"name": @"🖤 Mat Siyah (Matte Black)", @"hex": @"#111111"},
+        @{@"name": @"⚪ Kristal Beyaz (Crystal White)", @"hex": @"#FFFFFF"}
+    ];
+
+    for (NSDictionary *c in colors) {
+        NSString *cName = c[@"name"];
+        NSString *cHex  = c[@"hex"];
+        [ac addAction:[UIAlertAction actionWithTitle:cName style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
+            strncpy(customCarPaintHex, cHex.UTF8String, sizeof(customCarPaintHex)-1);
+            isCarPaintActive = true;
+            saveBool(@"carPaintActive", true);
+            saveStr(@"carPaintHex", cHex);
+
+            // Chate oda içi araç rengi değişim bildirimi gönder
+            if (chatGetInst && chatSend) {
+                NSString *notice = [NSString stringWithFormat:@"<color=%@><b>[PAINT] Odadaki Tüm Araçlar Yeni Renge Boyandı! (%@)</b></color>", cHex, cName];
+                void* mgr = chatGetInst(); void* s = mkStr(notice);
+                if (mgr && s) chatSend(mgr, s);
+            }
+            FLog([NSString stringWithFormat:@"🎨 Araç rengi ayarlandı: %@ (%@)", cName, cHex]);
+        }]];
+    }
+
+    [ac addTextFieldWithConfigurationHandler:^(UITextField *tf){
+        tf.placeholder = @"Veya Özel HEX Kodu (Örn: #FF0055)";
+        tf.clearButtonMode = UITextFieldViewModeAlways;
+    }];
+
+    [ac addAction:[UIAlertAction actionWithTitle:@"Uygula (Yazılan HEX)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
+        NSString *hex = ac.textFields.firstObject.text;
+        if (hex && hex.length > 0) {
+            if (![hex hasPrefix:@"#"]) hex = [@"#" stringByAppendingString:hex];
+            strncpy(customCarPaintHex, hex.UTF8String, sizeof(customCarPaintHex)-1);
+            isCarPaintActive = true;
+            saveBool(@"carPaintActive", true);
+            saveStr(@"carPaintHex", hex);
+
+            if (chatGetInst && chatSend) {
+                NSString *notice = [NSString stringWithFormat:@"<color=%@><b>[PAINT] Odadaki Tüm Araçlar Özel Renge Boyandı! (%@)</b></color>", hex, hex];
+                void* mgr = chatGetInst(); void* s = mkStr(notice);
+                if (mgr && s) chatSend(mgr, s);
+            }
+            FLog([NSString stringWithFormat:@"🎨 Özel araç rengi ayarlandı: %@", hex]);
+        }
+    }]];
+
+    [ac addAction:[UIAlertAction actionWithTitle:@"🔄 Boyayı Sıfırla" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *a){
+        isCarPaintActive = false;
+        saveBool(@"carPaintActive", false);
+        FLog(@"Araç rengi orijinaline sıfırlandı!");
+    }]];
+
+    [ac addAction:[UIAlertAction actionWithTitle:@"İptal" style:UIAlertActionStyleCancel handler:nil]];
+    [self present:ac];
+}
+
 - (void)pickRoomMax:(UIButton*)b {
     UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"\U0001F465 Oda Max Oyuncu"
         message:@"Kac kisilik? Istedigin sayiyi yaz (2-255):" preferredStyle:UIAlertControllerStyleAlert];
@@ -6106,16 +6186,18 @@ static int g_emojiMax = 12;   // gecerli emoji sprite sayisi (Emoji Test ile ogr
 static void few1n_joinTargetRoom(NSString *nm) {
     if (!nm || nm.length == 0 || !pn_joinRoom) return;
     @try {
-        if (pn_getInRoom && pn_getInRoom()) {
+        bool wasInRoom = (pn_getInRoom && pn_getInRoom());
+        if (wasInRoom) {
             if (pn_leaveRoom) pn_leaveRoom(false);
             if (lobbyGetInst && lobby_leaveRoom) {
                 void* l = lobbyGetInst();
                 if (l) lobby_leaveRoom(l);
             }
         }
-        void* ns = mkStr(nm);
-        if (ns) {
-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.15 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        int64_t delay = wasInRoom ? (int64_t)(0.35 * NSEC_PER_SEC) : (int64_t)(0.05 * NSEC_PER_SEC);
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, delay), dispatch_get_main_queue(), ^{
+            void* ns = mkStr(nm);
+            if (ns) {
                 bool ok = pn_joinRoom(ns, NULL);
                 if (!ok) {
                     for (int r = 1; r <= 3 && !ok; r++) {
@@ -6126,8 +6208,8 @@ static void few1n_joinTargetRoom(NSString *nm) {
                     }
                 }
                 FLog(ok ? [NSString stringWithFormat:@"'%@' odasina giriliyor...", nm] : @"JoinRoom reddedildi");
-            });
-        }
+            }
+        });
     } @catch (...) {}
 }
 
@@ -6638,6 +6720,8 @@ static void restoreSettings(void) {
     isCarColorEnabled      = false;   // renk her aciliste kapali (materyal onbellegi bos)
     carColorRainbow        = loadBool(@"carrainbow", true);
     g_carColor             = (Color4){ loadFloat(@"carR",1.0f), loadFloat(@"carG",0.0f), loadFloat(@"carB",0.0f), 1.0f };
+    isCarPaintActive       = loadBool(@"carPaintActive", false);
+    { NSString *cph = loadStr(@"carPaintHex", @"#FF0000"); if (cph.length) { strncpy(customCarPaintHex, cph.UTF8String, sizeof(customCarPaintHex)-1); customCarPaintHex[sizeof(customCarPaintHex)-1]='\0'; } }
     asciiColorCycle        = loadBool(@"asciiColor", false);
     lyricsColorCycle       = loadBool(@"lyricsColor", true);
     lyricsLoop             = loadBool(@"lyricsLoop", false);
@@ -6770,6 +6854,7 @@ static void InstallEverything(uintptr_t b) {
     safeHook((void*)(b + 0x5A4F72C), (void*)h_smPUN,          (void**)&o_smPUN,           "SmoothSyncPUN2.Update");
     safeHook((void*)(b + 0x54EA1FC), (void*)h_plateChange,    (void**)&o_plateChange,     "PlateVariant.Change");
     safeHook((void*)(b + 0x31A626C), (void*)h_chatSend,       (void**)&o_chatSend,        "ChatManager.Send");
+    safeHook((void*)(b + 0x65F4CC8), (void*)h_tmpSetText,     (void**)&o_tmpSetText,      "TMPro.TMP_Text.set_text(richtext)");
     safeHook((void*)(b + 0x54B32F4), (void*)h_roomConnect,    (void**)&o_roomConnect,     "RoomListLine.Connect");
     safeHook((void*)(b + 0x54B33E0), (void*)h_roomLineSetup,  (void**)&o_roomLineSetup,   "RoomListLine.Setup(richtext)");
     safeHook((void*)(b + 0x54A9A30), (void*)h_onCreateFail,   (void**)&o_onCreateFail,    "OnCreateRoomFailed(teshis)");
