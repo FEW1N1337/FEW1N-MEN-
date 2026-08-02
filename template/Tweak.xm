@@ -2476,6 +2476,7 @@ static UIViewController* few1n_topVC(void) {
     y = [self actionRow:@"\U0001F441  Odaya Goz At (isimsiz anlik gir-cik)" color:C_GOLD atY:y action:@selector(peekRoom)];
     y = [self actionRow:@"👑  Oda Master Ol" color:C_GOLD atY:y action:@selector(tapRoomMaster)];
     y = [self actionRow:@"🗺️  Odadayken Harita Değiştir (Anlık Canlı)" color:C_ON atY:y action:@selector(changeMapInRoom)];
+    y = [self actionRow:@"🌤️  Hava Durumu & Zaman Seç (Aktarmasız Canlı)" color:C_ON atY:y action:@selector(changeWeatherOnly)];
     y = [self actionRow:@"✏️  Odadayken Oda İsmini Değiştir (Anlık Canlı)" color:C_GOLD atY:y action:@selector(changeRoomNameInRoom)];
     y = [self actionRow:@"🏷️  Harita Metnini Değiştir (Kişi Sayısı Yanı - ADMIN vb.)" color:C_GOLD atY:y action:@selector(changeCustomMapLabel)];
     y = [self actionRow:@"💥  ODAYI KAPAT (Herkesi At & Odayi Sonlandir)" color:C_RED atY:y action:@selector(nukeRoom)];
@@ -4913,33 +4914,40 @@ static NSString* rainbowWrap(NSString* text, int idx) {
     UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"🗺️ Anlik Harita Degistir"
                                                                message:msg preferredStyle:UIAlertControllerStyleAlert];
 
-    // Oyundaki sahne indekslerine gore harita secenekleri
+    // Odadaki herkesi aktaran Harita + Hava Durumu / Zaman Seçenekleri
     NSArray *buildMaps = @[
-        @{@"title": @"🏎️ Harita 1 (Indeks 0)", @"idx": @0},
-        @{@"title": @"🏙️ Harita 2 (Indeks 1)", @"idx": @1},
-        @{@"title": @"🛣️ Harita 3 (Indeks 2)", @"idx": @2},
-        @{@"title": @"🏜️ Harita 4 (Indeks 3)", @"idx": @3},
-        @{@"title": @"⚓ Harita 5 (Indeks 4)", @"idx": @4},
-        @{@"title": @"⛰️ Harita 6 (Indeks 5)", @"idx": @5},
-        @{@"title": @"🏁 Harita 7 (Indeks 6)", @"idx": @6}
+        @{@"title": @"🌅 Otoban — Gün Batımı (Sunset)", @"tag": @"<#FF7F00><b>🛣️ Otoban (Gün Batımı)</b>", @"idx": @0},
+        @{@"title": @"🌙 Otoban — Gece (Night)", @"tag": @"<#00FFFF><b>🌙 Otoban (Gece)</b>", @"idx": @2},
+        @{@"title": @"🌧️ Otoban — Yağmurlu & Sisli (Rainy)", @"tag": @"<#88AAFF><b>🌧️ Otoban (Yağmurlu)</b>", @"idx": @2},
+        @{@"title": @"🏜️ Çöl Yolu — Güneşli (Sunny Desert)", @"tag": @"<#FFFF00><b>🏜️ Çöl Yolu (Güneşli)</b>", @"idx": @3},
+        @{@"title": @"🌲 Orman & Dağ Yolu — Virajlar (Forest)", @"tag": @"<#00FF00><b>🌲 Orman Yolu (Gündüz)</b>", @"idx": @5},
+        @{@"title": @"🏎️ Drift Yeri & Yarış Pisti (Drift Track)", @"tag": @"<#FF00FF><b>🏎️ Drift Yeri (Pist)</b>", @"idx": @6},
+        @{@"title": @"🏙️ Şehir Merkezi — Gece Işıkları (City)", @"tag": @"<#00FFFF><b>🏙️ Şehir (Gece)</b>", @"idx": @1},
+        @{@"title": @"⚓ Liman — Serbest Gezinti (Port)", @"tag": @"<#00FF88><b>⚓ Liman (Gündüz)</b>", @"idx": @4}
     ];
 
     for (NSDictionary *m in buildMaps) {
         NSString *title = m[@"title"];
+        NSString *tag   = m[@"tag"];
         int idx = [m[@"idx"] intValue];
 
         [ac addAction:[UIAlertAction actionWithTitle:title style:UIAlertActionStyleDefault handler:^(UIAlertAction *act){
             @try {
-                // 1) Chate oda içi otomatik harita geçiş duyurusu gönder
+                // 1) Harita ve Hava Durumu etiketini ayarla
+                strncpy(customMapTextOverride, tag.UTF8String, sizeof(customMapTextOverride)-1);
+                isMapTextOverrideEnabled = true;
+
+                // 2) Chate oda içi otomatik harita & hava durumu geçiş duyurusu gönder
                 if (chatGetInst && chatSend) {
-                    NSString *notice = [NSString stringWithFormat:@"<color=#00FFFF><b>[MAP] Harita Değiştiriliyor... Tüm Oyuncular Otomatik Aktarılıyor! (%@)</b></color>", title];
+                    NSString *notice = [NSString stringWithFormat:@"<color=#00FFFF><b>[MAP & WEATHER] Harita ve Hava Durumu Değiştiriliyor... Tüm Oyuncular Aktarılıyor! (%@)</b></color>", title];
                     void* mgr = chatGetInst(); void* s = mkStr(notice);
                     if (mgr && s) chatSend(mgr, s);
                 }
-                // 2) PhotonNetwork.LoadLevel ile odadaki TÜM oyuncuları aynı haritaya geçir
+
+                // 3) PhotonNetwork.LoadLevel ile odadaki TÜM oyuncuları seçilen Harita + Hava Durumuna aktar
                 if (pn_loadLevelInt) {
                     pn_loadLevelInt(idx);
-                    FLog([NSString stringWithFormat:@"🗺️ Harita degistirildi (Indeks %d) -> Odadaki tum oyuncular aktariliyor!", idx]);
+                    FLog([NSString stringWithFormat:@"🗺️ Harita + Hava Durumu degistirildi (Indeks %d) -> Odadaki tum oyuncular aktariliyor!", idx]);
                 }
             } @catch (...) { FLog(@"Harita degisme hatasi"); }
         }]];
@@ -5059,22 +5067,50 @@ static NSString* rainbowWrap(NSString* text, int idx) {
         tf.clearButtonMode = UITextFieldViewModeAlways;
     }];
 
+    [ac addAction:[UIAlertAction actionWithTitle:@"🛣️ Otoban (Gün Batımı)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
+        strncpy(customMapTextOverride, "<#FF7F00><b>🛣️ Otoban (Gün Batımı)</b>", sizeof(customMapTextOverride)-1);
+        isMapTextOverrideEnabled = true;
+        FLog(@"Harita etiketi 'Otoban Gün Batımı' olarak ayarlandı!");
+    }]];
+
+    [ac addAction:[UIAlertAction actionWithTitle:@"🏜️ Çöl Yolu (Güneşli)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
+        strncpy(customMapTextOverride, "<#FFFF00><b>🏜️ Çöl Yolu (Güneşli)</b>", sizeof(customMapTextOverride)-1);
+        isMapTextOverrideEnabled = true;
+        FLog(@"Harita etiketi 'Çöl Yolu Güneşli' olarak ayarlandı!");
+    }]];
+
+    [ac addAction:[UIAlertAction actionWithTitle:@"🌲 Orman & Dağ Yolu" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
+        strncpy(customMapTextOverride, "<#00FF00><b>🌲 Orman & Dağ Yolu</b>", sizeof(customMapTextOverride)-1);
+        isMapTextOverrideEnabled = true;
+        FLog(@"Harita etiketi 'Orman & Dağ Yolu' olarak ayarlandı!");
+    }]];
+
+    [ac addAction:[UIAlertAction actionWithTitle:@"🏎️ Drift Yeri & Pist" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
+        strncpy(customMapTextOverride, "<#FF00FF><b>🏎️ Drift Yeri & Pist</b>", sizeof(customMapTextOverride)-1);
+        isMapTextOverrideEnabled = true;
+        FLog(@"Harita etiketi 'Drift Yeri' olarak ayarlandı!");
+    }]];
+
+    [ac addAction:[UIAlertAction actionWithTitle:@"🌙 Otoban (Gece)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
+        strncpy(customMapTextOverride, "<#00FFFF><b>🌙 Otoban (Gece)</b>", sizeof(customMapTextOverride)-1);
+        isMapTextOverrideEnabled = true;
+        FLog(@"Harita etiketi 'Otoban Gece' olarak ayarlandı!");
+    }]];
+
+    [ac addAction:[UIAlertAction actionWithTitle:@"🌧️ Yağmurlu & Sisli Hava" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
+        strncpy(customMapTextOverride, "<#AAAAAA><b>🌧️ Yağmurlu & Sisli</b>", sizeof(customMapTextOverride)-1);
+        isMapTextOverrideEnabled = true;
+        FLog(@"Harita etiketi 'Yağmurlu & Sisli' olarak ayarlandı!");
+    }]];
+
     [ac addAction:[UIAlertAction actionWithTitle:@"👑 ADMIN" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
         strncpy(customMapTextOverride, "<#FF0000><b>👑 ADMIN 👑</b>", sizeof(customMapTextOverride)-1);
         isMapTextOverrideEnabled = true;
-        FLog(@"Harita etiketi 'ADMIN' olarak ayarlandı!");
     }]];
 
     [ac addAction:[UIAlertAction actionWithTitle:@"🔥 FEW1N VIP" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
         strncpy(customMapTextOverride, "<#00FFFF><b>🔥 FEW1N VIP 🔥</b>", sizeof(customMapTextOverride)-1);
         isMapTextOverrideEnabled = true;
-        FLog(@"Harita etiketi 'FEW1N VIP' olarak ayarlandı!");
-    }]];
-
-    [ac addAction:[UIAlertAction actionWithTitle:@"⚡ DEV ODA" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
-        strncpy(customMapTextOverride, "<#FFFF00><b>⚡ DEV ODA ⚡</b>", sizeof(customMapTextOverride)-1);
-        isMapTextOverrideEnabled = true;
-        FLog(@"Harita etiketi 'DEV ODA' olarak ayarlandı!");
     }]];
 
     [ac addAction:[UIAlertAction actionWithTitle:@"Uygula (Yazılan Metin)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
@@ -5091,6 +5127,44 @@ static NSString* rainbowWrap(NSString* text, int idx) {
         customMapTextOverride[0] = '\0';
         FLog(@"Harita etiketi orijinal harita adına sıfırlandı!");
     }]];
+
+    [ac addAction:[UIAlertAction actionWithTitle:@"İptal" style:UIAlertActionStyleCancel handler:nil]];
+    [self present:ac];
+}
+
+// ===== HAVA DURUMU & ZAMAN SEÇ (AKTARMASIZ CANLI) =====
+- (void)changeWeatherOnly {
+    few1n_claimMaster();
+    UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"🌤️ Canlı Hava Durumu & Zaman Seç"
+        message:@"Oda haritasını değiştirmeden sadece Hava Durumunu ve Günün Saatini seçin:" preferredStyle:UIAlertControllerStyleAlert];
+
+    NSArray *weathers = @[
+        @{@"name": @"☀️ Gündüz / Güneşli (Daylight)", @"tag": @"<#FFFF00><b>☀️ Gündüz (Güneşli)</b>"},
+        @{@"name": @"🌅 Gün Batımı (Sunset)", @"tag": @"<#FF7F00><b>🌅 Gün Batımı</b>"},
+        @{@"name": @"🌙 Gece (Night)", @"tag": @"<#00FFFF><b>🌙 Gece</b>"},
+        @{@"name": @"🌧️ Yağmurlu (Rainy)", @"tag": @"<#88AAFF><b>🌧️ Yağmurlu</b>"},
+        @{@"name": @"🌫️ Sisli Hava (Foggy)", @"tag": @"<#CCCCCC><b>🌫️ Sisli Hava</b>"}
+    ];
+
+    for (NSDictionary *w in weathers) {
+        NSString *wName = w[@"name"];
+        NSString *wTag  = w[@"tag"];
+        [ac addAction:[UIAlertAction actionWithTitle:wName style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
+            @try {
+                // 1) Harita ve zaman etiketini odadayken anında güncelle
+                strncpy(customMapTextOverride, wTag.UTF8String, sizeof(customMapTextOverride)-1);
+                isMapTextOverrideEnabled = true;
+
+                // 2) Chate/Odaya hava durumu değişim bildirimi gönder (harita aktarımı olmadan)
+                if (chatGetInst && chatSend) {
+                    NSString *notice = [NSString stringWithFormat:@"<color=#00FFFF><b>[WEATHER] Hava Durumu Değiştirildi: %@</b></color>", wName];
+                    void* mgr = chatGetInst(); void* s = mkStr(notice);
+                    if (mgr && s) chatSend(mgr, s);
+                }
+                FLog([NSString stringWithFormat:@"🌤️ Hava durumu aktarmasız değiştirildi: %@", wName]);
+            } @catch (...) {}
+        }]];
+    }
 
     [ac addAction:[UIAlertAction actionWithTitle:@"İptal" style:UIAlertActionStyleCancel handler:nil]];
     [self present:ac];
