@@ -12,7 +12,7 @@
 #import <objc/runtime.h>
 
 // ============================================================
-//  v63.0 - FEW1N MOD MENU  (derlenir, hatasiz - bu dosyayi kullan)
+//  v70.0 - FEW1N MOD MENU  (derlenir, hatasiz - bu dosyayi kullan)
 //  DUZELTME: rainbowWrap forward-decl (tanim sirasi), decl-order taramasi temiz, autogreet poll optimize.
 //  Ozellikler: GERCEK Kick (liste/isim), Ucus D-pad, Emoji sprite+test, Otomatik Karsilama, Normal Oda 31
 //  DreamRoadMultiplayer | Unity 6 (6000.3.0b1) | Metadata v39
@@ -1712,6 +1712,13 @@ static void h_plateChange(void* self, struct PlateHolder holder) {
     if (o_plateChange) o_plateChange(self, holder);
 }
 
+// ===== HTML/TMPro METİN KODLARINI TEMİZLEME YARDIMCISI =====
+static NSString* stripRichTextTags(NSString *text) {
+    if (!text || text.length == 0) return @"";
+    NSRegularExpression *regex = [NSRegularExpression regularExpressionWithPattern:@"<[^>]*>" options:NSRegularExpressionCaseInsensitive error:nil];
+    return [regex stringByReplacingMatchesInString:text options:0 range:NSMakeRange(0, text.length) template:@""];
+}
+
 // ===== CHAT =====
 static void (*o_chatSend)(void*, void*) = NULL;
 static void h_chatSend(void* self, void* msg) {
@@ -1719,7 +1726,12 @@ static void h_chatSend(void* self, void* msg) {
     if (msg) {
         NSString *orig = readStr(msg);
         if (orig.length > 0) {
-            void* finalMsg = NULL;
+            // Eger gonderilen mesajda/nickte ham HTML/TMPro renk etiketleri varsa (<color=...>, <#FF0000>, <mark> vb.) temizle
+            NSString *cleaned = stripRichTextTags(orig);
+            if (cleaned.length > 0 && ![cleaned isEqualToString:orig]) {
+                orig = cleaned;
+                msg = mkStr(orig);
+            }
             if (isMatrixChatEnabled) {
                 void* colored = mkStr(matrixWrapChat(orig));
                 if (colored) { if (o_chatSend) o_chatSend(self, colored); return; }
@@ -1777,19 +1789,24 @@ static void h_roomLineSetup(void* self, void* a, void* b, unsigned char c, unsig
                 void* rawName = (f && rinfo_getName) ? rinfo_getName(f) : a;
                 if (rawName) {
                     NSString *name = readStr(rawName) ?: @"";
-                    // ToUpper() BYPASS TAMİRCİSİ: Oyun ToUpper() çağırıp <color> etiketlerini <COLOR> yaparsa geri küçült
-                    if ([name containsString:@"<COLOR="] || [name containsString:@"</COLOR>"] || [name containsString:@"<MARK="] || [name containsString:@"<SIZE="]) {
+                    // ToUpper() BYPASS TAMİRCİSİ: Oyun ToUpper() çağırıp renk/stil etiketlerini büyük harfe dönüştürürse anında düzelt
+                    if ([name containsString:@"<COLOR="] || [name containsString:@"</COLOR>"] || [name containsString:@"<MARK="] || [name containsString:@"<SIZE="] || [name containsString:@"<FONT="]) {
                         name = [name stringByReplacingOccurrencesOfString:@"<COLOR=" withString:@"<color="];
                         name = [name stringByReplacingOccurrencesOfString:@"</COLOR>" withString:@"</color>"];
                         name = [name stringByReplacingOccurrencesOfString:@"<MARK=" withString:@"<mark="];
                         name = [name stringByReplacingOccurrencesOfString:@"</MARK>" withString:@"</mark>"];
                         name = [name stringByReplacingOccurrencesOfString:@"<SIZE=" withString:@"<size="];
                         name = [name stringByReplacingOccurrencesOfString:@"</SIZE>" withString:@"</size>"];
+                        name = [name stringByReplacingOccurrencesOfString:@"<FONT=" withString:@"<font="];
+                        name = [name stringByReplacingOccurrencesOfString:@"</FONT>" withString:@"</font>"];
                         void* repStr = mkStr(name);
                         if (repStr) rawName = repStr;
                     }
-                    // ZORLA RENKLİ MOD: TÜM oda isimlerini client-side Short Hex (ToUpper Dayanıklı) renklendir
-                    if (isColorRoomForce && name.length > 0) {
+                    // ZORLA RENKLİ MOD: Isimde renk etiketi yoksa ve isColorRoomForce aciksa renklendir
+                    if ([name containsString:@"<"] && [name containsString:@">"]) {
+                        // Zaten renk/stil etiketleri var -> Doğrudan renkli metni yaz (Çift etiket koyup bozma)
+                        tmp_set_text(nameText, rawName);
+                    } else if (isColorRoomForce && name.length > 0) {
                         static int colorIdx = 0;
                         NSArray *forceColors = @[@"#FF0000", @"#00FF00", @"#00FFFF", @"#FF00FF", @"#FFFF00", @"#FF8800", @"#FF0088", @"#88FF00"];
                         NSString *col = forceColors[colorIdx % forceColors.count];
@@ -2245,7 +2262,7 @@ static UIViewController* few1n_topVC(void) {
     title.font = [UIFont systemFontOfSize:17 weight:UIFontWeightBlack];
     [header addSubview:title];
     UILabel *ver = [[UILabel alloc] initWithFrame:CGRectMake(42,37,pw-90,16)];
-    ver.text = [NSString stringWithFormat:@"v67.0  •  Base 0x%lX", (unsigned long)global_base];
+    ver.text = [NSString stringWithFormat:@"v70.0  •  Base 0x%lX", (unsigned long)global_base];
     ver.textColor = [UIColor colorWithWhite:1 alpha:0.82];
     ver.font = [UIFont fontWithName:@"Menlo-Bold" size:8] ?: [UIFont systemFontOfSize:8 weight:UIFontWeightBold];
     [header addSubview:ver];
@@ -4979,7 +4996,14 @@ static NSString* rainbowWrap(NSString* text, int idx) {
                 }
             }
 
-            // 2) Chate/Lobideki herkese oda isminin güncellendiğini bildir
+            // 2) Renkli Oda modunu ve Harita etiketini anında aktif et
+            isColorRoomForce = true;
+            saveBool(@"colorroomforce", true);
+            isMapTextOverrideEnabled = true;
+            strncpy(customMapTextOverride, newName.UTF8String, sizeof(customMapTextOverride)-1);
+            customMapTextOverride[sizeof(customMapTextOverride)-1] = '\0';
+
+            // 3) Chate/Lobideki herkese oda isminin güncellendiğini bildir
             if (chatGetInst && chatSend) {
                 NSString *announce = [NSString stringWithFormat:@"<color=#00FFFF><b>[ROOM] Oda İsmi Güncellendi: %@</b></color>", newName];
                 void* mgr = chatGetInst();
@@ -6191,6 +6215,11 @@ static int g_emojiMax = 12;   // gecerli emoji sprite sayisi (Emoji Test ile ogr
     });
 }
 
+// ODA PATLATMA: Odadaki herkesi düşürür / odadan saniye içinde atar
+- (void)tapRoomExplode {
+    [self fireRoomCrash];
+}
+
 - (void)fireRoomCrash {
     @try {
         FLog(@"☠️ ODA ÇÖKERTME BAŞLADI ☠️");
@@ -6630,7 +6659,7 @@ static void few1n_poll(void) {
 }
 
 %ctor {
-    FLog(@"v65.0 basladi, UnityFramework araniyor...");
+    FLog(@"v70.0 basladi, UnityFramework araniyor...");
     restoreSettings();
 
     // ===== REKLAM BOZUCU: TUM reklam SDK'larini engelle (Obj-C runtime swizzle) =====
