@@ -1847,6 +1847,10 @@ static char customMapTextOverride[128] = "<#FF0000><b>[ADMIN]</b></color>";
 static NSMutableArray<NSString*> *g_lobbyRoomNames = nil;
 static int g_lastRoomLineFrame = 0;
 
+static void(*lobbySetScene)(void*, void*) = NULL;
+static void(*pn_setAutomaticallySyncScene)(bool) = NULL;
+static void(*unity_loadSceneStr)(void*) = NULL;
+
 static void (*o_onRoomListUpdate)(void*, void*) = NULL;
 static void h_onRoomListUpdate(void* self, void* roomList) {
     if (o_onRoomListUpdate) o_onRoomListUpdate(self, roomList);
@@ -5001,14 +5005,19 @@ static NSString* rainbowWrap(NSString* text, int idx) {
         return;
     }
 
-    // Master Client yetkisini al
+    // 1) Oda Yöneticisi Yetkisini Al
     few1n_claimMaster();
+
+    // 2) Otomatik Sahne Senkronizasyonunu Aç (Sunucu kopmasını ve lobiye atılmayı %100 önler)
+    if (pn_setAutomaticallySyncScene) {
+        pn_setAutomaticallySyncScene(true);
+    }
 
     // Mevcut sahne adını ve indeksini al
     NSString *curScene = (pn_getActiveSceneName) ? readStr(pn_getActiveSceneName()) : @"?";
     int curIndex = (pn_getActiveSceneBuildIndex) ? pn_getActiveSceneBuildIndex() : -1;
 
-    NSString *msg = [NSString stringWithFormat:@"Mevcut Sahne: %@ (Indeks: %d)\n\nGeçmek istediğin haritaya dokun (Kimse lobiye atılmaz):", curScene, curIndex];
+    NSString *msg = [NSString stringWithFormat:@"Mevcut Sahne: %@ (Indeks: %d)\n\nGeçmek istediğin haritaya dokun (Odadaki herkes aktarılır):", curScene, curIndex];
     UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"🗺️ Anlık Harita Değiştir"
                                                                message:msg preferredStyle:UIAlertControllerStyleAlert];
 
@@ -5032,8 +5041,17 @@ static NSString* rainbowWrap(NSString* text, int idx) {
             @try {
                 bool loaded = false;
 
-                // Yöntem 1: Oyunun kendi HR_PhotonLobbyManager.SetScene metodu (Koparmaz, atmaz)
-                if (lobbySetScene && lobbyGetInst) {
+                // 1) PhotonNetwork.LoadLevel (Tüm odayı düşürmeden ve koparmadan senkronize taşır)
+                if (pn_loadLevelStr) {
+                    void* s = mkStr(scene);
+                    if (s) loaded = pn_loadLevelStr(s);
+                }
+                if (!loaded && pn_loadLevelInt) {
+                    loaded = pn_loadLevelInt(idx);
+                }
+
+                // 2) Oyun içi Lobby SetScene çağrısı
+                if (!loaded && lobbySetScene && lobbyGetInst) {
                     void* lobby = lobbyGetInst();
                     if (ptrOk(lobby)) {
                         void* s = mkStr(scene);
@@ -5042,15 +5060,6 @@ static NSString* rainbowWrap(NSString* text, int idx) {
                             loaded = true;
                         }
                     }
-                }
-
-                // Yöntem 2: PhotonNetwork.LoadLevel (String veya Int)
-                if (!loaded && pn_loadLevelStr) {
-                    void* s = mkStr(scene);
-                    if (s) loaded = pn_loadLevelStr(s);
-                }
-                if (!loaded && pn_loadLevelInt) {
-                    loaded = pn_loadLevelInt(idx);
                 }
 
                 FLog(loaded ? [NSString stringWithFormat:@"🗺️ '%@' haritasına geçildi!", scene] : @"❌ Harita yüklenemedi");
