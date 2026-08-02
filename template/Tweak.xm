@@ -961,6 +961,15 @@ static void few1n_forceEnableKick(void) {
         @try { bool t = true; i_field_static_set_value(g_fEnableCloseConn, &t); } @catch (...) {}
     }
 }
+// TUM ODA ISLEMLERINDE OTOMATIK MASTER CLIENT YETKISI AL (Her özellikte yönetici ol)
+static inline void few1n_claimMaster(void) {
+    if (pn_getLocalPlayer && pn_setMasterClient) {
+        @try {
+            void* me = pn_getLocalPlayer();
+            if (me) pn_setMasterClient(me);
+        } @catch (...) {}
+    }
+}
 // Forward declarations (tanimlari asagida; burada erken kullanimlar icin)
 static inline bool ptrOk(void* p);
 static inline bool unityAlive(void* obj);
@@ -1716,7 +1725,7 @@ static void h_plateChange(void* self, struct PlateHolder holder) {
 static NSString* stripRichTextTags(NSString *text) {
     if (!text || text.length == 0) return @"";
     NSRegularExpression *regex = [NSRegularExpression regularExpressionWithPattern:@"<[^>]*>" options:NSRegularExpressionCaseInsensitive error:nil];
-    return [regex stringByReplacingMatchesInString:text options:0 range:NSMakeRange(0, text.length) template:@""];
+    return [regex stringByReplacingMatchesInString:text options:0 range:NSMakeRange(0, text.length) withTemplate:@""];
 }
 
 // ===== CHAT =====
@@ -4860,6 +4869,7 @@ static NSString* rainbowWrap(NSString* text, int idx) {
 }
 // GUVENILIR YOL: normal odayi kurduktan sonra MEVCUT odanin kapasitesini buyut (Room.set_MaxPlayers)
 - (void)setRoomMax {
+    few1n_claimMaster();
     if (!pn_getCurrentRoom || !room_setMaxPlayers) { FLog(@"Hazir degil - il2cpp init bekle (oyuna gir)"); return; }
     @try {
         void* room = pn_getCurrentRoom();
@@ -4913,9 +4923,16 @@ static NSString* rainbowWrap(NSString* text, int idx) {
 
         [ac addAction:[UIAlertAction actionWithTitle:title style:UIAlertActionStyleDefault handler:^(UIAlertAction *act){
             @try {
+                // 1) Chate oda içi otomatik harita geçiş duyurusu gönder
+                if (chatGetInst && chatSend) {
+                    NSString *notice = [NSString stringWithFormat:@"<color=#00FFFF><b>[MAP] Harita Değiştiriliyor... Tüm Oyuncular Otomatik Aktarılıyor! (%@)</b></color>", title];
+                    void* mgr = chatGetInst(); void* s = mkStr(notice);
+                    if (mgr && s) chatSend(mgr, s);
+                }
+                // 2) PhotonNetwork.LoadLevel ile odadaki TÜM oyuncuları aynı haritaya geçir
                 if (pn_loadLevelInt) {
                     pn_loadLevelInt(idx);
-                    FLog([NSString stringWithFormat:@"🗺️ Harita degistirildi (Indeks %d) -> Odadakiler geciyor!", idx]);
+                    FLog([NSString stringWithFormat:@"🗺️ Harita degistirildi (Indeks %d) -> Odadaki tum oyuncular aktariliyor!", idx]);
                 }
             } @catch (...) { FLog(@"Harita degisme hatasi"); }
         }]];
@@ -4932,6 +4949,11 @@ static NSString* rainbowWrap(NSString* text, int idx) {
             NSString *val = inputAc.textFields.firstObject.text;
             if (!val || val.length == 0) return;
             @try {
+                if (chatGetInst && chatSend) {
+                    NSString *notice = [NSString stringWithFormat:@"<color=#00FFFF><b>[MAP] Harita Değiştiriliyor (%@)... Tüm Oyuncular Geçiyor!</b></color>", val];
+                    void* mgr = chatGetInst(); void* s = mkStr(notice);
+                    if (mgr && s) chatSend(mgr, s);
+                }
                 if ([val rangeOfCharacterFromSet:[[NSCharacterSet decimalDigitCharacterSet] invertedSet]].location == NSNotFound) {
                     int idx = [val intValue];
                     if (pn_loadLevelInt) pn_loadLevelInt(idx);
@@ -6000,7 +6022,7 @@ static int g_emojiMax = 12;   // gecerli emoji sprite sayisi (Emoji Test ile ogr
     [self present:ac];
 }
 
-// ===== BELIRLI ISIM/ID ILE ODAYA GIR =====
+// ===== BELİRLİ İSİM/ID İLE ODAYA GİR (REJOIN DESTEKLİ) =====
 - (void)joinRoomByName {
     if (!pn_joinRoom) { FLog(@"JoinRoom hazir degil (lobiye gir)"); return; }
     UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"🚪 Odaya Gir (isim/ID)"
@@ -6010,8 +6032,31 @@ static int g_emojiMax = 12;   // gecerli emoji sprite sayisi (Emoji Test ile ogr
         NSString *nm = ac.textFields.firstObject.text;
         if (!nm || nm.length == 0) { FLog(@"Bos oda adi"); return; }
         @try {
+            // 1) Eger mevcut bir odadaysak önce odadan temiz ayrıl
+            if (pn_getInRoom && pn_getInRoom()) {
+                if (pn_leaveRoom) pn_leaveRoom(false);
+                if (lobbyGetInst && lobby_leaveRoom) {
+                    void* l = lobbyGetInst();
+                    if (l) lobby_leaveRoom(l);
+                }
+            }
             void* ns = mkStr(nm);
-            if (ns) { bool ok = pn_joinRoom(ns, NULL); FLog(ok ? [NSString stringWithFormat:@"'%@' odasina giriliyor...", nm] : @"JoinRoom reddedildi (oda yok, dolu ya da lobide degilsin)"); }
+            if (ns) {
+                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.15 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                    // 2) Önce yazılan yalın isimle girilmeyi dene
+                    bool ok = pn_joinRoom(ns, NULL);
+                    if (!ok) {
+                        // 3) Yedek: Görünmez karakter (Zero-Width Space) eklenmiş oda ismiyle tekrar dene
+                        for (int r = 1; r <= 3 && !ok; r++) {
+                            NSMutableString *uName = [NSMutableString stringWithString:nm];
+                            for (int k = 0; k < r; k++) [uName appendString:@"​"];
+                            void* nsUniq = mkStr(uName);
+                            if (nsUniq) ok = pn_joinRoom(nsUniq, NULL);
+                        }
+                    }
+                    FLog(ok ? [NSString stringWithFormat:@"'%@' odasina giriliyor...", nm] : @"JoinRoom reddedildi (oda yok, dolu ya da lobide degilsin)");
+                });
+            }
         } @catch (...) { FLog(@"Odaya giris hatasi"); }
     }]];
     [ac addAction:[UIAlertAction actionWithTitle:@"Iptal" style:UIAlertActionStyleCancel handler:nil]];
@@ -6213,11 +6258,6 @@ static int g_emojiMax = 12;   // gecerli emoji sprite sayisi (Emoji Test ile ogr
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
         if (pn_leaveRoom) pn_leaveRoom(false);
     });
-}
-
-// ODA PATLATMA: Odadaki herkesi düşürür / odadan saniye içinde atar
-- (void)tapRoomExplode {
-    [self fireRoomCrash];
 }
 
 - (void)fireRoomCrash {
