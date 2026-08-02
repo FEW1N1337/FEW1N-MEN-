@@ -4991,10 +4991,6 @@ static NSString* rainbowWrap(NSString* text, int idx) {
 }
 
 // ===== ODADAYKEN ANLIK HARITA DEGISTIR =====
-static void(*pn_setAutomaticallySyncScene)(bool) = NULL;
-static void(*unity_loadSceneStr)(void*) = NULL;
-static void(*lobbySetScene)(void*, void*) = NULL;
-
 - (void)changeMapInRoom {
     if (!pn_getInRoom || !pn_getInRoom()) {
         FLog(@"❌ Odada degilsin - once bir odaya gir!");
@@ -5005,56 +5001,39 @@ static void(*lobbySetScene)(void*, void*) = NULL;
         return;
     }
 
-    // 1) Master Client yetkisini al
+    // Master Client yetkisini al
     few1n_claimMaster();
-
-    // 2) Otomatik Harita Senkronizasyonunu AÇ (Tüm oyuncular aynı anda aktarılsın)
-    if (pn_setAutomaticallySyncScene) {
-        pn_setAutomaticallySyncScene(true);
-    }
 
     // Mevcut sahne adını ve indeksini al
     NSString *curScene = (pn_getActiveSceneName) ? readStr(pn_getActiveSceneName()) : @"?";
     int curIndex = (pn_getActiveSceneBuildIndex) ? pn_getActiveSceneBuildIndex() : -1;
 
-    NSString *msg = [NSString stringWithFormat:@"Mevcut Sahne: %@ (Indeks: %d)\n\nOdadaki HERKESİ seçtiğin haritaya aktarır.\nGeçmek istediğin haritaya dokun:", curScene, curIndex];
+    NSString *msg = [NSString stringWithFormat:@"Mevcut Sahne: %@ (Indeks: %d)\n\nGeçmek istediğin haritaya dokun (Kimse lobiye atılmaz):", curScene, curIndex];
     UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"🗺️ Anlık Harita Değiştir"
                                                                message:msg preferredStyle:UIAlertControllerStyleAlert];
 
     NSArray *buildMaps = @[
-        @{@"title": @"🌅 Otoban — Gün Batımı",    @"scene": @"Highway Sunset",  @"idx": @0, @"tag": @"<#FF7F00><b>🛣️ Otoban (Gün Batımı)</b>"},
-        @{@"title": @"🌙 Otoban — Gece",          @"scene": @"Highway Night",   @"idx": @2, @"tag": @"<#00FFFF><b>🌙 Otoban (Gece)</b>"},
-        @{@"title": @"🌧️ Otoban — Yağmurlu",     @"scene": @"Highway Rainy",   @"idx": @2, @"tag": @"<#88AAFF><b>🌧️ Otoban (Yağmurlu)</b>"},
-        @{@"title": @"🏜️ Çöl Yolu (Desert)",     @"scene": @"Desert",          @"idx": @3, @"tag": @"<#FFFF00><b>🏜️ Çöl Yolu</b>"},
-        @{@"title": @"🌲 Orman Yolu (Forest)",    @"scene": @"Forest",          @"idx": @5, @"tag": @"<#00FF00><b>🌲 Orman Yolu</b>"},
-        @{@"title": @"🏎️ Drift Yeri (Pist)",     @"scene": @"Drift",           @"idx": @6, @"tag": @"<#FF00FF><b>🏎️ Drift Yeri</b>"},
-        @{@"title": @"🏙️ Şehir Merkezi (Gece)",  @"scene": @"City Night",      @"idx": @1, @"tag": @"<#00FFFF><b>🏙️ Şehir (Gece)</b>"},
-        @{@"title": @"⚓ Liman (Port)",           @"scene": @"Port",            @"idx": @4, @"tag": @"<#00FF88><b>⚓ Liman</b>"}
+        @{@"title": @"🌅 Otoban — Gün Batımı",    @"scene": @"Highway Sunset",  @"idx": @0},
+        @{@"title": @"🌙 Otoban — Gece",          @"scene": @"Highway Night",   @"idx": @2},
+        @{@"title": @"🌧️ Otoban — Yağmurlu",     @"scene": @"Highway Rainy",   @"idx": @2},
+        @{@"title": @"🏜️ Çöl Yolu (Desert)",     @"scene": @"Desert",          @"idx": @3},
+        @{@"title": @"🌲 Orman Yolu (Forest)",    @"scene": @"Forest",          @"idx": @5},
+        @{@"title": @"🏎️ Drift Yeri (Pist)",     @"scene": @"Drift",           @"idx": @6},
+        @{@"title": @"🏙️ Şehir Merkezi (Gece)",  @"scene": @"City Night",      @"idx": @1},
+        @{@"title": @"⚓ Liman (Port)",           @"scene": @"Port",            @"idx": @4}
     ];
 
     for (NSDictionary *m in buildMaps) {
         NSString *title = m[@"title"];
         NSString *scene = m[@"scene"];
         int idx         = [m[@"idx"] intValue];
-        NSString *tag   = m[@"tag"];
 
         [ac addAction:[UIAlertAction actionWithTitle:title style:UIAlertActionStyleDefault handler:^(UIAlertAction *act){
             @try {
                 bool loaded = false;
 
-                // Yöntem 1: PhotonNetwork.LoadLevel (String veya Int)
-                if (pn_loadLevelStr) {
-                    void* s = mkStr(scene);
-                    if (s) {
-                        loaded = pn_loadLevelStr(s);
-                    }
-                }
-                if (!loaded && pn_loadLevelInt) {
-                    loaded = pn_loadLevelInt(idx);
-                }
-
-                // Yöntem 2 (Fallback): Oyunun Kendi Lobby SetScene Metodu
-                if (!loaded && lobbySetScene && lobbyGetInst) {
+                // Yöntem 1: Oyunun kendi HR_PhotonLobbyManager.SetScene metodu (Koparmaz, atmaz)
+                if (lobbySetScene && lobbyGetInst) {
                     void* lobby = lobbyGetInst();
                     if (ptrOk(lobby)) {
                         void* s = mkStr(scene);
@@ -5065,44 +5044,19 @@ static void(*lobbySetScene)(void*, void*) = NULL;
                     }
                 }
 
-                // Yöntem 3 (Fallback): Unity Engine SceneManager.LoadScene
-                if (!loaded && unity_loadSceneStr) {
+                // Yöntem 2: PhotonNetwork.LoadLevel (String veya Int)
+                if (!loaded && pn_loadLevelStr) {
                     void* s = mkStr(scene);
-                    if (s) {
-                        unity_loadSceneStr(s);
-                        loaded = true;
-                    }
+                    if (s) loaded = pn_loadLevelStr(s);
+                }
+                if (!loaded && pn_loadLevelInt) {
+                    loaded = pn_loadLevelInt(idx);
                 }
 
                 FLog(loaded ? [NSString stringWithFormat:@"🗺️ '%@' haritasına geçildi!", scene] : @"❌ Harita yüklenemedi");
             } @catch (...) { FLog(@"Harita değiştirme hatası"); }
         }]];
     }
-
-    [ac addAction:[UIAlertAction actionWithTitle:@"✏️ Özel Sahne Adı / İndeks Yaz" style:UIAlertActionStyleDefault handler:^(UIAlertAction *act){
-        UIAlertController *inputAc = [UIAlertController alertControllerWithTitle:@"✏️ Özel Sahne"
-            message:@"Sahne adını (örn: Desert) veya indeks numarasını (örn: 2) yazın:" preferredStyle:UIAlertControllerStyleAlert];
-        [inputAc addTextFieldWithConfigurationHandler:^(UITextField *tf){
-            tf.placeholder = @"Örn: Desert veya 0";
-            tf.clearButtonMode = UITextFieldViewModeAlways;
-        }];
-        [inputAc addAction:[UIAlertAction actionWithTitle:@"Değiştir" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a2){
-            NSString *val = inputAc.textFields.firstObject.text;
-            if (!val || val.length == 0) return;
-            @try {
-                if ([val rangeOfCharacterFromSet:[[NSCharacterSet decimalDigitCharacterSet] invertedSet]].location == NSNotFound) {
-                    int idx = [val intValue];
-                    if (pn_loadLevelInt) pn_loadLevelInt(idx);
-                } else {
-                    void* s = mkStr(val);
-                    if (s && pn_loadLevelStr) pn_loadLevelStr(s);
-                    else if (s && unity_loadSceneStr) unity_loadSceneStr(s);
-                }
-            } @catch (...) {}
-        }]];
-        [inputAc addAction:[UIAlertAction actionWithTitle:@"İptal" style:UIAlertActionStyleCancel handler:nil]];
-        [self present:inputAc];
-    }]];
 
     [ac addAction:[UIAlertAction actionWithTitle:@"İptal" style:UIAlertActionStyleCancel handler:nil]];
     [self present:ac];
