@@ -1850,6 +1850,7 @@ static int g_lastRoomLineFrame = 0;
 static void(*lobbySetScene)(void*, void*) = NULL;
 static void(*pn_setAutomaticallySyncScene)(bool) = NULL;
 static void(*unity_loadSceneStr)(void*) = NULL;
+static void* (*mapList_getInstance)(void) = NULL;   // MapList.ely() -> MapList instance (0x54B3630)
 
 static void (*o_onRoomListUpdate)(void*, void*) = NULL;
 static void h_onRoomListUpdate(void* self, void* roomList) {
@@ -5001,62 +5002,147 @@ static NSString* rainbowWrap(NSString* text, int idx) {
     } @catch (...) { FLog(@"Oda kapasite hatasi"); }
 }
 
-// ===== ODADAYKEN ANLIK HARITA DEGISTIR =====
+// ===== ODADAYKEN ANLIK HARITA DEGISTIR (TUM OYUNCULARDA) =====
+// Oyunun kendi MapList'inden GERCEK sahne adlarini (referenceName) calisma aninda oku.
+// MapList.Map struct (dump.cs dogrulanmis): referenceName@0x0, mode@0x8, sprite@0x10, visualName@0x18 -> stride 0x20
+static NSArray<NSString*>* few1n_readMapNames(void) {
+    NSMutableArray *names = [NSMutableArray array];
+    @try {
+        if (!mapList_getInstance) return names;
+        void* ml = mapList_getInstance();
+        if (!ptrOk(ml)) return names;
+        void* arr = *(void**)((uintptr_t)ml + 0x18);   // MapList.maps[]
+        if (!ptrOk(arr)) return names;
+        int cnt = (int)(*(uintptr_t*)((uintptr_t)arr + 0x18));   // il2cpp array length
+        if (cnt <= 0 || cnt > 64) return names;
+        uintptr_t data = (uintptr_t)arr + 0x20;                 // eleman verisi
+        for (int i = 0; i < cnt; i++) {
+            @try {
+                void* refName = *(void**)(data + i * 0x20 + 0x0);   // Map.referenceName
+                if (ptrOk(refName)) {
+                    NSString *s = readStr(refName);
+                    if (s && s.length > 0) [names addObject:s];
+                }
+            } @catch (...) {}
+        }
+    } @catch (...) {}
+    return names;
+}
+
+static void few1n_loadMap(NSString *scene, int idx) {
+    // 1) Master Client ol (harita degistirme yetkisi - LoadLevel/SetScene sadece master'dan calisir)
+    few1n_claimMaster();
+
+    // 2) AutomaticallySyncScene = true (KRITIK: bu olmadan diger oyunculara gitmez!)
+    if (pn_setAutomaticallySyncScene) pn_setAutomaticallySyncScene(true);
+
+    // Kisa gecikme: MasterClient claim + SyncScene propagation icin
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.4 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        @try {
+            bool loaded = false;
+
+            // ONCELIK 1: Oyunun kendi SetScene mekanizmasi (oyunun map butonlarinin kullandigi yol).
+            // SetScene ic tarafta PhotonNetwork.LoadLevel cagirir -> TUM odadakiler gecer. En dogru yol.
+            if (lobbySetScene && lobbyGetInst && scene && scene.length > 0) {
+                void* lobby = lobbyGetInst();
+                if (ptrOk(lobby)) {
+                    void* s = mkStr(scene);
+                    if (s) {
+                        lobbySetScene(lobby, s);
+                        loaded = true;
+                        FLog([NSString stringWithFormat:@"🗺️ SetScene('%@') -> herkese harita yukleniyor", scene]);
+                    }
+                }
+            }
+
+            // ONCELIK 2 (fallback): SetScene yoksa PhotonNetwork.LoadLevel(string) - yine herkese gider (SyncScene acik)
+            if (!loaded && pn_loadLevelStr && scene && scene.length > 0) {
+                void* s = mkStr(scene);
+                if (s) {
+                    pn_loadLevelStr(s);
+                    loaded = true;
+                    FLog([NSString stringWithFormat:@"🗺️ LoadLevel('%@') -> herkese harita yukleniyor", scene]);
+                }
+            }
+
+            // ONCELIK 3 (fallback): build index ile LoadLevel(int)
+            if (!loaded && pn_loadLevelInt && idx >= 0) {
+                pn_loadLevelInt(idx);
+                loaded = true;
+                FLog([NSString stringWithFormat:@"🗺️ LoadLevel(%d) -> herkese harita yukleniyor", idx]);
+            }
+
+            if (!loaded) {
+                FLog(@"❌ Harita degistirme basarisiz - SetScene/LoadLevel pointerlari YOK!");
+            }
+        } @catch (...) { FLog(@"Harita degistirme hatasi"); }
+    });
+}
+
 - (void)changeMapInRoom {
     if (!pn_getInRoom || !pn_getInRoom()) {
         UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"🗺️ Harita Degistir"
-            message:@"Harita değiştirmek için bir odada olmalısın." preferredStyle:UIAlertControllerStyleAlert];
+            message:@"Harita degistirmek icin bir odada olmalisin." preferredStyle:UIAlertControllerStyleAlert];
         [ac addAction:[UIAlertAction actionWithTitle:@"Tamam" style:UIAlertActionStyleDefault handler:nil]];
         [self present:ac];
         return;
     }
 
-    // Master Client yetkisini al (Oda Yöneticisi ol)
-    few1n_claimMaster();
+    NSString *curScene = (pn_getActiveSceneName) ? readStr(pn_getActiveSceneName()) : @"?";
 
-    UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"🗺️ Harita Değiştir"
-        message:@"Geçmek istediğin haritaya dokun:" preferredStyle:UIAlertControllerStyleAlert];
+    // Oyunun KENDI MapList'inden gercek sahne adlarini oku (isim tahmini YOK -> kesin dogru)
+    NSArray<NSString*> *realMaps = few1n_readMapNames();
 
-    NSArray *buildMaps = @[
-        @{@"title": @"🌅 Otoban — Gün Batımı",    @"scene": @"Highway Sunset",  @"idx": @0},
-        @{@"title": @"🌙 Otoban — Gece",          @"scene": @"Highway Night",   @"idx": @2},
-        @{@"title": @"🌧️ Otoban — Yağmurlu",     @"scene": @"Highway Rainy",   @"idx": @2},
-        @{@"title": @"🏜️ Çöl Yolu (Desert)",     @"scene": @"Desert",          @"idx": @3},
-        @{@"title": @"🌲 Orman Yolu (Forest)",    @"scene": @"Forest",          @"idx": @5},
-        @{@"title": @"🏎️ Drift Yeri (Pist)",     @"scene": @"Drift",           @"idx": @6},
-        @{@"title": @"🏙️ Şehir Merkezi (Gece)",  @"scene": @"City Night",      @"idx": @1},
-        @{@"title": @"⚓ Liman (Port)",           @"scene": @"Port",            @"idx": @4}
-    ];
+    UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"🗺️ Harita Degistir"
+        message:[NSString stringWithFormat:@"Mevcut: %@\nHerkes sectigin haritaya gecer.", curScene]
+        preferredStyle:UIAlertControllerStyleAlert];
 
-    for (NSDictionary *m in buildMaps) {
-        NSString *title = m[@"title"];
-        NSString *scene = m[@"scene"];
-        int idx         = [m[@"idx"] intValue];
-
-        [ac addAction:[UIAlertAction actionWithTitle:title style:UIAlertActionStyleDefault handler:^(UIAlertAction *act){
-            @try {
-                // Sahne Yükleme: 1. Oyunun kendi Lobi Yöneticisi -> 2. PhotonNetwork -> 3. Unity SceneManager
-                if (lobbySetScene && lobbyGetInst) {
-                    void* lobby = lobbyGetInst();
-                    if (ptrOk(lobby)) {
-                        void* s = mkStr(scene);
-                        if (s) { lobbySetScene(lobby, s); return; }
-                    }
-                }
-                if (pn_loadLevelStr) {
-                    void* s = mkStr(scene);
-                    if (s) { pn_loadLevelStr(s); return; }
-                }
-                if (pn_loadLevelInt) {
-                    pn_loadLevelInt(idx); return;
-                }
-                if (unity_loadSceneStr) {
-                    void* s = mkStr(scene);
-                    if (s) { unity_loadSceneStr(s); return; }
-                }
-            } @catch (...) {}
-        }]];
+    if (realMaps.count > 0) {
+        // MapList okundu -> oyunun GERCEK harita adlariyla buton olustur (kesin calisir)
+        int i = 0;
+        for (NSString *mapName in realMaps) {
+            int idx = i++;
+            [ac addAction:[UIAlertAction actionWithTitle:mapName style:UIAlertActionStyleDefault handler:^(UIAlertAction *act){
+                few1n_loadMap(mapName, idx);
+            }]];
+        }
+    } else {
+        // MapList okunamadi (henuz init olmadi) -> bilinen sahne adlariyla dene (fallback)
+        NSArray *buildMaps = @[
+            @{@"title": @"🏜️ Çöl (Desert)",              @"scene": @"Desert",    @"idx": @3},
+            @{@"title": @"🏙️ Şehir (City)",               @"scene": @"City",      @"idx": @1},
+            @{@"title": @"🛣️ Otoban (Highway)",            @"scene": @"Highway",   @"idx": @2},
+            @{@"title": @"🏎️ Yarış Pisti (Track)",         @"scene": @"Track",     @"idx": @0},
+            @{@"title": @"⚓ Liman (Port)",                @"scene": @"Port",      @"idx": @4},
+            @{@"title": @"⛰️ Dağ Yolu (Offroad)",          @"scene": @"Offroad",   @"idx": @5},
+            @{@"title": @"🌲 Orman (Forest)",              @"scene": @"Forest",    @"idx": @6}
+        ];
+        for (NSDictionary *m in buildMaps) {
+            NSString *title = m[@"title"];
+            NSString *scene = m[@"scene"];
+            int idx         = [m[@"idx"] intValue];
+            [ac addAction:[UIAlertAction actionWithTitle:title style:UIAlertActionStyleDefault handler:^(UIAlertAction *act){
+                few1n_loadMap(scene, idx);
+            }]];
+        }
     }
+
+    // Ozel sahne adi yazma secenegi
+    [ac addAction:[UIAlertAction actionWithTitle:@"✏️ Özel Sahne Adı Yaz" style:UIAlertActionStyleDefault handler:^(UIAlertAction *act){
+        UIAlertController *inputAc = [UIAlertController alertControllerWithTitle:@"✏️ Özel Sahne"
+            message:@"Sahne adini yaz:" preferredStyle:UIAlertControllerStyleAlert];
+        [inputAc addTextFieldWithConfigurationHandler:^(UITextField *tf){
+            tf.placeholder = @"Ornek: Desert, Highway, City ...";
+        }];
+        [inputAc addAction:[UIAlertAction actionWithTitle:@"Yükle" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a2){
+            NSString *val = inputAc.textFields.firstObject.text;
+            if (val && val.length > 0) {
+                few1n_loadMap(val, -1);
+            }
+        }]];
+        [inputAc addAction:[UIAlertAction actionWithTitle:@"İptal" style:UIAlertActionStyleCancel handler:nil]];
+        [self present:inputAc];
+    }]];
 
     [ac addAction:[UIAlertAction actionWithTitle:@"İptal" style:UIAlertActionStyleCancel handler:nil]];
     [self present:ac];
@@ -6956,6 +7042,7 @@ static void InstallEverything(uintptr_t b) {
     pn_setAutomaticallySyncScene = (void(*)(bool))(b + 0x5934408);     // PhotonNetwork.AutomaticallySyncScene = true
     unity_loadSceneStr           = (void(*)(void*))(b + 0x6781268);    // UnityEngine.SceneManagement.SceneManager.LoadScene(string)
     lobbySetScene                = (void(*)(void*,void*))(b + 0x54ABFFC);    // HR_PhotonLobbyManager.SetScene(string)
+    mapList_getInstance          = (void*(*)(void))(b + 0x54B3630);          // MapList.ely() -> instance (dump.cs dogrulanmis)
     pn_raiseEvent           = (void(*)(unsigned char,void*,bool,void*))(b + 0x593C000); // PhotonNetwork.RaiseEvent (dump.cs'den dogrula)
 
     safeHook((void*)(b + 0x54AA35C), (void*)h_onRoomListUpdate,(void**)&o_onRoomListUpdate,"HR_PhotonLobbyManager.OnRoomListUpdate");
