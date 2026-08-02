@@ -1812,16 +1812,13 @@ static void h_roomLineSetup(void* self, void* a, void* b, unsigned char c, unsig
                     static int mColIdx = 0;
                     NSArray *mapCols = @[@"#00FFFF", @"#00FF00", @"#FFFF00", @"#FF00FF", @"#FF7F00"];
                     NSString *mc = mapCols[(mColIdx++) % mapCols.count];
-                    // rinfo_getMapName VEYA mevcut string sarmalama
-                    if (f && rinfo_getMapName) {
-                        void* rm = rinfo_getMapName(f);
-                        if (rm) {
-                            NSString *mName = readStr(rm) ?: @"";
-                            if (mName.length > 0) {
-                                NSString *cMap = [NSString stringWithFormat:@"<%@><b>%@</b>", mc, mName];
-                                void* cs = mkStr(cMap);
-                                if (cs) tmp_set_text(mapText, cs);
-                            }
+                    void* rm = tmp_get_text ? tmp_get_text(mapText) : NULL;
+                    if (rm) {
+                        NSString *mName = readStr(rm) ?: @"";
+                        if (mName.length > 0 && ![mName hasPrefix:@"<"]) {
+                            NSString *cMap = [NSString stringWithFormat:@"<%@><b>%@</b>", mc, mName];
+                            void* cs = mkStr(cMap);
+                            if (cs) tmp_set_text(mapText, cs);
                         }
                     }
                 }
