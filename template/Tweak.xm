@@ -5004,24 +5004,18 @@ static NSString* rainbowWrap(NSString* text, int idx) {
 // ===== ODADAYKEN ANLIK HARITA DEGISTIR =====
 - (void)changeMapInRoom {
     if (!pn_getInRoom || !pn_getInRoom()) {
-        FLog(@"❌ Odada degilsin - once bir odaya gir!");
         UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"🗺️ Harita Degistir"
-            message:@"Harita degistirmek icin bir odada olmalisin." preferredStyle:UIAlertControllerStyleAlert];
+            message:@"Harita değiştirmek için bir odada olmalısın." preferredStyle:UIAlertControllerStyleAlert];
         [ac addAction:[UIAlertAction actionWithTitle:@"Tamam" style:UIAlertActionStyleDefault handler:nil]];
         [self present:ac];
         return;
     }
 
-    // 1) Oda Yöneticisi Yetkisini Al
+    // Master Client yetkisini al (Oda Yöneticisi ol)
     few1n_claimMaster();
 
-    // Mevcut sahne adını ve indeksini al
-    NSString *curScene = (pn_getActiveSceneName) ? readStr(pn_getActiveSceneName()) : @"?";
-    int curIndex = (pn_getActiveSceneBuildIndex) ? pn_getActiveSceneBuildIndex() : -1;
-
-    NSString *msg = [NSString stringWithFormat:@"Mevcut Sahne: %@ (Indeks: %d)\n\nGeçmek istediğin haritaya dokun (Odadaki herkes aktarılır):", curScene, curIndex];
-    UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"🗺️ Anlık Harita Değiştir"
-                                                               message:msg preferredStyle:UIAlertControllerStyleAlert];
+    UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"🗺️ Harita Değiştir"
+        message:@"Geçmek istediğin haritaya dokun:" preferredStyle:UIAlertControllerStyleAlert];
 
     NSArray *buildMaps = @[
         @{@"title": @"🌅 Otoban — Gün Batımı",    @"scene": @"Highway Sunset",  @"idx": @0},
@@ -5041,31 +5035,26 @@ static NSString* rainbowWrap(NSString* text, int idx) {
 
         [ac addAction:[UIAlertAction actionWithTitle:title style:UIAlertActionStyleDefault handler:^(UIAlertAction *act){
             @try {
-                bool loaded = false;
-
-                // 1) PhotonNetwork.LoadLevel (Tüm odayı düşürmeden ve koparmadan senkronize taşır)
-                if (pn_loadLevelStr) {
-                    void* s = mkStr(scene);
-                    if (s) loaded = pn_loadLevelStr(s);
-                }
-                if (!loaded && pn_loadLevelInt) {
-                    loaded = pn_loadLevelInt(idx);
-                }
-
-                // 2) Oyun içi Lobby SetScene çağrısı
-                if (!loaded && lobbySetScene && lobbyGetInst) {
+                // Sahne Yükleme: 1. Oyunun kendi Lobi Yöneticisi -> 2. PhotonNetwork -> 3. Unity SceneManager
+                if (lobbySetScene && lobbyGetInst) {
                     void* lobby = lobbyGetInst();
                     if (ptrOk(lobby)) {
                         void* s = mkStr(scene);
-                        if (s) {
-                            lobbySetScene(lobby, s);
-                            loaded = true;
-                        }
+                        if (s) { lobbySetScene(lobby, s); return; }
                     }
                 }
-
-                FLog(loaded ? [NSString stringWithFormat:@"🗺️ '%@' haritasına geçildi!", scene] : @"❌ Harita yüklenemedi");
-            } @catch (...) { FLog(@"Harita değiştirme hatası"); }
+                if (pn_loadLevelStr) {
+                    void* s = mkStr(scene);
+                    if (s) { pn_loadLevelStr(s); return; }
+                }
+                if (pn_loadLevelInt) {
+                    pn_loadLevelInt(idx); return;
+                }
+                if (unity_loadSceneStr) {
+                    void* s = mkStr(scene);
+                    if (s) { unity_loadSceneStr(s); return; }
+                }
+            } @catch (...) {}
         }]];
     }
 
@@ -5213,36 +5202,29 @@ static NSString* rainbowWrap(NSString* text, int idx) {
         message:@"Harita değişmeden ortamın saatini ve hava durumunu ayarlar:" preferredStyle:UIAlertControllerStyleAlert];
 
     NSArray *weathers = @[
-        @{@"name": @"☀️ Gündüz / Güneşli", @"scene": @"Highway",        @"idx": @0, @"tag": @"<#FFFF00><b>☀️ Gündüz (Güneşli)</b>"},
-        @{@"name": @"🌅 Gün Batımı",       @"scene": @"Highway Sunset", @"idx": @0, @"tag": @"<#FF7F00><b>🌅 Gün Batımı</b>"},
-        @{@"name": @"🌙 Gece",             @"scene": @"Highway Night",  @"idx": @2, @"tag": @"<#00FFFF><b>🌙 Gece</b>"},
-        @{@"name": @"🌧️ Yağmurlu & Sisli", @"scene": @"Highway Rainy",  @"idx": @2, @"tag": @"<#88AAFF><b>🌧️ Yağmurlu</b>"}
+        @{@"name": @"☀️ Gündüz / Güneşli", @"scene": @"Highway"},
+        @{@"name": @"🌅 Gün Batımı",       @"scene": @"Highway Sunset"},
+        @{@"name": @"🌙 Gece",             @"scene": @"Highway Night"},
+        @{@"name": @"🌧️ Yağmurlu & Sisli", @"scene": @"Highway Rainy"}
     ];
 
     for (NSDictionary *w in weathers) {
         NSString *wName = w[@"name"];
         NSString *wScene= w[@"scene"];
-        int idx         = [w[@"idx"] intValue];
-        NSString *wTag  = w[@"tag"];
 
         [ac addAction:[UIAlertAction actionWithTitle:wName style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
             @try {
-                bool loaded = false;
-                if (pn_loadLevelStr) {
-                    void* s = mkStr(wScene);
-                    if (s) loaded = pn_loadLevelStr(s);
-                }
-                if (!loaded && pn_loadLevelInt) {
-                    loaded = pn_loadLevelInt(idx);
-                }
-                if (!loaded && lobbySetScene && lobbyGetInst) {
+                if (lobbySetScene && lobbyGetInst) {
                     void* lobby = lobbyGetInst();
                     if (ptrOk(lobby)) {
                         void* s = mkStr(wScene);
-                        if (s) lobbySetScene(lobby, s);
+                        if (s) { lobbySetScene(lobby, s); return; }
                     }
                 }
-                FLog([NSString stringWithFormat:@"🌤️ Hava durumu değiştirildi: %@", wName]);
+                if (pn_loadLevelStr) {
+                    void* s = mkStr(wScene);
+                    if (s) { pn_loadLevelStr(s); return; }
+                }
             } @catch (...) {}
         }]];
     }
