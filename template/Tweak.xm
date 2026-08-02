@@ -1855,20 +1855,23 @@ static void (*o_onRoomListUpdate)(void*, void*) = NULL;
 static void h_onRoomListUpdate(void* self, void* roomList) {
     if (o_onRoomListUpdate) o_onRoomListUpdate(self, roomList);
     if (!g_lobbyRoomNames) g_lobbyRoomNames = [[NSMutableArray alloc] init];
-    if (roomList) {
+    if (ptrOk(roomList)) {
         @try {
             int count = *(int*)((uintptr_t)roomList + 0x18);
             if (count > 0 && count < 100) {
-                void** items = *(void***)((uintptr_t)roomList + 0x10);
+                void* items = *(void**)((uintptr_t)roomList + 0x10);
                 if (ptrOk(items)) {
-                    for (int i = 0; i < count; i++) {
-                        void* ri = items[i];
-                        if (!ptrOk(ri)) continue;
-                        void* ns = rinfo_getName ? rinfo_getName(ri) : NULL;
-                        if (ns) {
-                            NSString *nm = readStr(ns);
-                            if (nm.length > 0 && ![g_lobbyRoomNames containsObject:nm]) {
-                                [g_lobbyRoomNames addObject:nm];
+                    void** arr = (void**)((uintptr_t)items + 0x20);
+                    @synchronized(g_lobbyRoomNames) {
+                        for (int i = 0; i < count; i++) {
+                            void* ri = arr[i];
+                            if (!ptrOk(ri)) continue;
+                            void* ns = rinfo_getName ? rinfo_getName(ri) : NULL;
+                            if (ns) {
+                                NSString *nm = readStr(ns);
+                                if (nm.length > 0 && ![g_lobbyRoomNames containsObject:nm]) {
+                                    [g_lobbyRoomNames addObject:nm];
+                                }
                             }
                         }
                     }
@@ -1885,7 +1888,9 @@ static void h_roomLineSetup(void* self, void* a, void* b, unsigned char c, unsig
     // Her lobi render döngüsü başında listeyi temizle (yeni frame = yeni liste)
     if (fRoomLine - g_lastRoomLineFrame > 5) {
         if (!g_lobbyRoomNames) g_lobbyRoomNames = [[NSMutableArray alloc] init];
-        [g_lobbyRoomNames removeAllObjects];
+        @synchronized(g_lobbyRoomNames) {
+            [g_lobbyRoomNames removeAllObjects];
+        }
     }
     g_lastRoomLineFrame = fRoomLine;
     
@@ -1905,8 +1910,10 @@ static void h_roomLineSetup(void* self, void* a, void* b, unsigned char c, unsig
                 if (rawName) {
                     NSString *name = readStr(rawName) ?: @"";
                     if (name.length > 0) {
-                        if (![g_lobbyRoomNames containsObject:name] && g_lobbyRoomNames.count < 50) {
-                            [g_lobbyRoomNames addObject:name];
+                        @synchronized(g_lobbyRoomNames) {
+                            if (![g_lobbyRoomNames containsObject:name] && g_lobbyRoomNames.count < 50) {
+                                [g_lobbyRoomNames addObject:name];
+                            }
                         }
                     }
                     // ToUpper() BYPASS TAMİRCİSİ: Oyun ToUpper() çağırıp renk/stil etiketlerini büyük harfe dönüştürürse anında düzelt
@@ -5008,11 +5015,6 @@ static NSString* rainbowWrap(NSString* text, int idx) {
     // 1) Oda Yöneticisi Yetkisini Al
     few1n_claimMaster();
 
-    // 2) Otomatik Sahne Senkronizasyonunu Aç (Sunucu kopmasını ve lobiye atılmayı %100 önler)
-    if (pn_setAutomaticallySyncScene) {
-        pn_setAutomaticallySyncScene(true);
-    }
-
     // Mevcut sahne adını ve indeksini al
     NSString *curScene = (pn_getActiveSceneName) ? readStr(pn_getActiveSceneName()) : @"?";
     int curIndex = (pn_getActiveSceneBuildIndex) ? pn_getActiveSceneBuildIndex() : -1;
@@ -5206,7 +5208,6 @@ static NSString* rainbowWrap(NSString* text, int idx) {
 // ===== HAVA DURUMU & ZAMAN SEÇ =====
 - (void)changeWeatherOnly {
     few1n_claimMaster();
-    if (pn_setAutomaticallySyncScene) pn_setAutomaticallySyncScene(true);
 
     UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"🌤️ Canlı Hava Durumu & Zaman Seç"
         message:@"Harita değişmeden ortamın saatini ve hava durumunu ayarlar:" preferredStyle:UIAlertControllerStyleAlert];
@@ -6308,15 +6309,21 @@ static void few1n_joinTargetRoom(NSString *nm) {
                                                                message:subTitle preferredStyle:UIAlertControllerStyleAlert];
 
     // TESPİT EDİLEN ODALARI TIKLANABİLİR BUTON OLARAK EKLE
-    if (g_lobbyRoomNames && g_lobbyRoomNames.count > 0) {
-        for (NSString *roomNm in [g_lobbyRoomNames copy]) {
-            // Rich text etiketlerini temizle ki buton adı temiz görünsün
-            NSString *cleanName = stripRichTextTags(roomNm);
-            if (cleanName.length == 0) cleanName = roomNm;
-            [ac addAction:[UIAlertAction actionWithTitle:[NSString stringWithFormat:@"🚪 🟢 %@", cleanName]
-                style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
-                few1n_joinTargetRoom(roomNm);
-            }]];
+    if (g_lobbyRoomNames) {
+        NSArray *copyRooms = nil;
+        @synchronized(g_lobbyRoomNames) {
+            copyRooms = [g_lobbyRoomNames copy];
+        }
+        if (copyRooms && copyRooms.count > 0) {
+            for (NSString *roomNm in copyRooms) {
+                // Rich text etiketlerini temizle ki buton adı temiz görünsün
+                NSString *cleanName = stripRichTextTags(roomNm);
+                if (cleanName.length == 0) cleanName = roomNm;
+                [ac addAction:[UIAlertAction actionWithTitle:[NSString stringWithFormat:@"🚪 🟢 %@", cleanName]
+                    style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
+                    few1n_joinTargetRoom(roomNm);
+                }]];
+            }
         }
     }
 
