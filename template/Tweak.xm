@@ -4990,8 +4990,9 @@ static NSString* rainbowWrap(NSString* text, int idx) {
     } @catch (...) { FLog(@"Oda kapasite hatasi"); }
 }
 
-// ===== ODADAYKEN ANLIK HARITA DEGISTIR (OYUNUN KENDİ SetScene MEKANIZMASI) =====
-// HR_PhotonLobbyManager.SetScene(string sceneName) -> 0x54ABFFC
+// ===== ODADAYKEN ANLIK HARITA DEGISTIR =====
+static void(*pn_setAutomaticallySyncScene)(bool) = NULL;
+static void(*unity_loadSceneStr)(void*) = NULL;
 static void(*lobbySetScene)(void*, void*) = NULL;
 
 - (void)changeMapInRoom {
@@ -5004,114 +5005,106 @@ static void(*lobbySetScene)(void*, void*) = NULL;
         return;
     }
 
-    // Otomatik Master Client yetkisi al (harita değiştirme yetkisi)
+    // 1) Master Client yetkisini al
     few1n_claimMaster();
 
-    // Mevcut sahne adını oku
+    // 2) Otomatik Harita Senkronizasyonunu AÇ (Tüm oyuncular aynı anda aktarılsın)
+    if (pn_setAutomaticallySyncScene) {
+        pn_setAutomaticallySyncScene(true);
+    }
+
+    // Mevcut sahne adını ve indeksini al
     NSString *curScene = (pn_getActiveSceneName) ? readStr(pn_getActiveSceneName()) : @"?";
     int curIndex = (pn_getActiveSceneBuildIndex) ? pn_getActiveSceneBuildIndex() : -1;
 
-    NSString *msg = [NSString stringWithFormat:@"Mevcut Sahne: %@ (Indeks: %d)\n\nOdadaki HERKESI istedigin haritaya gecirir (ATILMADAN!).\nMaster Client yetkin otomatik alindi.", curScene, curIndex];
-    UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"🗺️ Anlik Harita Degistir"
+    NSString *msg = [NSString stringWithFormat:@"Mevcut Sahne: %@ (Indeks: %d)\n\nOdadaki HERKESİ seçtiğin haritaya aktarır.\nGeçmek istediğin haritaya dokun:", curScene, curIndex];
+    UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"🗺️ Anlık Harita Değiştir"
                                                                message:msg preferredStyle:UIAlertControllerStyleAlert];
 
-    // Oyunun sahne adlarıyla harita seçenekleri (SetScene string parametresi olarak kullanılır)
     NSArray *buildMaps = @[
-        @{@"title": @"🌅 Otoban — Gün Batımı (Sunset)",      @"scene": @"Highway Sunset",    @"tag": @"<#FF7F00><b>🛣️ Otoban (Gün Batımı)</b>"},
-        @{@"title": @"🌙 Otoban — Gece (Night)",              @"scene": @"Highway Night",     @"tag": @"<#00FFFF><b>🌙 Otoban (Gece)</b>"},
-        @{@"title": @"🌧️ Otoban — Yağmurlu (Rainy)",         @"scene": @"Highway Rainy",     @"tag": @"<#88AAFF><b>🌧️ Otoban (Yağmurlu)</b>"},
-        @{@"title": @"🏜️ Çöl Yolu (Desert)",                 @"scene": @"Desert",            @"tag": @"<#FFFF00><b>🏜️ Çöl Yolu</b>"},
-        @{@"title": @"🌲 Orman & Dağ Yolu (Forest)",          @"scene": @"Forest",            @"tag": @"<#00FF00><b>🌲 Orman Yolu</b>"},
-        @{@"title": @"🏎️ Drift Yeri & Pist (Drift Track)",   @"scene": @"Drift",             @"tag": @"<#FF00FF><b>🏎️ Drift Yeri</b>"},
-        @{@"title": @"🏙️ Şehir — Gece (City Night)",         @"scene": @"City Night",        @"tag": @"<#00FFFF><b>🏙️ Şehir (Gece)</b>"},
-        @{@"title": @"⚓ Liman — Serbest (Port)",             @"scene": @"Port",              @"tag": @"<#00FF88><b>⚓ Liman</b>"}
+        @{@"title": @"🌅 Otoban — Gün Batımı",    @"scene": @"Highway Sunset",  @"idx": @0, @"tag": @"<#FF7F00><b>🛣️ Otoban (Gün Batımı)</b>"},
+        @{@"title": @"🌙 Otoban — Gece",          @"scene": @"Highway Night",   @"idx": @2, @"tag": @"<#00FFFF><b>🌙 Otoban (Gece)</b>"},
+        @{@"title": @"🌧️ Otoban — Yağmurlu",     @"scene": @"Highway Rainy",   @"idx": @2, @"tag": @"<#88AAFF><b>🌧️ Otoban (Yağmurlu)</b>"},
+        @{@"title": @"🏜️ Çöl Yolu (Desert)",     @"scene": @"Desert",          @"idx": @3, @"tag": @"<#FFFF00><b>🏜️ Çöl Yolu</b>"},
+        @{@"title": @"🌲 Orman Yolu (Forest)",    @"scene": @"Forest",          @"idx": @5, @"tag": @"<#00FF00><b>🌲 Orman Yolu</b>"},
+        @{@"title": @"🏎️ Drift Yeri (Pist)",     @"scene": @"Drift",           @"idx": @6, @"tag": @"<#FF00FF><b>🏎️ Drift Yeri</b>"},
+        @{@"title": @"🏙️ Şehir Merkezi (Gece)",  @"scene": @"City Night",      @"idx": @1, @"tag": @"<#00FFFF><b>🏙️ Şehir (Gece)</b>"},
+        @{@"title": @"⚓ Liman (Port)",           @"scene": @"Port",            @"idx": @4, @"tag": @"<#00FF88><b>⚓ Liman</b>"}
     ];
 
     for (NSDictionary *m in buildMaps) {
         NSString *title = m[@"title"];
         NSString *scene = m[@"scene"];
+        int idx         = [m[@"idx"] intValue];
         NSString *tag   = m[@"tag"];
 
         [ac addAction:[UIAlertAction actionWithTitle:title style:UIAlertActionStyleDefault handler:^(UIAlertAction *act){
             @try {
-                // Harita etiketini ayarla
-                strncpy(customMapTextOverride, tag.UTF8String, sizeof(customMapTextOverride)-1);
-                isMapTextOverrideEnabled = true;
+                bool loaded = false;
 
-                // Chat duyurusu
-                if (chatGetInst && chatSend) {
-                    NSString *notice = [NSString stringWithFormat:@"<color=#00FFFF><b>[MAP] Harita Değiştiriliyor: %@</b></color>", title];
-                    void* mgr = chatGetInst(); void* s = mkStr(notice);
-                    if (mgr && s) chatSend(mgr, s);
+                // Yöntem 1: PhotonNetwork.LoadLevel (String veya Int)
+                if (pn_loadLevelStr) {
+                    void* s = mkStr(scene);
+                    if (s) {
+                        loaded = pn_loadLevelStr(s);
+                    }
+                }
+                if (!loaded && pn_loadLevelInt) {
+                    loaded = pn_loadLevelInt(idx);
                 }
 
-                // Yöntem 1: Oyunun kendi SetScene mekanizması (kimseyi atmaz!)
-                bool loaded = false;
-                if (lobbySetScene && lobbyGetInst) {
+                // Yöntem 2 (Fallback): Oyunun Kendi Lobby SetScene Metodu
+                if (!loaded && lobbySetScene && lobbyGetInst) {
                     void* lobby = lobbyGetInst();
                     if (ptrOk(lobby)) {
-                        void* sceneStr = mkStr(scene);
-                        if (sceneStr) {
-                            lobbySetScene(lobby, sceneStr);
+                        void* s = mkStr(scene);
+                        if (s) {
+                            lobbySetScene(lobby, s);
                             loaded = true;
-                            FLog([NSString stringWithFormat:@"🗺️ SetScene('%@') ile harita değiştiriliyor (oyunun kendi mekanizması)", scene]);
                         }
                     }
                 }
 
-                // Yöntem 2 (fallback): PhotonNetwork.LoadLevel (string)  
-                if (!loaded && pn_loadLevelStr) {
-                    void* sceneStr = mkStr(scene);
-                    if (sceneStr) {
-                        pn_loadLevelStr(sceneStr);
+                // Yöntem 3 (Fallback): Unity Engine SceneManager.LoadScene
+                if (!loaded && unity_loadSceneStr) {
+                    void* s = mkStr(scene);
+                    if (s) {
+                        unity_loadSceneStr(s);
                         loaded = true;
-                        FLog([NSString stringWithFormat:@"🗺️ LoadLevel('%@') ile harita değiştiriliyor (Photon fallback)", scene]);
                     }
                 }
 
-                if (!loaded) {
-                    FLog(@"❌ Hiçbir harita yükleme yöntemi çalışmadı!");
-                }
-            } @catch (...) { FLog(@"Harita degisme hatasi"); }
+                FLog(loaded ? [NSString stringWithFormat:@"🗺️ '%@' haritasına geçildi!", scene] : @"❌ Harita yüklenemedi");
+            } @catch (...) { FLog(@"Harita değiştirme hatası"); }
         }]];
     }
 
-    [ac addAction:[UIAlertAction actionWithTitle:@"✏️ Ozel Sahne Adi Yaz" style:UIAlertActionStyleDefault handler:^(UIAlertAction *act){
-        UIAlertController *inputAc = [UIAlertController alertControllerWithTitle:@"✏️ Ozel Sahne Adı"
-            message:@"Harita/Sahne adını yaz (SetScene'e gönderilir):" preferredStyle:UIAlertControllerStyleAlert];
+    [ac addAction:[UIAlertAction actionWithTitle:@"✏️ Özel Sahne Adı / İndeks Yaz" style:UIAlertActionStyleDefault handler:^(UIAlertAction *act){
+        UIAlertController *inputAc = [UIAlertController alertControllerWithTitle:@"✏️ Özel Sahne"
+            message:@"Sahne adını (örn: Desert) veya indeks numarasını (örn: 2) yazın:" preferredStyle:UIAlertControllerStyleAlert];
         [inputAc addTextFieldWithConfigurationHandler:^(UITextField *tf){
-            tf.placeholder = @"Ornek: Highway Sunset veya Desert";
+            tf.placeholder = @"Örn: Desert veya 0";
             tf.clearButtonMode = UITextFieldViewModeAlways;
         }];
-        [inputAc addAction:[UIAlertAction actionWithTitle:@"Gec" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a2){
+        [inputAc addAction:[UIAlertAction actionWithTitle:@"Değiştir" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a2){
             NSString *val = inputAc.textFields.firstObject.text;
             if (!val || val.length == 0) return;
             @try {
-                if (chatGetInst && chatSend) {
-                    NSString *notice = [NSString stringWithFormat:@"<color=#00FFFF><b>[MAP] Harita Değiştiriliyor (%@)...</b></color>", val];
-                    void* mgr = chatGetInst(); void* s = mkStr(notice);
-                    if (mgr && s) chatSend(mgr, s);
-                }
-                bool loaded = false;
-                if (lobbySetScene && lobbyGetInst) {
-                    void* lobby = lobbyGetInst();
-                    if (ptrOk(lobby)) {
-                        void* sceneStr = mkStr(val);
-                        if (sceneStr) { lobbySetScene(lobby, sceneStr); loaded = true; }
-                    }
-                }
-                if (!loaded && pn_loadLevelStr) {
+                if ([val rangeOfCharacterFromSet:[[NSCharacterSet decimalDigitCharacterSet] invertedSet]].location == NSNotFound) {
+                    int idx = [val intValue];
+                    if (pn_loadLevelInt) pn_loadLevelInt(idx);
+                } else {
                     void* s = mkStr(val);
-                    if (s) pn_loadLevelStr(s);
+                    if (s && pn_loadLevelStr) pn_loadLevelStr(s);
+                    else if (s && unity_loadSceneStr) unity_loadSceneStr(s);
                 }
-                FLog([NSString stringWithFormat:@"🗺️ Ozel harita '%@' yukleniyor!", val]);
             } @catch (...) {}
         }]];
-        [inputAc addAction:[UIAlertAction actionWithTitle:@"Iptal" style:UIAlertActionStyleCancel handler:nil]];
+        [inputAc addAction:[UIAlertAction actionWithTitle:@"İptal" style:UIAlertActionStyleCancel handler:nil]];
         [self present:inputAc];
     }]];
 
-    [ac addAction:[UIAlertAction actionWithTitle:@"Iptal" style:UIAlertActionStyleCancel handler:nil]];
+    [ac addAction:[UIAlertAction actionWithTitle:@"İptal" style:UIAlertActionStyleCancel handler:nil]];
     [self present:ac];
 }
 
@@ -5130,7 +5123,7 @@ static void(*lobbySetScene)(void*, void*) = NULL;
     few1n_claimMaster();
 
     UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"✏️ Odadayken Oda İsmini Değiştir"
-        message:@"Odanın yeni ismini yaz (Rich Text destekli):" preferredStyle:UIAlertControllerStyleAlert];
+        message:@"Odanın yeni ismini yaz (Rich Text destekli):\n(Lobi kartında ve oyun içinde anında değişir)" preferredStyle:UIAlertControllerStyleAlert];
 
     [ac addTextFieldWithConfigurationHandler:^(UITextField *tf){
         tf.text = [NSString stringWithUTF8String:customRoomName];
@@ -5149,35 +5142,17 @@ static void(*lobbySetScene)(void*, void*) = NULL;
             NSString *uniq = [newName stringByAppendingString:@"​"];
             void* nameStr = mkStr(uniq);
 
-            // Photon Room objesinin NAME field'ını bul ve yaz (güvenli yöntem)
-            if (pn_getCurrentRoom && rinfo_getName) {
+            // Photon RoomInfo.name field'ının KESİN offset'i = 0x40 (dump.cs doğrulanmış)
+            if (pn_getCurrentRoom && nameStr) {
                 void* room = pn_getCurrentRoom();
                 if (ptrOk(room)) {
-                    // rinfo_getName ile mevcut name pointer'ını al, sonra obje içinde aynı pointer'ı tutan offset'i bul
-                    void* curName = rinfo_getName(room);
-                    bool written = false;
-                    if (ptrOk(curName)) {
-                        // Oda objesinde name field'ını tara (0x10 - 0x60 arası)
-                        for (int off = 0x10; off <= 0x60; off += 0x08) {
-                            @try {
-                                void* fieldVal = *(void**)((uintptr_t)room + off);
-                                if (fieldVal == curName) {
-                                    *(void**)((uintptr_t)room + off) = nameStr;
-                                    written = true;
-                                    FLog([NSString stringWithFormat:@"✓ Room.Name offset 0x%X'e yazıldı", off]);
-                                    break;
-                                }
-                            } @catch (...) {}
-                        }
-                    }
-                    if (!written && nameStr) {
-                        // Fallback: en yaygın name offset'i dene
-                        @try { *(void**)((uintptr_t)room + 0x18) = nameStr; } @catch (...) {}
-                    }
+                    // RoomInfo.name (0x40) adresine doğrudan yeni ismi yaz
+                    *(void**)((uintptr_t)room + 0x40) = nameStr;
+                    FLog([NSString stringWithFormat:@"✓ Room.Name (0x40) başarıyla yazıldı: '%@'", newName]);
                 }
             }
 
-            // Renkli Oda modunu aktif et
+            // Renkli Oda ve Harita etiketi override modlarını aktif et
             isColorRoomForce = true;
             saveBool(@"colorroomforce", true);
 
@@ -5265,36 +5240,45 @@ static void(*lobbySetScene)(void*, void*) = NULL;
     [self present:ac];
 }
 
-// ===== HAVA DURUMU & ZAMAN SEÇ (AKTARMASIZ CANLI) =====
+// ===== HAVA DURUMU & ZAMAN SEÇ =====
 - (void)changeWeatherOnly {
     few1n_claimMaster();
+    if (pn_setAutomaticallySyncScene) pn_setAutomaticallySyncScene(true);
+
     UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"🌤️ Canlı Hava Durumu & Zaman Seç"
-        message:@"Oda haritasını değiştirmeden sadece Hava Durumunu ve Günün Saatini seçin:" preferredStyle:UIAlertControllerStyleAlert];
+        message:@"Harita değişmeden ortamın saatini ve hava durumunu ayarlar:" preferredStyle:UIAlertControllerStyleAlert];
 
     NSArray *weathers = @[
-        @{@"name": @"☀️ Gündüz / Güneşli (Daylight)", @"tag": @"<#FFFF00><b>☀️ Gündüz (Güneşli)</b>"},
-        @{@"name": @"🌅 Gün Batımı (Sunset)", @"tag": @"<#FF7F00><b>🌅 Gün Batımı</b>"},
-        @{@"name": @"🌙 Gece (Night)", @"tag": @"<#00FFFF><b>🌙 Gece</b>"},
-        @{@"name": @"🌧️ Yağmurlu (Rainy)", @"tag": @"<#88AAFF><b>🌧️ Yağmurlu</b>"},
-        @{@"name": @"🌫️ Sisli Hava (Foggy)", @"tag": @"<#CCCCCC><b>🌫️ Sisli Hava</b>"}
+        @{@"name": @"☀️ Gündüz / Güneşli", @"scene": @"Highway",        @"idx": @0, @"tag": @"<#FFFF00><b>☀️ Gündüz (Güneşli)</b>"},
+        @{@"name": @"🌅 Gün Batımı",       @"scene": @"Highway Sunset", @"idx": @0, @"tag": @"<#FF7F00><b>🌅 Gün Batımı</b>"},
+        @{@"name": @"🌙 Gece",             @"scene": @"Highway Night",  @"idx": @2, @"tag": @"<#00FFFF><b>🌙 Gece</b>"},
+        @{@"name": @"🌧️ Yağmurlu & Sisli", @"scene": @"Highway Rainy",  @"idx": @2, @"tag": @"<#88AAFF><b>🌧️ Yağmurlu</b>"}
     ];
 
     for (NSDictionary *w in weathers) {
         NSString *wName = w[@"name"];
+        NSString *wScene= w[@"scene"];
+        int idx         = [w[@"idx"] intValue];
         NSString *wTag  = w[@"tag"];
+
         [ac addAction:[UIAlertAction actionWithTitle:wName style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
             @try {
-                // 1) Harita ve zaman etiketini odadayken anında güncelle
-                strncpy(customMapTextOverride, wTag.UTF8String, sizeof(customMapTextOverride)-1);
-                isMapTextOverrideEnabled = true;
-
-                // 2) Chate/Odaya hava durumu değişim bildirimi gönder (harita aktarımı olmadan)
-                if (chatGetInst && chatSend) {
-                    NSString *notice = [NSString stringWithFormat:@"<color=#00FFFF><b>[WEATHER] Hava Durumu Değiştirildi: %@</b></color>", wName];
-                    void* mgr = chatGetInst(); void* s = mkStr(notice);
-                    if (mgr && s) chatSend(mgr, s);
+                bool loaded = false;
+                if (pn_loadLevelStr) {
+                    void* s = mkStr(wScene);
+                    if (s) loaded = pn_loadLevelStr(s);
                 }
-                FLog([NSString stringWithFormat:@"🌤️ Hava durumu aktarmasız değiştirildi: %@", wName]);
+                if (!loaded && pn_loadLevelInt) {
+                    loaded = pn_loadLevelInt(idx);
+                }
+                if (!loaded && lobbySetScene && lobbyGetInst) {
+                    void* lobby = lobbyGetInst();
+                    if (ptrOk(lobby)) {
+                        void* s = mkStr(wScene);
+                        if (s) lobbySetScene(lobby, s);
+                    }
+                }
+                FLog([NSString stringWithFormat:@"🌤️ Hava durumu değiştirildi: %@", wName]);
             } @catch (...) {}
         }]];
     }
@@ -6355,12 +6339,12 @@ static void few1n_joinTargetRoom(NSString *nm) {
     
     NSString *subTitle = (g_lobbyRoomNames && g_lobbyRoomNames.count > 0)
         ? [NSString stringWithFormat:@"Lobide %lu aktif oda bulundu.\nKatılmak istediğin odaya dokun\n(Dolu 10/10 odalar dahil!):", (unsigned long)g_lobbyRoomNames.count]
-        : @"Dolu (10/10) veya şifreli odalara doğrudan katılmak için oda adını yazın:";
+        : @"Lobi taranıyor... Henüz aktif oda bulunamadı veya lobi listesini açın.";
         
     UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"🚪 Canlı Odalara Gir (Dolu Oda Bypass)"
                                                                message:subTitle preferredStyle:UIAlertControllerStyleAlert];
 
-    // 1) TESPİT EDİLEN ODALARI TIKLANABİLİR BUTON OLARAK EKLE
+    // TESPİT EDİLEN ODALARI TIKLANABİLİR BUTON OLARAK EKLE
     if (g_lobbyRoomNames && g_lobbyRoomNames.count > 0) {
         for (NSString *roomNm in [g_lobbyRoomNames copy]) {
             // Rich text etiketlerini temizle ki buton adı temiz görünsün
@@ -6372,13 +6356,6 @@ static void few1n_joinTargetRoom(NSString *nm) {
             }]];
         }
     }
-
-    // 2) ELLE İSİM/ID YAZMA ALANI
-    [ac addTextFieldWithConfigurationHandler:^(UITextField *tf){ tf.placeholder = @"Veya Elle Oda Adı / ID Yazın"; tf.clearButtonMode = UITextFieldViewModeAlways; }];
-    [ac addAction:[UIAlertAction actionWithTitle:@"➡️ Yazılan Odaya Gir" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
-        NSString *nm = ac.textFields.firstObject.text;
-        if (nm.length > 0) few1n_joinTargetRoom(nm);
-    }]];
 
     [ac addAction:[UIAlertAction actionWithTitle:@"İptal" style:UIAlertActionStyleCancel handler:nil]];
     [self present:ac];
@@ -7024,7 +7001,9 @@ static void InstallEverything(uintptr_t b) {
     rbps_TeleportCar_RPC      = (void(*)(void*,Vec3,Quaternion,void*))(b + 0x5A4C494);
     hrph_TeleportPlayerRPC    = (void(*)(void*,Vec3,void*))(b + 0x54A6F00);
     ssrcc_RpcTeleport         = (void(*)(void*,Vec3,Vec3,Vec3,float,void*))(b + 0x5A5B788);
-    lobbySetScene             = (void(*)(void*,void*))(b + 0x54ABFFC);    // HR_PhotonLobbyManager.SetScene(string)
+    pn_setAutomaticallySyncScene = (void(*)(bool))(b + 0x5934408);     // PhotonNetwork.AutomaticallySyncScene = true
+    unity_loadSceneStr           = (void(*)(void*))(b + 0x6781268);    // UnityEngine.SceneManagement.SceneManager.LoadScene(string)
+    lobbySetScene                = (void(*)(void*,void*))(b + 0x54ABFFC);    // HR_PhotonLobbyManager.SetScene(string)
     pn_raiseEvent           = (void(*)(unsigned char,void*,bool,void*))(b + 0x593C000); // PhotonNetwork.RaiseEvent (dump.cs'den dogrula)
 
     safeHook((void*)(b + 0x54AA35C), (void*)h_onRoomListUpdate,(void**)&o_onRoomListUpdate,"HR_PhotonLobbyManager.OnRoomListUpdate");
