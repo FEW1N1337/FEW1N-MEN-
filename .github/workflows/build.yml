@@ -41,9 +41,9 @@ jobs:
           Package: com.few1n.dreamroadmod
           Name: FEW1N Mod Menu
           Depends: mobilesubstrate, firmware (>= 14.0)
-          Version: 71.0
+          Version: 72.0
           Architecture: iphoneos-arm64
-          Description: FEW1N Mod Menu v71.0 - Gelismis Ozel Oda (31 Kisi, Ozel Harita Etiketi, Canli Harita & Isim Degistirme, TMPro Short Hex Renkler, Polis Cakar/Siren, Pop&Bangs, Kesici Ses Modu, Otomatik Korna, Canli Reklam Bozucu)
+          Description: FEW1N Mod Menu v72.0 - Gelismis Ozel Oda (31 Kisi, Ozel Harita Etiketi, Canli Harita & Isim Degistirme, TMPro Short Hex Renkler, Polis Cakar/Siren, Pop&Bangs, Kesici Ses Modu, Otomatik Korna, Canli Reklam Bozucu)
           Maintainer: few1n
           Author: few1n
           Section: Tweaks
@@ -80,7 +80,7 @@ jobs:
       - name: Rename Package
         run: |
           mkdir -p output
-          cp packages/*.deb output/FEW1NMod_71.0_${{ github.run_number }}.deb
+          cp packages/*.deb output/FEW1NMod_72.0_${{ github.run_number }}.deb
 
       - name: Extract dylib for sideloading
         run: |
@@ -96,11 +96,11 @@ jobs:
       - name: Upload .deb (jailbreak)
         uses: actions/upload-artifact@v4
         with:
-          name: FEW1N-ModMenu-v71.0-deb-${{ github.run_number }}
+          name: FEW1N-ModMenu-v72.0-deb-${{ github.run_number }}
           path: output/*.deb
 
       - name: Upload .dylib (sideload)
         uses: actions/upload-artifact@v4
         with:
-          name: FEW1N-ModMenu-v71.0-dylib-${{ github.run_number }}
+          name: FEW1N-ModMenu-v72.0-dylib-${{ github.run_number }}
           path: output/FEW1NMod.dylib
