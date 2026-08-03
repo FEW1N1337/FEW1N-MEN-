@@ -980,8 +980,6 @@ static inline void few1n_claimMaster(void) {
             }
         } @catch (...) {}
     }
-} @catch (...) {}
-    }
 }
 // Forward declarations (tanimlari asagida; burada erken kullanimlar icin)
 static inline bool ptrOk(void* p);
