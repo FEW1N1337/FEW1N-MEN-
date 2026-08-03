@@ -12,7 +12,7 @@
 #import <objc/runtime.h>
 
 // ============================================================
-//  v70.0 - FEW1N MOD MENU  (derlenir, hatasiz - bu dosyayi kullan)
+//  v71.0 - FEW1N MOD MENU  (derlenir, hatasiz - bu dosyayi kullan)
 //  DUZELTME: rainbowWrap forward-decl (tanim sirasi), decl-order taramasi temiz, autogreet poll optimize.
 //  Ozellikler: GERCEK Kick (liste/isim), Ucus D-pad, Emoji sprite+test, Otomatik Karsilama, Normal Oda 31
 //  DreamRoadMultiplayer | Unity 6 (6000.3.0b1) | Metadata v39
@@ -2418,7 +2418,7 @@ static UIViewController* few1n_topVC(void) {
     title.font = [UIFont systemFontOfSize:17 weight:UIFontWeightBlack];
     [header addSubview:title];
     UILabel *ver = [[UILabel alloc] initWithFrame:CGRectMake(42,37,pw-90,16)];
-    ver.text = [NSString stringWithFormat:@"v70.0  •  Base 0x%lX", (unsigned long)global_base];
+    ver.text = [NSString stringWithFormat:@"v71.0  •  Base 0x%lX", (unsigned long)global_base];
     ver.textColor = [UIColor colorWithWhite:1 alpha:0.82];
     ver.font = [UIFont fontWithName:@"Menlo-Bold" size:8] ?: [UIFont systemFontOfSize:8 weight:UIFontWeightBold];
     [header addSubview:ver];
@@ -5376,7 +5376,7 @@ static void few1n_loadMap(NSString *scene, int idx) {
         NSString *name = sp[@"n"];
         float val = [sp[@"v"] floatValue];
         [ac addAction:[UIAlertAction actionWithTitle:name style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
-            if (o_setTimeScale) o_setTimeScale(nil, val);
+            if (o_setTimeScale) o_setTimeScale(val);
             FLog([NSString stringWithFormat:@"⏱️ TimeScale: %.1fx", val]);
         }]];
     }
@@ -5392,7 +5392,7 @@ static void few1n_loadMap(NSString *scene, int idx) {
         [inp addAction:[UIAlertAction actionWithTitle:@"Uygula" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a2){
             float v = [inp.textFields.firstObject.text floatValue];
             if (v > 0.0f && v <= 20.0f) {
-                if (o_setTimeScale) o_setTimeScale(nil, v);
+                if (o_setTimeScale) o_setTimeScale(v);
                 FLog([NSString stringWithFormat:@"⏱️ Ozel TimeScale: %.2fx", v]);
             }
         }]];
@@ -7359,7 +7359,7 @@ static void few1n_poll(void) {
 }
 
 %ctor {
-    FLog(@"v70.0 basladi, UnityFramework araniyor...");
+    FLog(@"v71.0 basladi, UnityFramework araniyor...");
     restoreSettings();
 
     // ===== REKLAM BOZUCU: TUM reklam SDK'larini engelle (Obj-C runtime swizzle) =====
