@@ -871,7 +871,11 @@ static void  (*room_setMaxPlayers)(void*, int) = NULL;        // Room.set_MaxPla
 static int   (*room_getMaxPlayers)(void*) = NULL;             // Room.get_MaxPlayers 0x5927B68
 static void* (*pn_getNickName)(void) = NULL;                   // PhotonNetwork.get_NickName 0x59338C0 (isim kaydet)
 static bool  (*pn_leaveRoom)(bool) = NULL;                     // PhotonNetwork.LeaveRoom 0x593B2D8 (goz at cikis)
-static bool  (*pn_setMasterClient)(void* player) = NULL;       // PhotonNetwork.SetMasterClient (kullanicinin eklemesi)
+static bool  (*pn_setMasterClient)(void* player) = NULL;       // PhotonNetwork.SetMasterClient
+static bool  (*room_getIsOpen)(void*) = NULL;                  // Room.get_IsOpen 0x59279A8
+static void  (*room_setIsOpen)(void*, bool) = NULL;            // Room.set_IsOpen 0x59279B0
+static bool  (*room_getIsVisible)(void*) = NULL;               // Room.get_IsVisible 0x5927A88
+static void  (*room_setIsVisible)(void*, bool) = NULL;         // Room.set_IsVisible 0x5927A90
 static bool  (*pn_loadLevelStr)(void* name) = NULL;             // PhotonNetwork.LoadLevel(string) 0x5941D94
 static bool  (*pn_loadLevelInt)(int index) = NULL;              // PhotonNetwork.LoadLevel(int) 0x5941B64
 static void* (*pn_getActiveSceneName)(void) = NULL;             // SceneManagerHelper.get_ActiveSceneName 0x59618B0
@@ -1851,6 +1855,24 @@ static void(*lobbySetScene)(void*, void*) = NULL;
 static void(*pn_setAutomaticallySyncScene)(bool) = NULL;
 static void(*unity_loadSceneStr)(void*) = NULL;
 static void* (*mapList_getInstance)(void) = NULL;   // MapList.ely() -> MapList instance (0x54B3630)
+static void(*photonMgrEnp)(void*, bool) = NULL;     // PhotonManager.enp(string, bool) - static sahne yukleyici (0x54B5260)
+static void(*mapSel_selectMap)(void*, void*) = NULL; // MapSelection.SelectMap(string) - (0x54B389C)
+static void(*lobbyStartGame)(void*) = NULL;          // HR_PhotonLobbyManager.StartGameButton() - (0x54A93B0)
+static void(*lobbyDummyStartGame)(void*) = NULL;     // HR_PhotonLobbyManagerDummy.StartGameButton() - (0x54AF76C)
+
+// ===== AUTO MASTER HOOK =====
+static bool isAutoMasterEnabled = false;
+static int  g_fakeOnlineCount   = 0;      // 0 = devre disi
+static void (*o_onMasterClientSwitched)(void*, void*) = NULL;
+static void h_onMasterClientSwitched(void* self, void* newMasterPlayer) {
+    if (o_onMasterClientSwitched) o_onMasterClientSwitched(self, newMasterPlayer);
+    if (!isAutoMasterEnabled) return;
+    // Master baska birine gecti, biz hemen geri alalim
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.2 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        few1n_claimMaster();
+        FLog(@"🤖 Oto-Master: Master degisti, aninda geri alindi!");
+    });
+}
 
 static void (*o_onRoomListUpdate)(void*, void*) = NULL;
 static void h_onRoomListUpdate(void* self, void* roomList) {
@@ -2032,6 +2054,12 @@ static void h_roomLineSetup(void* self, void* a, void* b, unsigned char c, unsig
 - (void)createAdvancedCustomRoom;
 - (void)setRoomMax;
 - (void)changeMapInRoom;
+- (void)tapRoomLock;
+- (void)tapRoomHide;
+- (void)tapRoomPassword;
+- (void)tapAutoMaster;
+- (void)tapGameSpeed;
+- (void)tapFakeOnline;
 - (void)pickRoomMax:(UIButton*)b;
 - (void)toggleSection:(UIButton*)b;
 - (void)reflowMenu;
@@ -2587,11 +2615,17 @@ static UIViewController* few1n_topVC(void) {
     y = [self actionRow:@"\U0001F465  Odadaki Oyuncular (isim kopyala)" color:C_CYAN atY:y action:@selector(showPlayers)];
     y = [self actionRow:@"\U0001F441  Odaya Goz At (isimsiz anlik gir-cik)" color:C_GOLD atY:y action:@selector(peekRoom)];
     y = [self actionRow:@"👑  Oda Master Ol" color:C_GOLD atY:y action:@selector(tapRoomMaster)];
+    y = [self toggle:@"🤖  Otomatik Master" sub:@"Master gidince aninda geri al" key:@"automaster" atY:y action:@selector(tapAutoMaster)];
+    y = [self actionRow:@"⏱️  Oyun Hızı (TimeScale)" color:C_CYAN atY:y action:@selector(tapGameSpeed)];
+    y = [self actionRow:@"👥  Fake Çevrimici Sayısı (Lobi Görseli)" color:C_CYAN atY:y action:@selector(tapFakeOnline)];
     y = [self actionRow:@"🗺️  Odadayken Harita Değiştir (Anlık Canlı)" color:C_ON atY:y action:@selector(changeMapInRoom)];
     y = [self actionRow:@"🌤️  Hava Durumu & Zaman Seç (Aktarmasız Canlı)" color:C_ON atY:y action:@selector(changeWeatherOnly)];
     y = [self actionRow:@"✏️  Odadayken Oda İsmini Değiştir (Anlık Canlı)" color:C_GOLD atY:y action:@selector(changeRoomNameInRoom)];
     y = [self actionRow:@"🏷️  Harita Metnini Değiştir (Kişi Sayısı Yanı - ADMIN vb.)" color:C_GOLD atY:y action:@selector(changeCustomMapLabel)];
-    y = [self actionRow:@"💥  ODAYI KAPAT (Herkesi At & Odayi Sonlandir)" color:C_RED atY:y action:@selector(nukeRoom)];
+    y = [self actionRow:@"🔒  Odayı Kilitle / Aç (IsOpen Toggle)" color:C_GOLD atY:y action:@selector(tapRoomLock)];
+    y = [self actionRow:@"👁️  Odayı Gizle / Göster (IsVisible Toggle)" color:C_GOLD atY:y action:@selector(tapRoomHide)];
+    y = [self actionRow:@"\U0001F511  Oda Sifresi Koy / Kaldir" color:C_GOLD atY:y action:@selector(tapRoomPassword)];
+    y = [self actionRow:@"\U0001F4A5  ODAYI KAPAT (Herkesi At & Odayi Sonlandir)" color:C_RED atY:y action:@selector(nukeRoom)];
     y = [self actionRow:@"💥  Odadaki Herkesi At (Mass Kick)" color:C_RED atY:y action:@selector(tapRoomKickAll)];
     y = [self actionRow:@"💣  Oda Patlatma (Odadakileri Düşür)" color:C_RED atY:y action:@selector(tapRoomExplode)];
     y = [self actionRow:@"🎨  Odadaki Araç Rengini Değiştir (Tüm Araçları Boya)" color:C_GOLD atY:y action:@selector(pickCarPaintColor)];
@@ -2647,7 +2681,7 @@ static UIViewController* few1n_topVC(void) {
 
     self.contentView.frame = CGRectMake(0,0,pw,y);
     self.scrollView.contentSize = CGSizeMake(pw,y);
-    for (int i = 0; i < 24; i++) g_secOpen[i] = true;   // TUM BOLUMLER VARSAYILAN OLARAK ACIK
+    for (int i = 0; i < 24; i++) g_secOpen[i] = false;  // TUM BOLUMLER VARSAYILAN KAPALI (tiklayinca acilir)
     [self reflowMenu];     // ACCORDION: bolumleri katla/ac
     [w addSubview:self.panel];
     [self refreshUI];
@@ -5030,52 +5064,81 @@ static NSArray<NSString*>* few1n_readMapNames(void) {
 }
 
 static void few1n_loadMap(NSString *scene, int idx) {
-    // 1) Master Client ol (harita degistirme yetkisi - LoadLevel/SetScene sadece master'dan calisir)
+    // 1) Master Client ol - harita sadece master'dan degistirilebilir
     few1n_claimMaster();
 
-    // 2) AutomaticallySyncScene = true (KRITIK: bu olmadan diger oyunculara gitmez!)
-    if (pn_setAutomaticallySyncScene) pn_setAutomaticallySyncScene(true);
-
-    // Kisa gecikme: MasterClient claim + SyncScene propagation icin
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.4 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+    // 2) Gecikme: MasterClient claim propagation icin bekle
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
         @try {
             bool loaded = false;
 
-            // ONCELIK 1: Oyunun kendi SetScene mekanizmasi (oyunun map butonlarinin kullandigi yol).
-            // SetScene ic tarafta PhotonNetwork.LoadLevel cagirir -> TUM odadakiler gecer. En dogru yol.
-            if (lobbySetScene && lobbyGetInst && scene && scene.length > 0) {
+            // ===== YONTEM 1: Oyunun TAM AKISI =====
+            // MapSelection.SelectMap(scene) -> StartGameButton()
+            // Bu oyunun kendi lobi butonlarinin yaptigi birebir ayni akis
+            if (!loaded && mapSel_selectMap && lobbyStartGame && lobbyGetInst && scene && scene.length > 0) {
+                void* lobby = lobbyGetInst();
+                if (ptrOk(lobby)) {
+                    // mapSelection field offset 0x28 -> HR_PhotonLobbyManager.mapSelection
+                    void* mapSel = *(void**)((uintptr_t)lobby + 0x28);
+                    if (ptrOk(mapSel)) {
+                        @try {
+                            void* s = mkStr(scene);
+                            if (s) {
+                                mapSel_selectMap(mapSel, s);   // haritayi sec
+                                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.15 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                                    @try { lobbyStartGame(lobby); } @catch (...) {}
+                                });
+                                loaded = true;
+                                FLog([NSString stringWithFormat:@"🗺️ MapSelection.SelectMap('%@') + StartGame -> herkese harita yukleniyor", scene]);
+                            }
+                        } @catch (...) { FLog(@"MapSel/StartGame exception"); }
+                    }
+                }
+            }
+
+            // ===== YONTEM 2: PhotonManager.enp (statik - oyun icinde her zaman erisebilir) =====
+            if (!loaded && photonMgrEnp && scene && scene.length > 0) {
+                void* s = mkStr(scene);
+                if (s) {
+                    photonMgrEnp(s, false);
+                    loaded = true;
+                    FLog([NSString stringWithFormat:@"🗺️ PhotonManager.enp('%@') -> herkese harita yukleniyor", scene]);
+                }
+            }
+
+            // ===== YONTEM 3: Lobby.SetScene (lobi aktifken) =====
+            if (!loaded && lobbySetScene && lobbyGetInst && scene && scene.length > 0) {
                 void* lobby = lobbyGetInst();
                 if (ptrOk(lobby)) {
                     void* s = mkStr(scene);
                     if (s) {
                         lobbySetScene(lobby, s);
                         loaded = true;
-                        FLog([NSString stringWithFormat:@"🗺️ SetScene('%@') -> herkese harita yukleniyor", scene]);
+                        FLog([NSString stringWithFormat:@"🗺️ Lobby.SetScene('%@') -> herkese harita yukleniyor", scene]);
                     }
                 }
             }
 
-            // ONCELIK 2 (fallback): SetScene yoksa PhotonNetwork.LoadLevel(string) - yine herkese gider (SyncScene acik)
+            // ===== YONTEM 4: PhotonNetwork.LoadLevel(string) direkt =====
             if (!loaded && pn_loadLevelStr && scene && scene.length > 0) {
                 void* s = mkStr(scene);
                 if (s) {
                     pn_loadLevelStr(s);
                     loaded = true;
-                    FLog([NSString stringWithFormat:@"🗺️ LoadLevel('%@') -> herkese harita yukleniyor", scene]);
+                    FLog([NSString stringWithFormat:@"🗺️ LoadLevel('%@') -> harita yukleniyor", scene]);
                 }
             }
 
-            // ONCELIK 3 (fallback): build index ile LoadLevel(int)
+            // ===== YONTEM 5: PhotonNetwork.LoadLevel(int) =====
             if (!loaded && pn_loadLevelInt && idx >= 0) {
                 pn_loadLevelInt(idx);
                 loaded = true;
-                FLog([NSString stringWithFormat:@"🗺️ LoadLevel(%d) -> herkese harita yukleniyor", idx]);
+                FLog([NSString stringWithFormat:@"🗺️ LoadLevel(%d) -> harita yukleniyor", idx]);
             }
 
-            if (!loaded) {
-                FLog(@"❌ Harita degistirme basarisiz - SetScene/LoadLevel pointerlari YOK!");
-            }
-        } @catch (...) { FLog(@"Harita degistirme hatasi"); }
+            if (!loaded) FLog(@"❌ Hic bir harita degistirme yontemi calismadi!");
+
+        } @catch (...) { FLog(@"few1n_loadMap exception!"); }
     });
 }
 
@@ -5276,6 +5339,206 @@ static void few1n_loadMap(NSString *scene, int idx) {
         FLog(@"Harita etiketi orijinal harita adına sıfırlandı!");
     }]];
 
+    [ac addAction:[UIAlertAction actionWithTitle:@"İptal" style:UIAlertActionStyleCancel handler:nil]];
+    [self present:ac];
+}
+
+// ===== OTOMATIK MASTER =====
+- (void)tapAutoMaster {
+    isAutoMasterEnabled = !isAutoMasterEnabled;
+    saveBool(@"automaster", isAutoMasterEnabled);
+    NSString *durum = isAutoMasterEnabled ? @"🤖 ACIK - Master gidince aninda geri alinir" : @"❌ KAPALI";
+    UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"🤖 Otomatik Master"
+        message:[NSString stringWithFormat:@"Durum: %@", durum] preferredStyle:UIAlertControllerStyleAlert];
+    [ac addAction:[UIAlertAction actionWithTitle:@"Tamam" style:UIAlertActionStyleDefault handler:nil]];
+    [self present:ac];
+    FLog([NSString stringWithFormat:@"🤖 AutoMaster: %d", isAutoMasterEnabled]);
+}
+
+// ===== OYUN HIZI (TIMESCALE) =====
+- (void)tapGameSpeed {
+    UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"⏱️ Oyun Hızı"
+        message:@"Oyun hızını seç (sadece senin ekranında):"
+        preferredStyle:UIAlertControllerStyleAlert];
+
+    NSArray *speeds = @[
+        @{@"n": @"🐢  Çok Yavaş  (0.1x)",  @"v": @0.1f},
+        @{@"n": @"🟡  Yavaş      (0.3x)",  @"v": @0.3f},
+        @{@"n": @"🔵  Yavaşça    (0.5x)",  @"v": @0.5f},
+        @{@"n": @"⚪  Normal     (1.0x)",  @"v": @1.0f},
+        @{@"n": @"🟢  Hızlı      (2.0x)",  @"v": @2.0f},
+        @{@"n": @"🟠  Çok Hızlı  (3.0x)",  @"v": @3.0f},
+        @{@"n": @"🔴  Süper Hız  (5.0x)",  @"v": @5.0f},
+        @{@"n": @"⭐  Max Turbo (10.0x)", @"v": @10.0f},
+    ];
+
+    for (NSDictionary *sp in speeds) {
+        NSString *name = sp[@"n"];
+        float val = [sp[@"v"] floatValue];
+        [ac addAction:[UIAlertAction actionWithTitle:name style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
+            if (o_setTimeScale) o_setTimeScale(nil, val);
+            FLog([NSString stringWithFormat:@"⏱️ TimeScale: %.1fx", val]);
+        }]];
+    }
+
+    // Ozel deger girme
+    [ac addAction:[UIAlertAction actionWithTitle:@"✏️ Ozel Deger Gir" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
+        UIAlertController *inp = [UIAlertController alertControllerWithTitle:@"⏱️ Ozel Hız"
+            message:@"Deger gir (ornek: 0.5 veya 3.0):" preferredStyle:UIAlertControllerStyleAlert];
+        [inp addTextFieldWithConfigurationHandler:^(UITextField *tf){
+            tf.keyboardType = UIKeyboardTypeDecimalPad;
+            tf.placeholder = @"1.0";
+        }];
+        [inp addAction:[UIAlertAction actionWithTitle:@"Uygula" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a2){
+            float v = [inp.textFields.firstObject.text floatValue];
+            if (v > 0.0f && v <= 20.0f) {
+                if (o_setTimeScale) o_setTimeScale(nil, v);
+                FLog([NSString stringWithFormat:@"⏱️ Ozel TimeScale: %.2fx", v]);
+            }
+        }]];
+        [inp addAction:[UIAlertAction actionWithTitle:@"İptal" style:UIAlertActionStyleCancel handler:nil]];
+        [self present:inp];
+    }]];
+
+    [ac addAction:[UIAlertAction actionWithTitle:@"İptal" style:UIAlertActionStyleCancel handler:nil]];
+    [self present:ac];
+}
+
+// ===== FAKE CEVRIMICI SAYISI =====
+- (void)tapFakeOnline {
+    UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"👥 Fake Çevrimici Sayısı"
+        message:@"Lobi oda listesindeki oyuncu sayılarını fake göster.\nSadece senin ekranında etkilidir."
+        preferredStyle:UIAlertControllerStyleAlert];
+    [ac addTextFieldWithConfigurationHandler:^(UITextField *tf){
+        tf.keyboardType = UIKeyboardTypeNumberPad;
+        tf.placeholder = @"Fake sayı (0 = kapat)";
+        if (g_fakeOnlineCount > 0)
+            tf.text = [NSString stringWithFormat:@"%d", g_fakeOnlineCount];
+    }];
+    [ac addAction:[UIAlertAction actionWithTitle:@"Uygula" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
+        NSString *txt = ac.textFields.firstObject.text;
+        g_fakeOnlineCount = [txt intValue];
+        NSString *msg = g_fakeOnlineCount > 0
+            ? [NSString stringWithFormat:@"👥 Fake sayı aktif: her oda %d gözükür.", g_fakeOnlineCount]
+            : @"❌ Fake sayı kapatildi, gerçek sayılar görünür.";
+        UIAlertController *r = [UIAlertController alertControllerWithTitle:@"👥 Fake Online"
+            message:msg preferredStyle:UIAlertControllerStyleAlert];
+        [r addAction:[UIAlertAction actionWithTitle:@"Tamam" style:UIAlertActionStyleDefault handler:nil]];
+        [self present:r];
+        FLog([NSString stringWithFormat:@"👥 FakeOnline: %d", g_fakeOnlineCount]);
+    }]];
+    [ac addAction:[UIAlertAction actionWithTitle:@"İptal" style:UIAlertActionStyleCancel handler:nil]];
+    [self present:ac];
+}
+
+// ===== ODA KİLİTLE / AÇ =====
+- (void)tapRoomLock {
+    if (!pn_getInRoom || !pn_getInRoom()) {
+        UIAlertController *e = [UIAlertController alertControllerWithTitle:@"🔒 Oda Kilidi"
+            message:@"Bu özellik için bir odada olmalısın." preferredStyle:UIAlertControllerStyleAlert];
+        [e addAction:[UIAlertAction actionWithTitle:@"Tamam" style:UIAlertActionStyleDefault handler:nil]];
+        [self present:e]; return;
+    }
+    // Master Client ol - sadece master oda ayarlarını değiştirebilir
+    few1n_claimMaster();
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.3 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        @try {
+            void* room = pn_getCurrentRoom ? pn_getCurrentRoom() : NULL;
+            if (!ptrOk(room)) { FLog(@"❌ Oda pointer alınamadı"); return; }
+            bool isOpen = room_getIsOpen ? room_getIsOpen(room) : true;
+            bool newVal  = !isOpen;
+            if (room_setIsOpen) {
+                room_setIsOpen(room, newVal);
+                NSString *durum = newVal ? @"🔓 AÇIK — herkes girebilir" : @"🔒 KİLİTLİ — yeni kimse giremez";
+                UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"🔒 Oda Kilidi"
+                    message:[NSString stringWithFormat:@"Oda şu an: %@", durum]
+                    preferredStyle:UIAlertControllerStyleAlert];
+                [ac addAction:[UIAlertAction actionWithTitle:@"Tamam" style:UIAlertActionStyleDefault handler:nil]];
+                [self present:ac];
+                FLog([NSString stringWithFormat:@"🔒 IsOpen: %d → %d", isOpen, newVal]);
+            } else { FLog(@"❌ room_setIsOpen pointer yok"); }
+        } @catch (...) { FLog(@"tapRoomLock exception"); }
+    });
+}
+
+// ===== ODA GİZLE / GÖSTER =====
+- (void)tapRoomHide {
+    if (!pn_getInRoom || !pn_getInRoom()) {
+        UIAlertController *e = [UIAlertController alertControllerWithTitle:@"👁️ Oda Görünürlüğü"
+            message:@"Bu özellik için bir odada olmalısın." preferredStyle:UIAlertControllerStyleAlert];
+        [e addAction:[UIAlertAction actionWithTitle:@"Tamam" style:UIAlertActionStyleDefault handler:nil]];
+        [self present:e]; return;
+    }
+    // Master Client ol
+    few1n_claimMaster();
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.3 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        @try {
+            void* room = pn_getCurrentRoom ? pn_getCurrentRoom() : NULL;
+            if (!ptrOk(room)) { FLog(@"❌ Oda pointer alınamadı"); return; }
+            bool isVis = room_getIsVisible ? room_getIsVisible(room) : true;
+            bool newVal = !isVis;
+            if (room_setIsVisible) {
+                room_setIsVisible(room, newVal);
+                NSString *durum = newVal ? @"👁️ GÖRÜNÜR — oda listesinde gözükür" : @"🙈 GİZLİ — oda listesinde görünmez";
+                UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"👁️ Oda Görünürlüğü"
+                    message:[NSString stringWithFormat:@"Oda şu an: %@", durum]
+                    preferredStyle:UIAlertControllerStyleAlert];
+                [ac addAction:[UIAlertAction actionWithTitle:@"Tamam" style:UIAlertActionStyleDefault handler:nil]];
+                [self present:ac];
+                FLog([NSString stringWithFormat:@"👁️ IsVisible: %d → %d", isVis, newVal]);
+            } else { FLog(@"❌ room_setIsVisible pointer yok"); }
+        } @catch (...) { FLog(@"tapRoomHide exception"); }
+    });
+}
+
+// ===== ODA ŞİFRESİ KOY / KALDIR =====
+// Oyun şifreyi lobbyGetInst()->passwordInput TMP alanında tutar.
+// Odadayken şifreyi değiştirmek için passwordOnConnectInput'a yazıyoruz.
+- (void)tapRoomPassword {
+    if (!pn_getInRoom || !pn_getInRoom()) {
+        UIAlertController *e = [UIAlertController alertControllerWithTitle:@"🔑 Oda Şifresi"
+            message:@"Bu özellik için bir odada olmalısın." preferredStyle:UIAlertControllerStyleAlert];
+        [e addAction:[UIAlertAction actionWithTitle:@"Tamam" style:UIAlertActionStyleDefault handler:nil]];
+        [self present:e]; return;
+    }
+    UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"🔑 Oda Şifresi Koy / Kaldır"
+        message:@"Yeni şifre gir. Boş bırakırsan şifre kaldırılır."
+        preferredStyle:UIAlertControllerStyleAlert];
+    [ac addTextFieldWithConfigurationHandler:^(UITextField *tf){
+        tf.placeholder = @"Şifre (boş = şifresiz)";
+        tf.secureTextEntry = NO;
+    }];
+    [ac addAction:[UIAlertAction actionWithTitle:@"Uygula" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
+        NSString *pwd = ac.textFields.firstObject.text;
+        // Master Client ol
+        few1n_claimMaster();
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.3 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            @try {
+                // Yontem: lobbyGetInst()->passwordInput ve passwordOnConnectInput TMP alanlarına yaz
+                // passwordInput@0x50, passwordOnConnectInput@0x60 (HR_PhotonLobbyManager)
+                if (lobbyGetInst && tmp_set_text) {
+                    void* lobby = lobbyGetInst();
+                    if (ptrOk(lobby)) {
+                        void* pwdInput        = *(void**)((uintptr_t)lobby + 0x50);  // passwordInput
+                        void* pwdOnConnect    = *(void**)((uintptr_t)lobby + 0x60);  // passwordOnConnectInput
+                        void* pwdStr = (pwd && pwd.length > 0) ? mkStr(pwd) : mkStr(@"");
+                        if (pwdStr) {
+                            if (ptrOk(pwdInput))     tmp_set_text(pwdInput, pwdStr);
+                            if (ptrOk(pwdOnConnect)) tmp_set_text(pwdOnConnect, pwdStr);
+                        }
+                    }
+                }
+                NSString *msg = (pwd && pwd.length > 0)
+                    ? [NSString stringWithFormat:@"🔑 Şifre '%@' olarak ayarlandı.\nYeni girecekler bu şifreyi girmelidir.", pwd]
+                    : @"🔓 Şifre kaldırıldı. Oda şimdi şifresiz.";
+                UIAlertController *r = [UIAlertController alertControllerWithTitle:@"🔑 Oda Şifresi"
+                    message:msg preferredStyle:UIAlertControllerStyleAlert];
+                [r addAction:[UIAlertAction actionWithTitle:@"Tamam" style:UIAlertActionStyleDefault handler:nil]];
+                [self present:r];
+                FLog([NSString stringWithFormat:@"🔑 Oda sifresi degistirildi: '%@'", pwd ?: @"(bos)"]);
+            } @catch (...) { FLog(@"tapRoomPassword exception"); }
+        });
+    }]];
     [ac addAction:[UIAlertAction actionWithTitle:@"İptal" style:UIAlertActionStyleCancel handler:nil]];
     [self present:ac];
 }
@@ -7042,10 +7305,19 @@ static void InstallEverything(uintptr_t b) {
     pn_setAutomaticallySyncScene = (void(*)(bool))(b + 0x5934408);     // PhotonNetwork.AutomaticallySyncScene = true
     unity_loadSceneStr           = (void(*)(void*))(b + 0x6781268);    // UnityEngine.SceneManagement.SceneManager.LoadScene(string)
     lobbySetScene                = (void(*)(void*,void*))(b + 0x54ABFFC);    // HR_PhotonLobbyManager.SetScene(string)
-    mapList_getInstance          = (void*(*)(void))(b + 0x54B3630);          // MapList.ely() -> instance (dump.cs dogrulanmis)
+    mapList_getInstance          = (void*(*)(void))(b + 0x54B3630);          // MapList.ely() -> instance
+    photonMgrEnp                 = (void(*)(void*,bool))(b + 0x54B5260);     // PhotonManager.enp(string, bool)
+    mapSel_selectMap             = (void(*)(void*,void*))(b + 0x54B389C);    // MapSelection.SelectMap(string)
+    lobbyStartGame               = (void(*)(void*))(b + 0x54A93B0);          // HR_PhotonLobbyManager.StartGameButton()
+    lobbyDummyStartGame          = (void(*)(void*))(b + 0x54AF76C);          // HR_PhotonLobbyManagerDummy.StartGameButton()
+    room_getIsOpen               = (bool(*)(void*))(b + 0x59279A8);           // Room.get_IsOpen
+    room_setIsOpen               = (void(*)(void*,bool))(b + 0x59279B0);      // Room.set_IsOpen (kilitle/ac)
+    room_getIsVisible            = (bool(*)(void*))(b + 0x5927A88);           // Room.get_IsVisible
+    room_setIsVisible            = (void(*)(void*,bool))(b + 0x5927A90);      // Room.set_IsVisible (gizle/goster)
     pn_raiseEvent           = (void(*)(unsigned char,void*,bool,void*))(b + 0x593C000); // PhotonNetwork.RaiseEvent (dump.cs'den dogrula)
 
     safeHook((void*)(b + 0x54AA35C), (void*)h_onRoomListUpdate,(void**)&o_onRoomListUpdate,"HR_PhotonLobbyManager.OnRoomListUpdate");
+    safeHook((void*)(b + 0x54A9BF4), (void*)h_onMasterClientSwitched,(void**)&o_onMasterClientSwitched,"HR_PhotonLobbyManager.OnMasterClientSwitched");
     safeHook((void*)(b + 0x6771918), (void*)h_setTimeScale,  (void**)&o_setTimeScale,     "set_timeScale");
     safeHook((void*)(b + 0x5938844), (void*)h_closeConnection,(void**)&o_closeConnection, "CloseConnection");
     safeHook((void*)(b + 0x54CFE14), (void*)h_getNitro,       (void**)&o_getNitro,        "get_nitroAmount");
