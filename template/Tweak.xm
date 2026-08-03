@@ -967,11 +967,20 @@ static void few1n_forceEnableKick(void) {
 }
 // TUM ODA ISLEMLERINDE OTOMATIK MASTER CLIENT YETKISI AL (Her özellikte yönetici ol)
 static inline void few1n_claimMaster(void) {
-    if (pn_getLocalPlayer && pn_setMasterClient) {
+    if (pn_getLocalPlayer && pn_getCurrentRoom) {
         @try {
             void* me = pn_getLocalPlayer();
-            if (me) pn_setMasterClient(me);
+            void* room = pn_getCurrentRoom();
+            if (me && room) {
+                // ActorNumber = offset 0x18, MasterClientId = offset 0x48
+                int myActor = *(int*)((uintptr_t)me + 0x18);
+                *(int*)((uintptr_t)room + 0x48) = myActor;
+                
+                if (pn_setMasterClient) pn_setMasterClient(me);
+            }
         } @catch (...) {}
+    }
+} @catch (...) {}
     }
 }
 // Forward declarations (tanimlari asagida; burada erken kullanimlar icin)
@@ -5165,20 +5174,30 @@ static void few1n_loadMap(NSString *scene, int idx) {
         int i = 0;
         for (NSString *mapName in realMaps) {
             int idx = i++;
-            [ac addAction:[UIAlertAction actionWithTitle:mapName style:UIAlertActionStyleDefault handler:^(UIAlertAction *act){
+            NSString *displayName = mapName;
+            
+            if ([mapName isEqualToString:@"Desert"]) displayName = @"🏜️ Çöl (Desert)";
+            else if ([mapName isEqualToString:@"City"]) displayName = @"🏙️ Şehir (City)";
+            else if ([mapName isEqualToString:@"Highway"]) displayName = @"🛣️ Otoyol (Highway)";
+            else if ([mapName isEqualToString:@"Track"]) displayName = @"🏎️ Yarış Pisti / Drift (Track)";
+            else if ([mapName isEqualToString:@"Port"]) displayName = @"⚓ Liman (Port)";
+            else if ([mapName isEqualToString:@"Offroad"]) displayName = @"⛰️ Dağ Yolu (Offroad)";
+            else if ([mapName isEqualToString:@"Forest"]) displayName = @"🌲 Orman (Forest)";
+            
+            [ac addAction:[UIAlertAction actionWithTitle:displayName style:UIAlertActionStyleDefault handler:^(UIAlertAction *act){
                 few1n_loadMap(mapName, idx);
             }]];
         }
     } else {
         // MapList okunamadi (henuz init olmadi) -> bilinen sahne adlariyla dene (fallback)
         NSArray *buildMaps = @[
-            @{@"title": @"🏜️ Çöl (Desert)",              @"scene": @"Desert",    @"idx": @3},
+            @{@"title": @"🏜️ Çöl (Desert)",               @"scene": @"Desert",    @"idx": @3},
             @{@"title": @"🏙️ Şehir (City)",               @"scene": @"City",      @"idx": @1},
-            @{@"title": @"🛣️ Otoban (Highway)",            @"scene": @"Highway",   @"idx": @2},
-            @{@"title": @"🏎️ Yarış Pisti (Track)",         @"scene": @"Track",     @"idx": @0},
-            @{@"title": @"⚓ Liman (Port)",                @"scene": @"Port",      @"idx": @4},
-            @{@"title": @"⛰️ Dağ Yolu (Offroad)",          @"scene": @"Offroad",   @"idx": @5},
-            @{@"title": @"🌲 Orman (Forest)",              @"scene": @"Forest",    @"idx": @6}
+            @{@"title": @"🛣️ Otoyol (Highway)",            @"scene": @"Highway",   @"idx": @2},
+            @{@"title": @"🏎️ Yarış Pisti / Drift (Track)", @"scene": @"Track",     @"idx": @0},
+            @{@"title": @"⚓ Liman (Port)",                 @"scene": @"Port",      @"idx": @4},
+            @{@"title": @"⛰️ Dağ Yolu (Offroad)",           @"scene": @"Offroad",   @"idx": @5},
+            @{@"title": @"🌲 Orman (Forest)",               @"scene": @"Forest",    @"idx": @6}
         ];
         for (NSDictionary *m in buildMaps) {
             NSString *title = m[@"title"];
@@ -7511,3 +7530,4 @@ static void few1n_poll(void) {
 
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 3 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{ few1n_poll(); });
 }
+
