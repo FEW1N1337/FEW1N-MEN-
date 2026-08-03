@@ -883,9 +883,8 @@ static void* (*pn_getNickName)(void) = NULL;                   // PhotonNetwork.
 static bool  (*pn_leaveRoom)(bool) = NULL;                     // PhotonNetwork.LeaveRoom 0x593B2D8 (goz at cikis)
 static bool  (*pn_setMasterClient)(void* player) = NULL;       // PhotonNetwork.SetMasterClient
 static bool  (*room_getIsOpen)(void*) = NULL;                  // Room.get_IsOpen 0x59279A8
-static void  (*room_setIsOpen)(void*, bool) = NULL;            // Room.set_IsOpen 0x59279B0
 static bool  (*room_getIsVisible)(void*) = NULL;               // Room.get_IsVisible 0x5927A88
-static void  (*room_setIsVisible)(void*, bool) = NULL;         // Room.set_IsVisible 0x5927A90
+// NOT: room_setIsOpen ve room_setIsVisible yukarida (874-875) tanimli — burada tekrar tanimlama.
 static bool  (*pn_loadLevelStr)(void* name) = NULL;             // PhotonNetwork.LoadLevel(string) 0x5941D94
 static bool  (*pn_loadLevelInt)(int index) = NULL;              // PhotonNetwork.LoadLevel(int) 0x5941B64
 static void  (*hrMainStartRace)(void* self) = NULL;              // HR_MainMenuHandler.StartRace() 0x549130C
