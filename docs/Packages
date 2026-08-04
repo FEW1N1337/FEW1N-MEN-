@@ -4,11 +4,27 @@ Architecture: iphoneos-arm64
 Maintainer: few1n
 Installed-Size: 520
 Depends: mobilesubstrate, firmware (>= 14.0)
+Filename: debs/FEW1NMod_76.0_258.deb
+Size: 142886
+MD5sum: 8d1fe97d24b43f8b24b67c0628edd82b
+SHA1: c05d2b43f58c23a460ea7213f34823a288a2f283
+SHA256: e41020760002e897b810675434946d0be2cf6bb02b759f2115d9efb76f78cf51
+Section: Tweaks
+Description: FEW1N Mod Menu v76.0 - Gelismis Ozel Oda (31 Kisi, Ozel Harita Etiketi, Canli Harita & Isim Degistirme, TMPro Short Hex Renkler, Polis Cakar/Siren, Pop&Bangs, Kesici Ses Modu, Otomatik Korna, Canli Reklam Bozucu)
+Author: few1n
+Name: FEW1N Mod Menu
+
+Package: com.few1n.dreamroadmod
+Version: 76.0
+Architecture: iphoneos-arm64
+Maintainer: few1n
+Installed-Size: 520
+Depends: mobilesubstrate, firmware (>= 14.0)
 Filename: debs/FEW1NMod_latest.deb
-Size: 143418
-MD5sum: 6097ef36425d8cf5e5c2c4371010296d
-SHA1: db467838c7d99181e93674b87c3855de7a070a36
-SHA256: 4e669cf3b0791d7dca90d15461992ca2aff9ed1c28436315c167136bfd87df21
+Size: 142886
+MD5sum: 8d1fe97d24b43f8b24b67c0628edd82b
+SHA1: c05d2b43f58c23a460ea7213f34823a288a2f283
+SHA256: e41020760002e897b810675434946d0be2cf6bb02b759f2115d9efb76f78cf51
 Section: Tweaks
 Description: FEW1N Mod Menu v76.0 - Gelismis Ozel Oda (31 Kisi, Ozel Harita Etiketi, Canli Harita & Isim Degistirme, TMPro Short Hex Renkler, Polis Cakar/Siren, Pop&Bangs, Kesici Ses Modu, Otomatik Korna, Canli Reklam Bozucu)
 Author: few1n
