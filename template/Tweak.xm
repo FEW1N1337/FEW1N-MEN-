@@ -12,7 +12,7 @@
 #import <objc/runtime.h>
 
 // ============================================================
-//  v78.0 - FEW1N MOD MENU  (derlenir, hatasiz - bu dosyayi kullan)
+//  v79.0 - FEW1N MOD MENU  (derlenir, hatasiz - bu dosyayi kullan)
 //  DUZELTME: rainbowWrap forward-decl (tanim sirasi), decl-order taramasi temiz, autogreet poll optimize.
 //  Ozellikler: GERCEK Kick (liste/isim), Ucus D-pad, Emoji sprite+test, Otomatik Karsilama, Normal Oda 31
 //  DreamRoadMultiplayer | Unity 6 (6000.3.0b1) | Metadata v39
@@ -2465,7 +2465,7 @@ static UIViewController* few1n_topVC(void) {
     title.font = [UIFont systemFontOfSize:17 weight:UIFontWeightBlack];
     [header addSubview:title];
     UILabel *ver = [[UILabel alloc] initWithFrame:CGRectMake(42,37,pw-90,16)];
-    ver.text = [NSString stringWithFormat:@"v78.0  •  Base 0x%lX", (unsigned long)global_base];
+    ver.text = [NSString stringWithFormat:@"v79.0  •  Base 0x%lX", (unsigned long)global_base];
     ver.textColor = [UIColor colorWithWhite:1 alpha:0.82];
     ver.font = [UIFont fontWithName:@"Menlo-Bold" size:8] ?: [UIFont systemFontOfSize:8 weight:UIFontWeightBold];
     [header addSubview:ver];
@@ -5499,30 +5499,48 @@ static void few1n_startCarCloneAttempt(NSString *scene) {
         int i = 0;
         for (NSString *mapName in realMaps) {
             int idx = i++;
-            NSString *displayName = mapName;
-            
-            if ([mapName isEqualToString:@"Desert"]) displayName = @"🏜️ Çöl (Desert)";
-            else if ([mapName isEqualToString:@"City"]) displayName = @"🏙️ Şehir (City)";
-            else if ([mapName isEqualToString:@"Highway"]) displayName = @"🛣️ Otoyol (Highway)";
-            else if ([mapName isEqualToString:@"Track"]) displayName = @"🏎️ Yarış Pisti / Drift (Track)";
-            else if ([mapName isEqualToString:@"Port"]) displayName = @"⚓ Liman (Port)";
-            else if ([mapName isEqualToString:@"Offroad"]) displayName = @"⛰️ Dağ Yolu (Offroad)";
-            else if ([mapName isEqualToString:@"Forest"]) displayName = @"🌲 Orman (Forest)";
-            
-            [ac addAction:[UIAlertAction actionWithTitle:displayName style:UIAlertActionStyleDefault handler:^(UIAlertAction *act){
+            NSString *lower = mapName.lowercaseString;
+            NSString *displayName;
+
+            // Genis TR eslesme — icerik icerik yakalar (Desert, Desert_v2, DesertRace hepsi calisir)
+            if      ([lower containsString:@"desert"])   displayName = @"🏜️ ÇÖL";
+            else if ([lower containsString:@"night"] && [lower containsString:@"city"]) displayName = @"🌙 GECE ŞEHRİ";
+            else if ([lower containsString:@"city"])     displayName = @"🏙️ ŞEHİR";
+            else if ([lower containsString:@"highway"])  displayName = @"🛣️ OTOYOL";
+            else if ([lower containsString:@"autobahn"]) displayName = @"🛣️ OTOYOL (Autobahn)";
+            else if ([lower containsString:@"drift"])    displayName = @"🌀 DRİFT PİSTİ";
+            else if ([lower containsString:@"track"])    displayName = @"🏎️ YARIŞ PİSTİ";
+            else if ([lower containsString:@"race"])     displayName = @"🏁 YARIŞ";
+            else if ([lower containsString:@"port"])     displayName = @"⚓ LİMAN";
+            else if ([lower containsString:@"harbor"])   displayName = @"⚓ LİMAN (Harbor)";
+            else if ([lower containsString:@"offroad"])  displayName = @"⛰️ ARAZI / DAĞ YOLU";
+            else if ([lower containsString:@"mountain"]) displayName = @"⛰️ DAĞ";
+            else if ([lower containsString:@"forest"])   displayName = @"🌲 ORMAN";
+            else if ([lower containsString:@"snow"])     displayName = @"❄️ KAR";
+            else if ([lower containsString:@"winter"])   displayName = @"❄️ KIŞ";
+            else if ([lower containsString:@"beach"])    displayName = @"🏖️ PLAJ";
+            else if ([lower containsString:@"garage"])   displayName = @"🔧 GARAJ";
+            else if ([lower containsString:@"lobby"] || [lower containsString:@"menu"]) displayName = @"🏠 MENÜ/LOBI";
+            else                                          displayName = [NSString stringWithFormat:@"❓ %@", mapName];
+
+            // Ingilizce ad'i parantez icinde ek — kullanici hangisi oldugunu tam gorsun
+            NSString *fullDisplay = [NSString stringWithFormat:@"%@   (%@)", displayName, mapName];
+
+            [ac addAction:[UIAlertAction actionWithTitle:fullDisplay style:UIAlertActionStyleDefault handler:^(UIAlertAction *act){
                 few1n_loadMap(mapName, idx);
             }]];
         }
     } else {
         // MapList okunamadi (henuz init olmadi) -> bilinen sahne adlariyla dene (fallback)
         NSArray *buildMaps = @[
-            @{@"title": @"🏜️ Çöl (Desert)",               @"scene": @"Desert",    @"idx": @3},
-            @{@"title": @"🏙️ Şehir (City)",               @"scene": @"City",      @"idx": @1},
-            @{@"title": @"🛣️ Otoyol (Highway)",            @"scene": @"Highway",   @"idx": @2},
-            @{@"title": @"🏎️ Yarış Pisti / Drift (Track)", @"scene": @"Track",     @"idx": @0},
-            @{@"title": @"⚓ Liman (Port)",                 @"scene": @"Port",      @"idx": @4},
-            @{@"title": @"⛰️ Dağ Yolu (Offroad)",           @"scene": @"Offroad",   @"idx": @5},
-            @{@"title": @"🌲 Orman (Forest)",               @"scene": @"Forest",    @"idx": @6}
+            @{@"title": @"🏜️ ÇÖL   (Desert)",                @"scene": @"Desert",    @"idx": @3},
+            @{@"title": @"🏙️ ŞEHİR   (City)",                @"scene": @"City",      @"idx": @1},
+            @{@"title": @"🛣️ OTOYOL   (Highway)",            @"scene": @"Highway",   @"idx": @2},
+            @{@"title": @"🏎️ YARIŞ PİSTİ   (Track)",         @"scene": @"Track",     @"idx": @0},
+            @{@"title": @"⚓ LİMAN   (Port)",                 @"scene": @"Port",      @"idx": @4},
+            @{@"title": @"⛰️ ARAZI / DAĞ YOLU   (Offroad)",   @"scene": @"Offroad",   @"idx": @5},
+            @{@"title": @"🌲 ORMAN   (Forest)",               @"scene": @"Forest",    @"idx": @6},
+            @{@"title": @"🌙 GECE ŞEHRİ   (City Night)",      @"scene": @"City Night",@"idx": @7},
         ];
         for (NSDictionary *m in buildMaps) {
             NSString *title = m[@"title"];
@@ -7722,7 +7740,7 @@ static void few1n_poll(void) {
 }
 
 %ctor {
-    FLog(@"v78.0 basladi, UnityFramework araniyor...");
+    FLog(@"v79.0 basladi, UnityFramework araniyor...");
     restoreSettings();
 
     // ===== REKLAM BOZUCU: TUM reklam SDK'larini engelle (Obj-C runtime swizzle) =====
