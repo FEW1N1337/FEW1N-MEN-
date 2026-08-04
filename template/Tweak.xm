@@ -12,7 +12,7 @@
 #import <objc/runtime.h>
 
 // ============================================================
-//  v76.0 - FEW1N MOD MENU  (derlenir, hatasiz - bu dosyayi kullan)
+//  v77.0 - FEW1N MOD MENU  (derlenir, hatasiz - bu dosyayi kullan)
 //  DUZELTME: rainbowWrap forward-decl (tanim sirasi), decl-order taramasi temiz, autogreet poll optimize.
 //  Ozellikler: GERCEK Kick (liste/isim), Ucus D-pad, Emoji sprite+test, Otomatik Karsilama, Normal Oda 31
 //  DreamRoadMultiplayer | Unity 6 (6000.3.0b1) | Metadata v39
@@ -2464,7 +2464,7 @@ static UIViewController* few1n_topVC(void) {
     title.font = [UIFont systemFontOfSize:17 weight:UIFontWeightBlack];
     [header addSubview:title];
     UILabel *ver = [[UILabel alloc] initWithFrame:CGRectMake(42,37,pw-90,16)];
-    ver.text = [NSString stringWithFormat:@"v76.0  •  Base 0x%lX", (unsigned long)global_base];
+    ver.text = [NSString stringWithFormat:@"v77.0  •  Base 0x%lX", (unsigned long)global_base];
     ver.textColor = [UIColor colorWithWhite:1 alpha:0.82];
     ver.font = [UIFont fontWithName:@"Menlo-Bold" size:8] ?: [UIFont systemFontOfSize:8 weight:UIFontWeightBold];
     [header addSubview:ver];
@@ -2656,15 +2656,7 @@ static UIViewController* few1n_topVC(void) {
     y = [self actionRow:@"🔒  Odayı Kilitle/Aç (IsOpen)" color:C_ON atY:y action:@selector(tapRoomLock)];
     y = [self actionRow:@"👻  Görünmez/Görünür (IsVisible)" color:C_ON atY:y action:@selector(tapRoomHide)];
     y = [self actionRow:@"🔑  Oda Şifresi Belirle" color:C_ON atY:y action:@selector(tapRoomPassword)];
-    y = [self actionRow:@"🗺  HARITA Değiştir (oyunun MapList'i - hepsini dener)" color:C_ON atY:y action:@selector(changeMapInRoom)];
-    y = [self actionRow:@"  ↳ Yöntem 1: MapSelection.SelectMap + StartGame" color:C_CYAN atY:y action:@selector(mapMethod1)];
-    y = [self actionRow:@"  ↳ Yöntem 2: PhotonManager.enp" color:C_CYAN atY:y action:@selector(mapMethod2)];
-    y = [self actionRow:@"  ↳ Yöntem 3: HR_PhotonLobbyManager.SetScene" color:C_CYAN atY:y action:@selector(mapMethod3)];
-    y = [self actionRow:@"  ↳ Yöntem 4: PhotonNetwork.LoadLevel(isim)" color:C_CYAN atY:y action:@selector(mapMethod4)];
-    y = [self actionRow:@"  ↳ Yöntem 5: PhotonNetwork.LoadLevel(sayı)" color:C_CYAN atY:y action:@selector(mapMethod5)];
-    y = [self actionRow:@"  ↳ Yöntem 6: HR_MainMenuHandler.StartRace()" color:C_CYAN atY:y action:@selector(mapMethod6)];
-    y = [self actionRow:@"  ↳ Yöntem 7: Unity SceneManager.LoadScene (yerel)" color:C_SUB atY:y action:@selector(mapMethod7)];
-    y = [self actionRow:@"  ↳ Yöntem 8: Unity SceneManager.LoadScene int (yerel)" color:C_SUB atY:y action:@selector(mapMethod8)];
+    // v77: Karmasik Y1-Y8 zinciri kaldirildi — tek stabil buton (v70.0_233 yaklasimi)
     {
         UIView *rmrow = [[UIView alloc] initWithFrame:CGRectMake(12,y,pw-24,44)];
         rmrow.backgroundColor = C_CARD; rmrow.layer.cornerRadius = 12;
@@ -2687,8 +2679,7 @@ static UIViewController* few1n_topVC(void) {
     y = [self toggle:@"🤖  Otomatik Master" sub:@"Master gidince aninda geri al" key:@"automaster" atY:y action:@selector(tapAutoMaster)];
     y = [self actionRow:@"⏱️  Oyun Hızı (TimeScale)" color:C_CYAN atY:y action:@selector(tapGameSpeed)];
     y = [self actionRow:@"👥  Fake Çevrimici Sayısı (Lobi Görseli)" color:C_CYAN atY:y action:@selector(tapFakeOnline)];
-    y = [self actionRow:@"🗺️  Odadayken Harita Değiştir (Anlık Canlı)" color:C_ON atY:y action:@selector(changeMapInRoom)];
-    y = [self actionRow:@"🕐  v70 KLASIK Harita Yontemi (master claim YOK)" color:C_GOLD atY:y action:@selector(changeMapV70Classic)];
+    y = [self actionRow:@"🗺️  Odadayken Harita Değiştir (v233 minimal + master zorla)" color:C_ON atY:y action:@selector(changeMapInRoom)];
     y = [self actionRow:@"🌤️  Hava Durumu & Zaman Seç (Aktarmasız Canlı)" color:C_ON atY:y action:@selector(changeWeatherOnly)];
     y = [self actionRow:@"✏️  Odadayken Oda İsmini Değiştir (Anlık Canlı)" color:C_GOLD atY:y action:@selector(changeRoomNameInRoom)];
     y = [self actionRow:@"🏷️  Harita Metnini Değiştir (Kişi Sayısı Yanı - ADMIN vb.)" color:C_GOLD atY:y action:@selector(changeCustomMapLabel)];
@@ -5159,128 +5150,60 @@ static NSArray<NSString*>* few1n_readMapNames(void) {
     return names;
 }
 
+// ===== v233 MINIMAL YAKLASIM =====
+// v70.0_233'te kismen calisan strateji: master claim + tek fonksiyon. Zincir/fallback yok.
+// Master alma sırası CAS icin dogru: SetMasterClient ONCE + memory patch SONRA (few1n_claimMaster halihazirda dogru sırada).
 static void few1n_loadMap(NSString *scene, int idx) {
-    // 1) Master Client ol - harita sadece master'dan degistirilebilir
+    (void)idx;
+    if (!scene || scene.length == 0) { FLog(@"[MAP] scene bos"); return; }
+
+    // 1) Master ol (few1n_claimMaster asyn degil, anında memory patch + SetMasterClient gonderir)
     few1n_claimMaster();
+    NSString *sceneCopy = [scene copy];
 
-    // 2) Gecikme: MasterClient claim propagation icin sunucudan onay bekle (1.2s daha guvenli)
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.2 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+    // 2) Master onayi icin kisa bekle, sonra photonMgrEnp cagir (v233 tarzı — tek fonksiyon)
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.8 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
         @try {
-            // Master gercekten alindi mi? Alinamadiysa harita degismez, kullaniciyi uyar
             bool amMaster = false;
-            @try {
-                if (pn_getLocalPlayer && ply_getIsMaster) {
-                    void* me = pn_getLocalPlayer();
-                    if (me) amMaster = ply_getIsMaster(me);
-                }
-            } @catch (...) {}
-            if (!amMaster) {
-                FLog(@"⚠️ Master alinamadi — harita degistirme yine de deneniyor (sunucu reddedebilir)");
-            } else {
-                FLog(@"👑 Master onaylandi, harita gonderiliyor...");
+            if (pn_getLocalPlayer && ply_getIsMaster) {
+                void* me = pn_getLocalPlayer();
+                if (me) amMaster = ply_getIsMaster(me);
             }
+            if (!amMaster) FLog(@"⚠️ Master gorunmuyorum — yine de deneniyor");
 
-            bool loaded = false;
-
-            // ===== YONTEM 1: Oyunun TAM AKISI =====
-            // MapSelection.SelectMap(scene) -> StartGameButton()
-            // NOT: Void doner. 1.5s icinde sahne degismezse Y2/Y3/Y4/Y5 sirayla otomatik denenir.
-            NSString *sceneCopy = [scene copy];
-            int idxCopy = idx;
-            if (!loaded && amMaster && mapSel_selectMap && lobbyStartGame && lobbyGetInst && scene && scene.length > 0) {
-                void* lobby = lobbyGetInst();
-                if (ptrOk(lobby)) {
-                    void* mapSel = *(void**)((uintptr_t)lobby + 0x28);
-                    if (ptrOk(mapSel)) {
-                        @try {
-                            void* s = mkStr(scene);
-                            if (s) {
-                                mapSel_selectMap(mapSel, s);
-                                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.15 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-                                    @try { lobbyStartGame(lobby); } @catch (...) {}
-                                });
-                                FLog([NSString stringWithFormat:@"🗺️ [Y1] MapSel+StartGame gonderildi ('%@')", scene]);
-                                // 1.5s sonra sahne degismediyse fallback zincirini calistir
-                                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-                                    NSString *cur = (pn_getActiveSceneName) ? readStr(pn_getActiveSceneName()) : @"?";
-                                    if (cur && [cur.lowercaseString containsString:sceneCopy.lowercaseString]) {
-                                        FLog(@"✅ [Y1] Sahne degisti — basarili"); return;
-                                    }
-                                    FLog([NSString stringWithFormat:@"⚠️ [Y1] Sahne hala '%@' — Y3'e geciliyor", cur]);
-                                    // Y3: SetScene
-                                    if (lobbySetScene && lobbyGetInst) {
-                                        void* lb = lobbyGetInst();
-                                        if (ptrOk(lb)) { void* ss = mkStr(sceneCopy); if (ss) { lobbySetScene(lb, ss); FLog(@"🔁 [Y3] SetScene tetiklendi"); } }
-                                    }
-                                    // Y2: PhotonManager.enp (0.8s sonra)
-                                    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.8 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-                                        NSString *c2 = (pn_getActiveSceneName) ? readStr(pn_getActiveSceneName()) : @"?";
-                                        if (c2 && [c2.lowercaseString containsString:sceneCopy.lowercaseString]) { FLog(@"✅ [Y3] basarili"); return; }
-                                        if (photonMgrEnp) { void* ss = mkStr(sceneCopy); if (ss) { photonMgrEnp(ss, false); FLog(@"🔁 [Y2] enp tetiklendi"); } }
-                                        // Y4: LoadLevel(string) — SON DENEME (Y5/Y6 kaldirildi: lobiye atiyorlar)
-                                        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.8 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-                                            NSString *c3 = (pn_getActiveSceneName) ? readStr(pn_getActiveSceneName()) : @"?";
-                                            if (c3 && [c3.lowercaseString containsString:sceneCopy.lowercaseString]) { FLog(@"✅ [Y2] basarili"); return; }
-                                            if (pn_loadLevelStr) { void* ss = mkStr(sceneCopy); if (ss) { pn_loadLevelStr(ss); FLog(@"🔁 [Y4] LoadLevel(str) tetiklendi"); } }
-                                            // Y5/Y6 icin son kontrol — cagirmiyoruz, sadece log
-                                            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.2 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-                                                NSString *c4 = (pn_getActiveSceneName) ? readStr(pn_getActiveSceneName()) : @"?";
-                                                if (c4 && [c4.lowercaseString containsString:sceneCopy.lowercaseString]) { FLog(@"✅ [Y4] basarili"); return; }
-                                                FLog(@"❌ Y1/Y3/Y2/Y4 hepsi basarisiz — muhtemelen master alinamadi. Sen master iken oda ac ve tekrar dene.");
-                                            });
-                                        });
-                                    });
-                                });
-                                loaded = true;
-                            }
-                        } @catch (...) { FLog(@"MapSel/StartGame exception"); }
-                    }
-                }
-            }
-
-            // ===== YONTEM 2: PhotonManager.enp (statik - oyun icinde her zaman erisebilir) =====
-            if (!loaded && photonMgrEnp && scene && scene.length > 0) {
-                void* s = mkStr(scene);
+            // ANA CAGRI: PhotonManager.enp (static, oyun icinde her yerden erisilebilir, en stabil)
+            if (photonMgrEnp) {
+                void* s = mkStr(sceneCopy);
                 if (s) {
                     photonMgrEnp(s, false);
-                    loaded = true;
-                    FLog([NSString stringWithFormat:@"🗺️ PhotonManager.enp('%@') -> herkese harita yukleniyor", scene]);
+                    FLog([NSString stringWithFormat:@"🗺️ [v233] PhotonManager.enp('%@') gonderildi", sceneCopy]);
                 }
+            } else {
+                FLog(@"❌ photonMgrEnp NULL — offset yenilenmeli");
+                return;
             }
 
-            // ===== YONTEM 3: Lobby.SetScene (lobi aktifken) =====
-            if (!loaded && lobbySetScene && lobbyGetInst && scene && scene.length > 0) {
-                void* lobby = lobbyGetInst();
-                if (ptrOk(lobby)) {
-                    void* s = mkStr(scene);
-                    if (s) {
-                        lobbySetScene(lobby, s);
-                        loaded = true;
-                        FLog([NSString stringWithFormat:@"🗺️ Lobby.SetScene('%@') -> herkese harita yukleniyor", scene]);
+            // 3) 1.5s sonra sahne degismisse basarili, degilse LoadLevel string fallback (tek kez)
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                NSString *cur = (pn_getActiveSceneName) ? readStr(pn_getActiveSceneName()) : @"?";
+                if (cur && [cur.lowercaseString containsString:sceneCopy.lowercaseString]) {
+                    FLog(@"✅ [v233] Sahne degisti — basarili"); return;
+                }
+                FLog([NSString stringWithFormat:@"⚠️ Sahne hala '%@' — LoadLevel fallback deneniyor", cur]);
+                if (pn_loadLevelStr) {
+                    void* s2 = mkStr(sceneCopy);
+                    if (s2) { pn_loadLevelStr(s2); FLog(@"🔁 [v233] LoadLevel(str) fallback tetiklendi"); }
+                }
+                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                    NSString *c2 = (pn_getActiveSceneName) ? readStr(pn_getActiveSceneName()) : @"?";
+                    if (c2 && [c2.lowercaseString containsString:sceneCopy.lowercaseString]) {
+                        FLog(@"✅ [v233] Sahne degisti (LoadLevel ile) — basarili");
+                    } else {
+                        FLog(@"❌ Sahne degismedi — sen master degil misin? Onceden 'Oda Master Ol' butonuna bas, sonra tekrar dene.");
                     }
-                }
-            }
-
-            // ===== YONTEM 4: PhotonNetwork.LoadLevel(string) direkt =====
-            if (!loaded && pn_loadLevelStr && scene && scene.length > 0) {
-                void* s = mkStr(scene);
-                if (s) {
-                    pn_loadLevelStr(s);
-                    loaded = true;
-                    FLog([NSString stringWithFormat:@"🗺️ LoadLevel('%@') -> harita yukleniyor", scene]);
-                }
-            }
-
-            // ===== YONTEM 5: PhotonNetwork.LoadLevel(int) =====
-            if (!loaded && pn_loadLevelInt && idx >= 0) {
-                pn_loadLevelInt(idx);
-                loaded = true;
-                FLog([NSString stringWithFormat:@"🗺️ LoadLevel(%d) -> harita yukleniyor", idx]);
-            }
-
-            if (!loaded) FLog(@"❌ Hic bir harita degistirme yontemi calismadi!");
-
-        } @catch (...) { FLog(@"few1n_loadMap exception!"); }
+                });
+            });
+        } @catch (...) { FLog(@"few1n_loadMap exception"); }
     });
 }
 
@@ -7729,7 +7652,7 @@ static void few1n_poll(void) {
 }
 
 %ctor {
-    FLog(@"v76.0 basladi, UnityFramework araniyor...");
+    FLog(@"v77.0 basladi, UnityFramework araniyor...");
     restoreSettings();
 
     // ===== REKLAM BOZUCU: TUM reklam SDK'larini engelle (Obj-C runtime swizzle) =====
