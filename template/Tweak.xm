@@ -12,7 +12,7 @@
 #import <objc/runtime.h>
 
 // ============================================================
-//  v77.0 - FEW1N MOD MENU  (derlenir, hatasiz - bu dosyayi kullan)
+//  v78.0 - FEW1N MOD MENU  (derlenir, hatasiz - bu dosyayi kullan)
 //  DUZELTME: rainbowWrap forward-decl (tanim sirasi), decl-order taramasi temiz, autogreet poll optimize.
 //  Ozellikler: GERCEK Kick (liste/isim), Ucus D-pad, Emoji sprite+test, Otomatik Karsilama, Normal Oda 31
 //  DreamRoadMultiplayer | Unity 6 (6000.3.0b1) | Metadata v39
@@ -2090,6 +2090,7 @@ static void h_roomLineSetup(void* self, void* a, void* b, unsigned char c, unsig
 - (void)changeMapInRoom;
 - (void)changeMapV70Classic;
 - (void)toggleMasterClaim;
+- (void)cloneCarPicker;
 - (void)askSceneNameThen:(int)method;
 - (void)runMapMethod:(int)method scene:(NSString*)inp;
 - (void)mapMethod1;
@@ -2464,7 +2465,7 @@ static UIViewController* few1n_topVC(void) {
     title.font = [UIFont systemFontOfSize:17 weight:UIFontWeightBlack];
     [header addSubview:title];
     UILabel *ver = [[UILabel alloc] initWithFrame:CGRectMake(42,37,pw-90,16)];
-    ver.text = [NSString stringWithFormat:@"v77.0  •  Base 0x%lX", (unsigned long)global_base];
+    ver.text = [NSString stringWithFormat:@"v78.0  •  Base 0x%lX", (unsigned long)global_base];
     ver.textColor = [UIColor colorWithWhite:1 alpha:0.82];
     ver.font = [UIFont fontWithName:@"Menlo-Bold" size:8] ?: [UIFont systemFontOfSize:8 weight:UIFontWeightBold];
     [header addSubview:ver];
@@ -2680,6 +2681,7 @@ static UIViewController* few1n_topVC(void) {
     y = [self actionRow:@"⏱️  Oyun Hızı (TimeScale)" color:C_CYAN atY:y action:@selector(tapGameSpeed)];
     y = [self actionRow:@"👥  Fake Çevrimici Sayısı (Lobi Görseli)" color:C_CYAN atY:y action:@selector(tapFakeOnline)];
     y = [self actionRow:@"🗺️  Odadayken Harita Değiştir (v233 minimal + master zorla)" color:C_ON atY:y action:@selector(changeMapInRoom)];
+    y = [self actionRow:@"🚗  Kişi Aracı Klonla (deneysel race glitch)" color:C_GOLD atY:y action:@selector(cloneCarPicker)];
     y = [self actionRow:@"🌤️  Hava Durumu & Zaman Seç (Aktarmasız Canlı)" color:C_ON atY:y action:@selector(changeWeatherOnly)];
     y = [self actionRow:@"✏️  Odadayken Oda İsmini Değiştir (Anlık Canlı)" color:C_GOLD atY:y action:@selector(changeRoomNameInRoom)];
     y = [self actionRow:@"🏷️  Harita Metnini Değiştir (Kişi Sayısı Yanı - ADMIN vb.)" color:C_GOLD atY:y action:@selector(changeCustomMapLabel)];
@@ -5150,18 +5152,20 @@ static NSArray<NSString*>* few1n_readMapNames(void) {
     return names;
 }
 
-// ===== v233 MINIMAL YAKLASIM =====
-// v70.0_233'te kismen calisan strateji: master claim + tek fonksiyon. Zincir/fallback yok.
-// Master alma sırası CAS icin dogru: SetMasterClient ONCE + memory patch SONRA (few1n_claimMaster halihazirda dogru sırada).
+// ===== v78: LoadLevel ONCE, enp fallback + basari dogrulamasi =====
+// v77'de photonMgrEnp seciyordu ama bazen yanlis map yukluyordu (parametre veya isim mismatch).
+// v78: Standard PUN LoadLevel'i ONCE dene (scene ismini birebir alir), enp'yi FALLBACK olarak birak.
+// Ayrica secilen vs yuklenen sahne karsilastirmasi log'a basilir.
 static void few1n_loadMap(NSString *scene, int idx) {
     (void)idx;
     if (!scene || scene.length == 0) { FLog(@"[MAP] scene bos"); return; }
 
-    // 1) Master ol (few1n_claimMaster asyn degil, anında memory patch + SetMasterClient gonderir)
+    NSString *sceneBefore = (pn_getActiveSceneName) ? readStr(pn_getActiveSceneName()) : @"?";
+    FLog([NSString stringWithFormat:@"🗺️ SECIM: '%@'  |  Mevcut sahne: '%@'", scene, sceneBefore]);
+
     few1n_claimMaster();
     NSString *sceneCopy = [scene copy];
 
-    // 2) Master onayi icin kisa bekle, sonra photonMgrEnp cagir (v233 tarzı — tek fonksiyon)
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.8 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
         @try {
             bool amMaster = false;
@@ -5169,41 +5173,68 @@ static void few1n_loadMap(NSString *scene, int idx) {
                 void* me = pn_getLocalPlayer();
                 if (me) amMaster = ply_getIsMaster(me);
             }
-            if (!amMaster) FLog(@"⚠️ Master gorunmuyorum — yine de deneniyor");
+            FLog(amMaster ? @"👑 Master onayli" : @"⚠️ Master gorunmuyor — yine de deniyorum");
 
-            // ANA CAGRI: PhotonManager.enp (static, oyun icinde her yerden erisilebilir, en stabil)
-            if (photonMgrEnp) {
+            // 1) ANA CAGRI: PhotonNetwork.LoadLevel(string) — standart PUN, scene ismini birebir alir
+            bool triggered = false;
+            if (pn_loadLevelStr) {
                 void* s = mkStr(sceneCopy);
                 if (s) {
-                    photonMgrEnp(s, false);
-                    FLog([NSString stringWithFormat:@"🗺️ [v233] PhotonManager.enp('%@') gonderildi", sceneCopy]);
+                    pn_loadLevelStr(s);
+                    triggered = true;
+                    FLog([NSString stringWithFormat:@"🗺️ [PUN] LoadLevel('%@') gonderildi", sceneCopy]);
                 }
-            } else {
-                FLog(@"❌ photonMgrEnp NULL — offset yenilenmeli");
-                return;
             }
 
-            // 3) 1.5s sonra sahne degismisse basarili, degilse LoadLevel string fallback (tek kez)
+            // 2) 1.5s sonra dogrula, mismatch varsa enp fallback (bool=true de dene)
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
                 NSString *cur = (pn_getActiveSceneName) ? readStr(pn_getActiveSceneName()) : @"?";
-                if (cur && [cur.lowercaseString containsString:sceneCopy.lowercaseString]) {
-                    FLog(@"✅ [v233] Sahne degisti — basarili"); return;
-                }
-                FLog([NSString stringWithFormat:@"⚠️ Sahne hala '%@' — LoadLevel fallback deneniyor", cur]);
-                if (pn_loadLevelStr) {
-                    void* s2 = mkStr(sceneCopy);
-                    if (s2) { pn_loadLevelStr(s2); FLog(@"🔁 [v233] LoadLevel(str) fallback tetiklendi"); }
-                }
-                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-                    NSString *c2 = (pn_getActiveSceneName) ? readStr(pn_getActiveSceneName()) : @"?";
-                    if (c2 && [c2.lowercaseString containsString:sceneCopy.lowercaseString]) {
-                        FLog(@"✅ [v233] Sahne degisti (LoadLevel ile) — basarili");
-                    } else {
-                        FLog(@"❌ Sahne degismedi — sen master degil misin? Onceden 'Oda Master Ol' butonuna bas, sonra tekrar dene.");
+                bool matched = (cur && [cur.lowercaseString containsString:sceneCopy.lowercaseString]);
+                FLog([NSString stringWithFormat:@"📍 SONUC: sectin='%@'  yuklendi='%@'  %@", sceneCopy, cur, matched ? @"✅ EŞLEŞTİ" : @"❌ FARKLI"]);
+
+                if (matched) return;
+
+                // FALLBACK: PhotonManager.enp — b=false ile bir kez, sonra b=true ile
+                if (photonMgrEnp) {
+                    void* s = mkStr(sceneCopy);
+                    if (s) {
+                        photonMgrEnp(s, false);
+                        FLog(@"🔁 [enp b=false] fallback tetiklendi");
                     }
-                });
+                    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.2 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                        NSString *c2 = (pn_getActiveSceneName) ? readStr(pn_getActiveSceneName()) : @"?";
+                        if (c2 && [c2.lowercaseString containsString:sceneCopy.lowercaseString]) { FLog(@"✅ enp basarili"); return; }
+                        void* s3 = mkStr(sceneCopy);
+                        if (s3) { photonMgrEnp(s3, true); FLog(@"🔁 [enp b=true] son deneme"); }
+                    });
+                }
             });
+            (void)triggered;
         } @catch (...) { FLog(@"few1n_loadMap exception"); }
+    });
+}
+
+// ===== v78: KISI ARACI KLONLA (car swap glitch) =====
+// User raporu: bazen harita degistiginde araba degisiyor. Bu bir race condition —
+// hedef oyuncu secip hizli harita degisimi ile araba klonlamayi denemek.
+// NOT: Bu deneysel. Sunucu kaydını tam degistirmez — sadece client-side aktarilir.
+static NSString *g_carCloneTargetNick = nil;
+static int       g_carCloneTargetActor = -1;
+
+static void few1n_startCarCloneAttempt(NSString *scene) {
+    if (!scene) scene = @"Desert";
+    NSString *sceneCopy = [scene copy];
+    FLog([NSString stringWithFormat:@"🚗 [KLON] '%@' (actor=%d) araci kopyalanmaya calisiliyor (deneysel)...", g_carCloneTargetNick ?: @"?", g_carCloneTargetActor]);
+    // Race glitch tetiklemek icin: master ol → hedef oyuncunun aktif olmasi icin bekle → hizli 2'li map switch
+    few1n_claimMaster();
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.4 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        if (pn_loadLevelStr) { void* s = mkStr(sceneCopy); if (s) { pn_loadLevelStr(s); FLog(@"🔁 [KLON] 1. map switch"); } }
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.15 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            if (photonMgrEnp) { void* s = mkStr(sceneCopy); if (s) { photonMgrEnp(s, false); FLog(@"🔁 [KLON] 2. rapid enp (race)"); } }
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                FLog(@"🚗 [KLON] Deneme tamam — araba yuklendi mi kontrol et. Basarisizsa tekrar dene, race bazen tutar.");
+            });
+        });
     });
 }
 
@@ -5360,6 +5391,45 @@ static void few1n_loadMap(NSString *scene, int idx) {
         isMasterClaimDisabled ? @"KAPATILDI" : @"ACILDI",
         isMasterClaimDisabled ? @"aktif" : @"kapali"]);
     [self refreshUI];
+}
+
+// ===== KISI ARACI KLONLA UI =====
+- (void)cloneCarPicker {
+    if (!pn_getInRoom || !pn_getInRoom()) {
+        UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"🚗 Klonla" message:@"Odada olmalisin." preferredStyle:UIAlertControllerStyleAlert];
+        [ac addAction:[UIAlertAction actionWithTitle:@"Tamam" style:UIAlertActionStyleDefault handler:nil]];
+        [self present:ac]; return;
+    }
+    if (!pn_getPlayerList || !ply_getNickName || !ply_getActorNumber) {
+        FLog(@"[KLON] Pointerler yok"); return;
+    }
+    void* arr = pn_getPlayerList();
+    if (!ptrOk(arr)) { FLog(@"[KLON] Oyuncu listesi yok"); return; }
+    int cnt = (int)(*(uintptr_t*)((uintptr_t)arr + 0x18));
+    if (cnt <= 0) { FLog(@"[KLON] Oyuncu yok"); return; }
+    void** players = (void**)((uintptr_t)arr + 0x20);
+
+    UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"🚗 Kimin Aracini Klonla?"
+        message:@"Sec — sonra rapid map switch ile arac swap race glitch'i denenir. Basarili olmayabilir, birkac deneme gerekebilir."
+        preferredStyle:UIAlertControllerStyleActionSheet];
+    for (int i = 0; i < cnt && i < 32; i++) {
+        void* p = players[i]; if (!ptrOk(p)) continue;
+        int actor = ply_getActorNumber(p);
+        void* ns = ply_getNickName(p);
+        NSString *nick = ptrOk(ns) ? readStr(ns) : [NSString stringWithFormat:@"actor%d", actor];
+        [ac addAction:[UIAlertAction actionWithTitle:[NSString stringWithFormat:@"%@ (actor=%d)", nick, actor]
+            style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
+            g_carCloneTargetActor = actor;
+            g_carCloneTargetNick = nick;
+            few1n_startCarCloneAttempt(@"Desert");   // Desert genelde en stabil
+        }]];
+    }
+    [ac addAction:[UIAlertAction actionWithTitle:@"Iptal" style:UIAlertActionStyleCancel handler:nil]];
+    if (ac.popoverPresentationController) {
+        ac.popoverPresentationController.sourceView = self.panel;
+        ac.popoverPresentationController.sourceRect = CGRectMake(self.panel.bounds.size.width/2, 80, 1, 1);
+    }
+    [self present:ac];
 }
 
 - (void)changeMapV70Classic {
@@ -7652,7 +7722,7 @@ static void few1n_poll(void) {
 }
 
 %ctor {
-    FLog(@"v77.0 basladi, UnityFramework araniyor...");
+    FLog(@"v78.0 basladi, UnityFramework araniyor...");
     restoreSettings();
 
     // ===== REKLAM BOZUCU: TUM reklam SDK'larini engelle (Obj-C runtime swizzle) =====
