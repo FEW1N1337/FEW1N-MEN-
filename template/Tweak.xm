@@ -12,7 +12,7 @@
 #import <objc/runtime.h>
 
 // ============================================================
-//  v82.0 - FEW1N MOD MENU  (derlenir, hatasiz - bu dosyayi kullan)
+//  v83.0 - FEW1N MOD MENU  (derlenir, hatasiz - bu dosyayi kullan)
 //  DUZELTME: rainbowWrap forward-decl (tanim sirasi), decl-order taramasi temiz, autogreet poll optimize.
 //  Ozellikler: GERCEK Kick (liste/isim), Ucus D-pad, Emoji sprite+test, Otomatik Karsilama, Normal Oda 31
 //  DreamRoadMultiplayer | Unity 6 (6000.3.0b1) | Metadata v39
@@ -2465,7 +2465,7 @@ static UIViewController* few1n_topVC(void) {
     title.font = [UIFont systemFontOfSize:17 weight:UIFontWeightBlack];
     [header addSubview:title];
     UILabel *ver = [[UILabel alloc] initWithFrame:CGRectMake(42,37,pw-90,16)];
-    ver.text = [NSString stringWithFormat:@"v82.0  •  Base 0x%lX", (unsigned long)global_base];
+    ver.text = [NSString stringWithFormat:@"v83.0  •  Base 0x%lX", (unsigned long)global_base];
     ver.textColor = [UIColor colorWithWhite:1 alpha:0.82];
     ver.font = [UIFont fontWithName:@"Menlo-Bold" size:8] ?: [UIFont systemFontOfSize:8 weight:UIFontWeightBold];
     [header addSubview:ver];
@@ -2657,15 +2657,7 @@ static UIViewController* few1n_topVC(void) {
     y = [self actionRow:@"🔒  Odayı Kilitle/Aç (IsOpen)" color:C_ON atY:y action:@selector(tapRoomLock)];
     y = [self actionRow:@"👻  Görünmez/Görünür (IsVisible)" color:C_ON atY:y action:@selector(tapRoomHide)];
     y = [self actionRow:@"🔑  Oda Şifresi Belirle" color:C_ON atY:y action:@selector(tapRoomPassword)];
-    y = [self actionRow:@"🗺  HARITA Değiştir (oyunun MapList'i - hepsini dener)" color:C_ON atY:y action:@selector(changeMapInRoom)];
-    y = [self actionRow:@"  ↳ Yöntem 1: MapSelection.SelectMap + StartGame" color:C_CYAN atY:y action:@selector(mapMethod1)];
-    y = [self actionRow:@"  ↳ Yöntem 2: PhotonManager.enp" color:C_CYAN atY:y action:@selector(mapMethod2)];
-    y = [self actionRow:@"  ↳ Yöntem 3: HR_PhotonLobbyManager.SetScene" color:C_CYAN atY:y action:@selector(mapMethod3)];
-    y = [self actionRow:@"  ↳ Yöntem 4: PhotonNetwork.LoadLevel(isim)" color:C_CYAN atY:y action:@selector(mapMethod4)];
-    y = [self actionRow:@"  ↳ Yöntem 5: PhotonNetwork.LoadLevel(sayı)" color:C_CYAN atY:y action:@selector(mapMethod5)];
-    y = [self actionRow:@"  ↳ Yöntem 6: HR_MainMenuHandler.StartRace()" color:C_CYAN atY:y action:@selector(mapMethod6)];
-    y = [self actionRow:@"  ↳ Yöntem 7: Unity SceneManager.LoadScene (yerel)" color:C_SUB atY:y action:@selector(mapMethod7)];
-    y = [self actionRow:@"  ↳ Yöntem 8: Unity SceneManager.LoadScene int (yerel)" color:C_SUB atY:y action:@selector(mapMethod8)];
+    // v83: Y1-Y8 test butonlari + hepsini dener kaldirildi (v77 gibi tek buton yeter)
     {
         UIView *rmrow = [[UIView alloc] initWithFrame:CGRectMake(12,y,pw-24,44)];
         rmrow.backgroundColor = C_CARD; rmrow.layer.cornerRadius = 12;
@@ -2688,8 +2680,7 @@ static UIViewController* few1n_topVC(void) {
     y = [self toggle:@"🤖  Otomatik Master" sub:@"Master gidince aninda geri al" key:@"automaster" atY:y action:@selector(tapAutoMaster)];
     y = [self actionRow:@"⏱️  Oyun Hızı (TimeScale)" color:C_CYAN atY:y action:@selector(tapGameSpeed)];
     y = [self actionRow:@"👥  Fake Çevrimici Sayısı (Lobi Görseli)" color:C_CYAN atY:y action:@selector(tapFakeOnline)];
-    y = [self actionRow:@"🗺️  Odadayken Harita Değiştir (Anlık Canlı)" color:C_ON atY:y action:@selector(changeMapInRoom)];
-    y = [self actionRow:@"🕐  v70 KLASIK Harita Yontemi (master claim YOK)" color:C_GOLD atY:y action:@selector(changeMapV70Classic)];
+    y = [self actionRow:@"🗺️  Odadayken Harita Değiştir (v233 minimal + master zorla)" color:C_ON atY:y action:@selector(changeMapInRoom)];
     y = [self actionRow:@"🚗  Kişi Aracı Klonla (deneysel race glitch)" color:C_GOLD atY:y action:@selector(cloneCarPicker)];
     y = [self actionRow:@"🌤️  Hava Durumu & Zaman Seç (Aktarmasız Canlı)" color:C_ON atY:y action:@selector(changeWeatherOnly)];
     y = [self actionRow:@"✏️  Odadayken Oda İsmini Değiştir (Anlık Canlı)" color:C_GOLD atY:y action:@selector(changeRoomNameInRoom)];
@@ -5161,27 +5152,46 @@ static NSArray<NSString*>* few1n_readMapNames(void) {
     return names;
 }
 
-// ===== v82: ZINCIRSIZ v76 minimal — sadece MapSel + StartGame, fallback YOK =====
+// ===== v83: v77 CALISAN VERSIYON — master claim + photonMgrEnp + LoadLevel fallback =====
 static void few1n_loadMap(NSString *scene, int idx) {
     (void)idx;
-    if (!scene || scene.length == 0) return;
+    if (!scene || scene.length == 0) { FLog(@"[MAP] scene bos"); return; }
     few1n_claimMaster();
     NSString *sceneCopy = [scene copy];
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.8 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
         @try {
-            if (!mapSel_selectMap || !lobbyStartGame || !lobbyGetInst) { FLog(@"[MAP] pointerler yok"); return; }
-            void* lobby = lobbyGetInst();
-            if (!ptrOk(lobby)) { FLog(@"[MAP] lobby yok"); return; }
-            void* mapSel = *(void**)((uintptr_t)lobby + 0x28);
-            if (!ptrOk(mapSel)) { FLog(@"[MAP] mapSelection null"); return; }
-            void* s = mkStr(sceneCopy);
-            if (!s) return;
-            mapSel_selectMap(mapSel, s);
-            FLog([NSString stringWithFormat:@"🗺️ SelectMap('%@') → 200ms sonra StartGame", sceneCopy]);
-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.2 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-                @try { lobbyStartGame(lobby); FLog(@"🗺️ StartGameButton() gonderildi"); } @catch (...) { FLog(@"[MAP] StartGame exception"); }
+            bool amMaster = false;
+            if (pn_getLocalPlayer && ply_getIsMaster) {
+                void* me = pn_getLocalPlayer();
+                if (me) amMaster = ply_getIsMaster(me);
+            }
+            if (!amMaster) FLog(@"⚠️ Master gorunmuyorum — yine de deneniyor");
+            if (photonMgrEnp) {
+                void* s = mkStr(sceneCopy);
+                if (s) {
+                    photonMgrEnp(s, false);
+                    FLog([NSString stringWithFormat:@"🗺️ [v233] PhotonManager.enp('%@') gonderildi", sceneCopy]);
+                }
+            } else {
+                FLog(@"❌ photonMgrEnp NULL — offset yenilenmeli"); return;
+            }
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                NSString *cur = (pn_getActiveSceneName) ? readStr(pn_getActiveSceneName()) : @"?";
+                if (cur && [cur.lowercaseString containsString:sceneCopy.lowercaseString]) {
+                    FLog(@"✅ [v233] Sahne degisti — basarili"); return;
+                }
+                FLog([NSString stringWithFormat:@"⚠️ Sahne hala '%@' — LoadLevel fallback", cur]);
+                if (pn_loadLevelStr) {
+                    void* s2 = mkStr(sceneCopy);
+                    if (s2) { pn_loadLevelStr(s2); FLog(@"🔁 [v233] LoadLevel(str) fallback tetiklendi"); }
+                }
+                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                    NSString *c2 = (pn_getActiveSceneName) ? readStr(pn_getActiveSceneName()) : @"?";
+                    if (c2 && [c2.lowercaseString containsString:sceneCopy.lowercaseString]) FLog(@"✅ [v233] Sahne degisti (LoadLevel)");
+                    else FLog(@"❌ Sahne degismedi — 'Oda Master Ol' bas, tekrar dene.");
+                });
             });
-        } @catch (...) { FLog(@"[MAP] exception"); }
+        } @catch (...) { FLog(@"few1n_loadMap exception"); }
     });
 }
 
@@ -7731,7 +7741,7 @@ static void few1n_poll(void) {
 }
 
 %ctor {
-    FLog(@"v82.0 basladi, UnityFramework araniyor...");
+    FLog(@"v83.0 basladi, UnityFramework araniyor...");
     restoreSettings();
 
     // ===== REKLAM BOZUCU: TUM reklam SDK'larini engelle (Obj-C runtime swizzle) =====
