@@ -12,7 +12,7 @@
 #import <objc/runtime.h>
 
 // ============================================================
-//  v72.0 - FEW1N MOD MENU  (derlenir, hatasiz - bu dosyayi kullan)
+//  v76.0 - FEW1N MOD MENU  (derlenir, hatasiz - bu dosyayi kullan)
 //  DUZELTME: rainbowWrap forward-decl (tanim sirasi), decl-order taramasi temiz, autogreet poll optimize.
 //  Ozellikler: GERCEK Kick (liste/isim), Ucus D-pad, Emoji sprite+test, Otomatik Karsilama, Normal Oda 31
 //  DreamRoadMultiplayer | Unity 6 (6000.3.0b1) | Metadata v39
@@ -66,6 +66,7 @@ static NSString* loadStr(NSString* k, NSString* def) { NSString* s=[defs() strin
 static int    speedMode = 1;
 static float  speedMult = 1.0f;   // YENI: slider ile ayarlanan gercek carpan (0.1x-10x); speedMode ile senkron
 static bool isInfiniteNitroEnabled = false;
+static bool isMasterClaimDisabled = false;   // v74: master claim'i tamamen atla (v70 davranisi)
 static bool isColorChatEnabled = false;
 static bool isSpamEnabled = false;
 static bool isBypassPasswordEnabled = true;
@@ -980,19 +981,22 @@ static void few1n_forceEnableKick(void) {
     }
 }
 // TUM ODA ISLEMLERINDE OTOMATIK MASTER CLIENT YETKISI AL (Her özellikte yönetici ol)
+// Iki yontem birden dener:
+//  A) PhotonNetwork.SetMasterClient(me) - Photon'un standart yolu (CAS check yapar)
+//  B) Client-side memory patch (Room + 0x48 = masterClientId) - UI/local durum icin
+// Eger A sunucu tarafinda reddedilirse client B sayesinde kendini master gorur (yerel isler calisir).
 static inline void few1n_claimMaster(void) {
+    if (isMasterClaimDisabled) return;   // v70 klasik davranis: hicbir sey yapma
     if (pn_getLocalPlayer && pn_getCurrentRoom) {
         @try {
             void* me = pn_getLocalPlayer();
             void* room = pn_getCurrentRoom();
             if (me && room) {
-                // DUZELTME: Once SetMasterClient (server-side CAS icin gercek eski master ID'si lazim),
-                // SONRA client-side memory patch (UI/local durum icin).
-                // Aksi halde CAS check basarisiz olur ve SetMasterClient false doner.
+                // A) Once server'a SetMasterClient gonder (CAS icin gercek eski master ID'si lazim)
                 if (pn_setMasterClient) {
                     @try { pn_setMasterClient(me); } @catch (...) {}
                 }
-                // ActorNumber = offset 0x18, MasterClientId = offset 0x48
+                // B) Client-side memory patch: ActorNumber = offset 0x18, MasterClientId = offset 0x48
                 int myActor = *(int*)((uintptr_t)me + 0x18);
                 *(int*)((uintptr_t)room + 0x48) = myActor;
             }
@@ -2084,6 +2088,8 @@ static void h_roomLineSetup(void* self, void* a, void* b, unsigned char c, unsig
 - (void)speedSliderChanged:(UISlider*)sl;
 - (void)speedReset;
 - (void)changeMapInRoom;
+- (void)changeMapV70Classic;
+- (void)toggleMasterClaim;
 - (void)askSceneNameThen:(int)method;
 - (void)runMapMethod:(int)method scene:(NSString*)inp;
 - (void)mapMethod1;
@@ -2458,7 +2464,7 @@ static UIViewController* few1n_topVC(void) {
     title.font = [UIFont systemFontOfSize:17 weight:UIFontWeightBlack];
     [header addSubview:title];
     UILabel *ver = [[UILabel alloc] initWithFrame:CGRectMake(42,37,pw-90,16)];
-    ver.text = [NSString stringWithFormat:@"v72.0  •  Base 0x%lX", (unsigned long)global_base];
+    ver.text = [NSString stringWithFormat:@"v76.0  •  Base 0x%lX", (unsigned long)global_base];
     ver.textColor = [UIColor colorWithWhite:1 alpha:0.82];
     ver.font = [UIFont fontWithName:@"Menlo-Bold" size:8] ?: [UIFont systemFontOfSize:8 weight:UIFontWeightBold];
     [header addSubview:ver];
@@ -2677,10 +2683,12 @@ static UIViewController* few1n_topVC(void) {
     y = [self actionRow:@"\U0001F465  Odadaki Oyuncular (isim kopyala)" color:C_CYAN atY:y action:@selector(showPlayers)];
     y = [self actionRow:@"\U0001F441  Odaya Goz At (isimsiz anlik gir-cik)" color:C_GOLD atY:y action:@selector(peekRoom)];
     y = [self actionRow:@"👑  Oda Master Ol" color:C_GOLD atY:y action:@selector(tapRoomMaster)];
+    y = [self actionRow:[NSString stringWithFormat:@"⚙️  Master Claim %@ (v70 modu)", isMasterClaimDisabled ? @"KAPALI ✅" : @"ACIK ⚠️"] color:C_CYAN atY:y action:@selector(toggleMasterClaim)];
     y = [self toggle:@"🤖  Otomatik Master" sub:@"Master gidince aninda geri al" key:@"automaster" atY:y action:@selector(tapAutoMaster)];
     y = [self actionRow:@"⏱️  Oyun Hızı (TimeScale)" color:C_CYAN atY:y action:@selector(tapGameSpeed)];
     y = [self actionRow:@"👥  Fake Çevrimici Sayısı (Lobi Görseli)" color:C_CYAN atY:y action:@selector(tapFakeOnline)];
     y = [self actionRow:@"🗺️  Odadayken Harita Değiştir (Anlık Canlı)" color:C_ON atY:y action:@selector(changeMapInRoom)];
+    y = [self actionRow:@"🕐  v70 KLASIK Harita Yontemi (master claim YOK)" color:C_GOLD atY:y action:@selector(changeMapV70Classic)];
     y = [self actionRow:@"🌤️  Hava Durumu & Zaman Seç (Aktarmasız Canlı)" color:C_ON atY:y action:@selector(changeWeatherOnly)];
     y = [self actionRow:@"✏️  Odadayken Oda İsmini Değiştir (Anlık Canlı)" color:C_GOLD atY:y action:@selector(changeRoomNameInRoom)];
     y = [self actionRow:@"🏷️  Harita Metnini Değiştir (Kişi Sayısı Yanı - ADMIN vb.)" color:C_GOLD atY:y action:@selector(changeCustomMapLabel)];
@@ -5209,17 +5217,16 @@ static void few1n_loadMap(NSString *scene, int idx) {
                                         NSString *c2 = (pn_getActiveSceneName) ? readStr(pn_getActiveSceneName()) : @"?";
                                         if (c2 && [c2.lowercaseString containsString:sceneCopy.lowercaseString]) { FLog(@"✅ [Y3] basarili"); return; }
                                         if (photonMgrEnp) { void* ss = mkStr(sceneCopy); if (ss) { photonMgrEnp(ss, false); FLog(@"🔁 [Y2] enp tetiklendi"); } }
-                                        // Y4: LoadLevel(string)
+                                        // Y4: LoadLevel(string) — SON DENEME (Y5/Y6 kaldirildi: lobiye atiyorlar)
                                         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.8 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
                                             NSString *c3 = (pn_getActiveSceneName) ? readStr(pn_getActiveSceneName()) : @"?";
                                             if (c3 && [c3.lowercaseString containsString:sceneCopy.lowercaseString]) { FLog(@"✅ [Y2] basarili"); return; }
                                             if (pn_loadLevelStr) { void* ss = mkStr(sceneCopy); if (ss) { pn_loadLevelStr(ss); FLog(@"🔁 [Y4] LoadLevel(str) tetiklendi"); } }
-                                            // Y5: LoadLevel(int)
-                                            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.8 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                                            // Y5/Y6 icin son kontrol — cagirmiyoruz, sadece log
+                                            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.2 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
                                                 NSString *c4 = (pn_getActiveSceneName) ? readStr(pn_getActiveSceneName()) : @"?";
                                                 if (c4 && [c4.lowercaseString containsString:sceneCopy.lowercaseString]) { FLog(@"✅ [Y4] basarili"); return; }
-                                                if (pn_loadLevelInt && idxCopy >= 0) { pn_loadLevelInt(idxCopy); FLog([NSString stringWithFormat:@"🔁 [Y5] LoadLevel(%d) tetiklendi", idxCopy]); }
-                                                else FLog(@"❌ Tum yontemler denendi, sahne degismedi");
+                                                FLog(@"❌ Y1/Y3/Y2/Y4 hepsi basarisiz — muhtemelen master alinamadi. Sen master iken oda ac ve tekrar dene.");
                                             });
                                         });
                                     });
@@ -5417,6 +5424,64 @@ static void few1n_loadMap(NSString *scene, int idx) {
 - (void)mapMethod6 { [self askSceneNameThen:6]; }
 - (void)mapMethod7 { [self askSceneNameThen:7]; }
 - (void)mapMethod8 { [self askSceneNameThen:8]; }
+
+// ===== v70 KLASIK: MASTER CLAIM YAPMADAN direkt lobby+MapSelection+StartGame =====
+// v70 build'inde bu yaklasim calisiyordu (kullanici raporu).
+// v73'teki fark: few1n_claimMaster once cagriliyordu, muhtemelen sunucu CAS mismatch nedeniyle
+// sonraki MapSelection/StartGame istegini reddediyor. Bu yontem direkt oyunun kendi butonunu
+// tetiklemesi gibi davranir — zaten master iseniz calisir, degilseniz oyun kendisi reddeder.
+- (void)toggleMasterClaim {
+    isMasterClaimDisabled = !isMasterClaimDisabled;
+    saveBool(@"masterClaimOff", isMasterClaimDisabled);
+    FLog([NSString stringWithFormat:@"⚙️ Master Claim %@ (v70 modu %@)",
+        isMasterClaimDisabled ? @"KAPATILDI" : @"ACILDI",
+        isMasterClaimDisabled ? @"aktif" : @"kapali"]);
+    [self refreshUI];
+}
+
+- (void)changeMapV70Classic {
+    if (!pn_getInRoom || !pn_getInRoom()) {
+        UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"🕐 v70 Klasik"
+            message:@"Odada olmalisin (bu yontem SEN MASTER isen calisir)." preferredStyle:UIAlertControllerStyleAlert];
+        [ac addAction:[UIAlertAction actionWithTitle:@"Tamam" style:UIAlertActionStyleDefault handler:nil]];
+        [self present:ac]; return;
+    }
+    // Turkce -> internal isim listesi
+    NSArray *maps = @[
+        @[@"🛣️ Otoyol", @"Highway"], @[@"🏜️ Çöl", @"Desert"], @[@"🏙️ Şehir", @"City"],
+        @[@"🌲 Orman", @"Forest"], @[@"⛰️ Off-road", @"Offroad"],
+        @[@"🏎️ Track", @"Track"], @[@"⚓ Port", @"Port"],
+    ];
+    UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"🕐 v70 Klasik Harita"
+        message:@"Master claim YAPMADAN direkt cagirir. Sen master isen herkeste degisir."
+        preferredStyle:UIAlertControllerStyleActionSheet];
+    for (NSArray *m in maps) {
+        NSString *nice = m[0], *internal = m[1];
+        [ac addAction:[UIAlertAction actionWithTitle:[NSString stringWithFormat:@"%@ (%@)", nice, internal]
+            style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
+            @try {
+                if (!mapSel_selectMap || !lobbyStartGame || !lobbyGetInst) { FLog(@"[v70] Pointerler yok"); return; }
+                void* lobby = lobbyGetInst();
+                if (!ptrOk(lobby)) { FLog(@"[v70] Lobby yok"); return; }
+                void* mapSel = *(void**)((uintptr_t)lobby + 0x28);
+                if (!ptrOk(mapSel)) { FLog(@"[v70] mapSelection null"); return; }
+                void* s = mkStr(internal);
+                if (!s) return;
+                mapSel_selectMap(mapSel, s);
+                FLog([NSString stringWithFormat:@"🕐 [v70] SelectMap('%@') cagrildi, 200ms sonra StartGame", internal]);
+                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.2 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                    @try { lobbyStartGame(lobby); FLog(@"🕐 [v70] StartGameButton() cagrildi"); } @catch (...) { FLog(@"[v70] StartGame exception"); }
+                });
+            } @catch (...) { FLog(@"[v70] EXCEPTION"); }
+        }]];
+    }
+    [ac addAction:[UIAlertAction actionWithTitle:@"Iptal" style:UIAlertActionStyleCancel handler:nil]];
+    if (ac.popoverPresentationController) {
+        ac.popoverPresentationController.sourceView = self.panel;
+        ac.popoverPresentationController.sourceRect = CGRectMake(self.panel.bounds.size.width/2, 80, 1, 1);
+    }
+    [self present:ac];
+}
 
 - (void)changeMapInRoom {
     if (!pn_getInRoom || !pn_getInRoom()) {
@@ -7520,6 +7585,7 @@ static void restoreSettings(void) {
     NSString* rn = loadStr(@"roomName", @"<b><color=#FF0000>FEW1N</color></b>");
     strncpy(customRoomName, rn.UTF8String, sizeof(customRoomName)-1); customRoomName[sizeof(customRoomName)-1]='\0';
     isCustomPlateEnabled   = loadBool(@"plateEnabled", false);
+    isMasterClaimDisabled  = loadBool(@"masterClaimOff", false);   // v70 modu tercihi
     isAutoMoneyEnabled     = loadBool(@"automoney", false);
     isNanCrashEnabled      = false;
     isRoomCrashActive      = false;
@@ -7663,7 +7729,7 @@ static void few1n_poll(void) {
 }
 
 %ctor {
-    FLog(@"v72.0 basladi, UnityFramework araniyor...");
+    FLog(@"v76.0 basladi, UnityFramework araniyor...");
     restoreSettings();
 
     // ===== REKLAM BOZUCU: TUM reklam SDK'larini engelle (Obj-C runtime swizzle) =====
