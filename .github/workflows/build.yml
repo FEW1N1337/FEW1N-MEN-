@@ -5,6 +5,9 @@ on:
     branches: [ "main", "master" ]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: macos-latest
@@ -12,6 +15,9 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install Dependencies
         run: |
@@ -41,9 +47,9 @@ jobs:
           Package: com.few1n.dreamroadmod
           Name: FEW1N Mod Menu
           Depends: mobilesubstrate, firmware (>= 14.0)
-          Version: 72.0
+          Version: 76.0
           Architecture: iphoneos-arm64
-          Description: FEW1N Mod Menu v72.0 - Gelismis Ozel Oda (31 Kisi, Ozel Harita Etiketi, Canli Harita & Isim Degistirme, TMPro Short Hex Renkler, Polis Cakar/Siren, Pop&Bangs, Kesici Ses Modu, Otomatik Korna, Canli Reklam Bozucu)
+          Description: FEW1N Mod Menu v76.0 - Gelismis Ozel Oda (31 Kisi, Ozel Harita Etiketi, Canli Harita & Isim Degistirme, TMPro Short Hex Renkler, Polis Cakar/Siren, Pop&Bangs, Kesici Ses Modu, Otomatik Korna, Canli Reklam Bozucu)
           Maintainer: few1n
           Author: few1n
           Section: Tweaks
@@ -80,7 +86,7 @@ jobs:
       - name: Rename Package
         run: |
           mkdir -p output
-          cp packages/*.deb output/FEW1NMod_72.0_${{ github.run_number }}.deb
+          cp packages/*.deb output/FEW1NMod_76.0_${{ github.run_number }}.deb
 
       - name: Extract dylib for sideloading
         run: |
@@ -96,11 +102,70 @@ jobs:
       - name: Upload .deb (jailbreak)
         uses: actions/upload-artifact@v4
         with:
-          name: FEW1N-ModMenu-v72.0-deb-${{ github.run_number }}
+          name: FEW1N-ModMenu-v76.0-deb-${{ github.run_number }}
           path: output/*.deb
 
       - name: Upload .dylib (sideload)
         uses: actions/upload-artifact@v4
         with:
-          name: FEW1N-ModMenu-v72.0-dylib-${{ github.run_number }}
+          name: FEW1N-ModMenu-v76.0-dylib-${{ github.run_number }}
           path: output/FEW1NMod.dylib
+
+      # ===== SILEO / ZEBRA REPO (GitHub Pages) =====
+      # docs/ klasorune deb + Packages/Release yazar, gh-pages'i tetikler.
+      # Sileo'da eklenecek URL: https://<kullanici>.github.io/<repo>/
+      - name: Build Sileo repo (docs/)
+        run: |
+          mkdir -p docs/debs
+          # En son .deb'i kopyala (stable ismiyle) + versiyonlu ismi ile
+          cp output/*.deb docs/debs/
+          # En son surumu "latest.deb" olarak da tut
+          cp output/*.deb docs/debs/FEW1NMod_latest.deb
+
+          # Packages index olustur
+          cd docs
+          dpkg-scanpackages -m debs > Packages
+          gzip -9c Packages > Packages.gz
+          bzip2 -kf Packages
+          xz -kf Packages || true
+
+          # Release dosyasi (Sileo/Zebra icin gerekli)
+          cat > Release << EOF
+          Origin: FEW1N Mod Menu Repo
+          Label: FEW1N Repo
+          Suite: stable
+          Version: 1.0
+          Codename: ios
+          Architectures: iphoneos-arm64
+          Components: main
+          Description: FEW1N Mod Menu otomatik guncelleme deposu
+          EOF
+
+          # Basit index.html (repo tanitim)
+          cat > index.html << 'HTMLEOF'
+          <!DOCTYPE html>
+          <html><head><meta charset="utf-8"><title>FEW1N Mod Menu Repo</title>
+          <style>body{font-family:-apple-system,sans-serif;max-width:600px;margin:40px auto;padding:20px;background:#0a0a0a;color:#fff}
+          a{color:#ffd700}h1{color:#ffd700}pre{background:#1a1a1a;padding:12px;border-radius:8px;overflow:auto}</style></head>
+          <body>
+          <h1>🏎️ FEW1N Mod Menu</h1>
+          <p>DreamRoad Multiplayer mod menu — otomatik guncellemeli Sileo repo.</p>
+          <h3>Kurulum</h3>
+          <p>Sileo/Zebra'da <b>Sources → Add</b> ve bu URL'yi yapistir:</p>
+          <pre>https://few1n.github.io/iOS-Mod-Menu-Template-for-Theos/</pre>
+          <p>Sonra <b>FEW1N Mod Menu</b>'yu kur. Her yeni surumde Sileo update goruntuler.</p>
+          <p><a href="debs/FEW1NMod_latest.deb">Son .deb'i direkt indir</a></p>
+          </body></html>
+          HTMLEOF
+          ls -la
+          cd ..
+
+      - name: Commit & push repo files
+        run: |
+          git config user.email "actions@github.com"
+          git config user.name "GitHub Actions Bot"
+          git add docs/
+          git commit -m "Repo update: v76.0 build ${{ github.run_number }}" || echo "no changes"
+          git push origin HEAD:${{ github.ref_name }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
