@@ -12,7 +12,7 @@
 #import <objc/runtime.h>
 
 // ============================================================
-//  v79.0 - FEW1N MOD MENU  (derlenir, hatasiz - bu dosyayi kullan)
+//  v80.0 - FEW1N MOD MENU  (derlenir, hatasiz - bu dosyayi kullan)
 //  DUZELTME: rainbowWrap forward-decl (tanim sirasi), decl-order taramasi temiz, autogreet poll optimize.
 //  Ozellikler: GERCEK Kick (liste/isim), Ucus D-pad, Emoji sprite+test, Otomatik Karsilama, Normal Oda 31
 //  DreamRoadMultiplayer | Unity 6 (6000.3.0b1) | Metadata v39
@@ -2465,7 +2465,7 @@ static UIViewController* few1n_topVC(void) {
     title.font = [UIFont systemFontOfSize:17 weight:UIFontWeightBlack];
     [header addSubview:title];
     UILabel *ver = [[UILabel alloc] initWithFrame:CGRectMake(42,37,pw-90,16)];
-    ver.text = [NSString stringWithFormat:@"v79.0  •  Base 0x%lX", (unsigned long)global_base];
+    ver.text = [NSString stringWithFormat:@"v80.0  •  Base 0x%lX", (unsigned long)global_base];
     ver.textColor = [UIColor colorWithWhite:1 alpha:0.82];
     ver.font = [UIFont fontWithName:@"Menlo-Bold" size:8] ?: [UIFont systemFontOfSize:8 weight:UIFontWeightBold];
     [header addSubview:ver];
@@ -5909,34 +5909,54 @@ static void few1n_startCarCloneAttempt(NSString *scene) {
 - (void)changeWeatherOnly {
     few1n_claimMaster();
 
-    UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"🌤️ Canlı Hava Durumu & Zaman Seç"
-        message:@"Harita değişmeden ortamın saatini ve hava durumunu ayarlar:" preferredStyle:UIAlertControllerStyleAlert];
+    // Mevcut haritanin BASE ismini al: "Desert Night" -> "Desert", "Highway Rainy" -> "Highway"
+    NSString *cur = (pn_getActiveSceneName) ? readStr(pn_getActiveSceneName()) : @"Highway";
+    if (!cur || cur.length == 0) cur = @"Highway";
+    NSString *base = cur;
+    for (NSString *sfx in @[@" Sunset", @" Night", @" Rainy", @" Snow", @" Sunrise"]) {
+        if ([base hasSuffix:sfx]) { base = [base substringToIndex:base.length - sfx.length]; break; }
+    }
+    NSString *baseCopy = [base copy];
 
+    UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"🌤️ Canlı Hava Durumu & Zaman"
+        message:[NSString stringWithFormat:@"Mevcut harita: %@\nYalnızca zamanı/havayı değiştirir (harita KORUNUR):", base]
+        preferredStyle:UIAlertControllerStyleAlert];
+
+    // "" = base (default gunduz), "sfx" = variant. Dinamik olarak base + suffix birlestirilir.
     NSArray *weathers = @[
-        @{@"name": @"☀️ Gündüz / Güneşli", @"scene": @"Highway"},
-        @{@"name": @"🌅 Gün Batımı",       @"scene": @"Highway Sunset"},
-        @{@"name": @"🌙 Gece",             @"scene": @"Highway Night"},
-        @{@"name": @"🌧️ Yağmurlu & Sisli", @"scene": @"Highway Rainy"}
+        @{@"name": @"☀️ GÜNDÜZ / Güneşli", @"sfx": @""},
+        @{@"name": @"🌅 GÜN BATIMI",       @"sfx": @" Sunset"},
+        @{@"name": @"🌙 GECE",             @"sfx": @" Night"},
+        @{@"name": @"🌧️ YAĞMURLU & SİSLİ", @"sfx": @" Rainy"},
+        @{@"name": @"❄️ KAR",              @"sfx": @" Snow"},
     ];
 
     for (NSDictionary *w in weathers) {
-        NSString *wName = w[@"name"];
-        NSString *wScene= w[@"scene"];
+        NSString *wName  = w[@"name"];
+        NSString *wSfx   = w[@"sfx"];
+        NSString *target = [baseCopy stringByAppendingString:wSfx];
 
-        [ac addAction:[UIAlertAction actionWithTitle:wName style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
+        [ac addAction:[UIAlertAction actionWithTitle:[NSString stringWithFormat:@"%@   (%@)", wName, target]
+            style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
+            NSString *tgt = target;
+            FLog([NSString stringWithFormat:@"🌤️ HAVA: %@ -> yukleniyor '%@'", wName, tgt]);
             @try {
+                if (pn_loadLevelStr) {
+                    void* s = mkStr(tgt);
+                    if (s) { pn_loadLevelStr(s); FLog(@"🌤️ LoadLevel ile gonderildi"); return; }
+                }
                 if (lobbySetScene && lobbyGetInst) {
                     void* lobby = lobbyGetInst();
                     if (ptrOk(lobby)) {
-                        void* s = mkStr(wScene);
-                        if (s) { lobbySetScene(lobby, s); return; }
+                        void* s = mkStr(tgt);
+                        if (s) { lobbySetScene(lobby, s); FLog(@"🌤️ SetScene ile gonderildi"); return; }
                     }
                 }
-                if (pn_loadLevelStr) {
-                    void* s = mkStr(wScene);
-                    if (s) { pn_loadLevelStr(s); return; }
+                if (photonMgrEnp) {
+                    void* s = mkStr(tgt);
+                    if (s) { photonMgrEnp(s, false); FLog(@"🌤️ enp ile gonderildi"); }
                 }
-            } @catch (...) {}
+            } @catch (...) { FLog(@"🌤️ Exception"); }
         }]];
     }
 
@@ -7740,7 +7760,7 @@ static void few1n_poll(void) {
 }
 
 %ctor {
-    FLog(@"v79.0 basladi, UnityFramework araniyor...");
+    FLog(@"v80.0 basladi, UnityFramework araniyor...");
     restoreSettings();
 
     // ===== REKLAM BOZUCU: TUM reklam SDK'larini engelle (Obj-C runtime swizzle) =====
