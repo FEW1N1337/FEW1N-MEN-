@@ -12,7 +12,7 @@
 #import <objc/runtime.h>
 
 // ============================================================
-//  v83.0 - FEW1N MOD MENU  (derlenir, hatasiz - bu dosyayi kullan)
+//  v84.0 - FEW1N MOD MENU  (derlenir, hatasiz - bu dosyayi kullan)
 //  DUZELTME: rainbowWrap forward-decl (tanim sirasi), decl-order taramasi temiz, autogreet poll optimize.
 //  Ozellikler: GERCEK Kick (liste/isim), Ucus D-pad, Emoji sprite+test, Otomatik Karsilama, Normal Oda 31
 //  DreamRoadMultiplayer | Unity 6 (6000.3.0b1) | Metadata v39
@@ -855,6 +855,8 @@ static void* (*chatGetInst)(void) = NULL;
 static void  (*chatSend)(void* self, void* msg) = NULL;
 static void  (*tmp_set_text)(void* self, void* msg) = NULL;
 static void* (*tmp_get_text)(void* self) = NULL;   // TMP_InputField.get_text
+// v84: TMP_Text.set_richText — oda listesinde renk tag'larinin render edilmesi icin
+static void  (*tmp_set_richText)(void* self, bool value) = NULL;   // 0x66017B8
 static void* (*rinfo_getName)(void* self) = NULL;  // RoomInfo.get_Name (ham oda ismi)
 static void  (*pn_setNickName)(void* name) = NULL;
 static void* (*lobbyGetInst)(void) = NULL;
@@ -1956,9 +1958,19 @@ static void h_roomLineSetup(void* self, void* a, void* b, unsigned char c, unsig
             void* mapText   = *(void**)((uintptr_t)self + 0x28);  // Harita & Günün Saati (Otoban Gün Batımı) TMPro
             void* pCountText= *(void**)((uintptr_t)self + 0x30);  // Oyuncu Sayısı (Kişi Sayısının Solunda) TMPro
 
-            if (nameText && g_mSetRichText) setRichTextIl(nameText, true);
-            if (mapText && g_mSetRichText) setRichTextIl(mapText, true);
-            if (pCountText && g_mSetRichText) setRichTextIl(pCountText, true);
+            // v84: RichText render — direkt pointer + il2cpp invoke ikisini birden dene (garanti)
+            if (nameText) {
+                if (tmp_set_richText) { @try { tmp_set_richText(nameText, true); } @catch (...) {} }
+                if (g_mSetRichText) setRichTextIl(nameText, true);
+            }
+            if (mapText) {
+                if (tmp_set_richText) { @try { tmp_set_richText(mapText, true); } @catch (...) {} }
+                if (g_mSetRichText) setRichTextIl(mapText, true);
+            }
+            if (pCountText) {
+                if (tmp_set_richText) { @try { tmp_set_richText(pCountText, true); } @catch (...) {} }
+                if (g_mSetRichText) setRichTextIl(pCountText, true);
+            }
 
             if (nameText && tmp_set_text) {
                 void* rawName = (f && rinfo_getName) ? rinfo_getName(f) : a;
@@ -2465,7 +2477,7 @@ static UIViewController* few1n_topVC(void) {
     title.font = [UIFont systemFontOfSize:17 weight:UIFontWeightBlack];
     [header addSubview:title];
     UILabel *ver = [[UILabel alloc] initWithFrame:CGRectMake(42,37,pw-90,16)];
-    ver.text = [NSString stringWithFormat:@"v83.0  •  Base 0x%lX", (unsigned long)global_base];
+    ver.text = [NSString stringWithFormat:@"v84.0  •  Base 0x%lX", (unsigned long)global_base];
     ver.textColor = [UIColor colorWithWhite:1 alpha:0.82];
     ver.font = [UIFont fontWithName:@"Menlo-Bold" size:8] ?: [UIFont systemFontOfSize:8 weight:UIFontWeightBold];
     [header addSubview:ver];
@@ -2546,6 +2558,7 @@ static UIViewController* few1n_topVC(void) {
     y = [self toggle:@"\U0001F4A1  Hizli Selektor (far cakma)" sub:@"On farlari hizli ac/kapat (RCCP)" key:@"selektor" atY:y action:@selector(tapSelektor)];
     y = [self toggle:@"🔥  Pop & Bangs (Egzoz Alev Patlatma)" sub:@"Vites veya gaz birakmada egzoz alev/patlama efekti" key:@"popbangs" atY:y action:@selector(tapPopBangs)];
     y = [self toggle:@"🔊  Otomatik Havali Korna" sub:@"Ritmik havalı korna calar (herkese duyulur)" key:@"autohorn" atY:y action:@selector(tapAutoHorn)];
+    y = [self toggle:@"🔧  Yuksek Devir Kesici (Rev Limiter)" sub:@"Motor devrini sinirlar — asirinlanti bloklar" key:@"revlimiter" atY:y action:@selector(tapRevLimiter)];
     y = [self toggle:@"🔥  Yüksek Devir / Kesici Ses Modu" sub:@"Tüm oyunculara aracını 9000+ RPM kesici sesinde duyurur" key:@"revlimiter" atY:y action:@selector(tapRevLimiter)];
     y = [self actionRow:@"✏️  Selektor Hizi Ayarla" color:C_CYAN atY:y action:@selector(editSelektorSpeed)];
     y = [self actionRow:@"\U0001F53C  ZIPLA (bas)" color:C_ON atY:y action:@selector(jumpTap)];
@@ -5784,7 +5797,7 @@ static void few1n_startCarCloneAttempt(NSString *scene) {
     }
     // Master Client ol - sadece master oda ayarlarını değiştirebilir
     few1n_claimMaster();
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.3 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.2 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
         @try {
             void* room = pn_getCurrentRoom ? pn_getCurrentRoom() : NULL;
             if (!ptrOk(room)) { FLog(@"❌ Oda pointer alınamadı"); return; }
@@ -5814,7 +5827,7 @@ static void few1n_startCarCloneAttempt(NSString *scene) {
     }
     // Master Client ol
     few1n_claimMaster();
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.3 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.2 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
         @try {
             void* room = pn_getCurrentRoom ? pn_getCurrentRoom() : NULL;
             if (!ptrOk(room)) { FLog(@"❌ Oda pointer alınamadı"); return; }
@@ -5853,12 +5866,13 @@ static void few1n_startCarCloneAttempt(NSString *scene) {
     }];
     [ac addAction:[UIAlertAction actionWithTitle:@"Uygula" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
         NSString *pwd = ac.textFields.firstObject.text;
-        // Master Client ol
+        // Master Client ol — 1.2s bekle master onayi icin
         few1n_claimMaster();
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.3 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.2 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
             @try {
-                // Yontem: lobbyGetInst()->passwordInput ve passwordOnConnectInput TMP alanlarına yaz
-                // passwordInput@0x50, passwordOnConnectInput@0x60 (HR_PhotonLobbyManager)
+                // v84: TMP input yazmak client-side gorsel — gercek senk icin RoomInfo.CustomProperties["pwd"] set edilmeli.
+                // room_setCustomProperties(room, {"pwd": pass}, NULL, NULL) — CAS bypass icin expected=NULL
+                // NOT: Hashtable olusturma il2cpp'de karmasik; su an TMP input + client-side flag kullaniyoruz.
                 if (lobbyGetInst && tmp_set_text) {
                     void* lobby = lobbyGetInst();
                     if (ptrOk(lobby)) {
@@ -7634,6 +7648,7 @@ static void InstallEverything(uintptr_t b) {
     chatSend                  = (void(*)(void*,void*))(b + 0x31A626C);
     tmp_set_text              = (void(*)(void*,void*))(b + 0x65F4CC8);
     tmp_get_text              = (void*(*)(void*))(b + 0x65F4CC0);
+    tmp_set_richText          = (void(*)(void*,bool))(b + 0x66017B8);   // v84: renk tag'lari render
     rinfo_getName             = (void*(*)(void*))(b + 0x59293A4);   // RoomInfo.get_Name
     pn_setNickName            = (void(*)(void*))(b + 0x5933940);
     pn_joinRoom               = (bool(*)(void*,void*))(b + 0x593A64C);
@@ -7741,7 +7756,7 @@ static void few1n_poll(void) {
 }
 
 %ctor {
-    FLog(@"v83.0 basladi, UnityFramework araniyor...");
+    FLog(@"v84.0 basladi, UnityFramework araniyor...");
     restoreSettings();
 
     // ===== REKLAM BOZUCU: TUM reklam SDK'larini engelle (Obj-C runtime swizzle) =====
