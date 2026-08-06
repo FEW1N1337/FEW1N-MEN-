@@ -1,0 +1,118 @@
+name: Build iOS Mod Menu
+
+on:
+  push:
+    branches: [ "main", "master" ]
+    paths:
+      - 'template/**'
+      - 'Tweak.xm'
+      - 'control'
+      - '.github/workflows/build.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest   # v89: macOS quota tukendi, Linux runner limitsiz + hizli
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install Dependencies (Linux)
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y dpkg-dev ldid xz-utils fakeroot build-essential curl git perl
+
+      - name: Setup Theos
+        run: |
+          git clone --recursive https://github.com/theos/theos.git $HOME/theos
+          echo "THEOS=$HOME/theos" >> $GITHUB_ENV
+
+      - name: Setup iOS SDK
+        run: |
+          git clone --depth 1 https://github.com/theos/sdks.git
+          cp -R sdks/iPhoneOS* $HOME/theos/sdks/ || true
+
+      - name: Prepare Build Files
+        run: |
+          # Tweak.xm kokte degil template/ icindeyse koke kopyala
+          if [ ! -f Tweak.xm ] && [ -f template/Tweak.xm ]; then
+            cp template/Tweak.xm ./Tweak.xm
+          fi
+          ls -la Tweak.xm
+
+          cat > control << 'EOF'
+          Package: com.few1n.dreamroadmod
+          Name: FEW1N Mod Menu
+          Depends: mobilesubstrate, firmware (>= 14.0)
+          Version: 89.0
+          Architecture: iphoneos-arm64
+          Description: FEW1N Mod Menu v89.0 - Gelismis Ozel Oda (31 Kisi, Ozel Harita Etiketi, Canli Harita & Isim Degistirme, TMPro Short Hex Renkler, Polis Cakar/Siren, Pop&Bangs, Kesici Ses Modu, Otomatik Korna, Canli Reklam Bozucu)
+          Maintainer: few1n
+          Author: few1n
+          Section: Tweaks
+          EOF
+
+          cat > Makefile << 'EOF'
+          TARGET := iphone:clang:latest:14.0
+          ARCHS = arm64
+          INSTALL_TARGET_PROCESSES = DreamRoadMultiplayer
+          THEOS_PACKAGE_SCHEME = rootless
+
+          include $(THEOS)/makefiles/common.mk
+
+          TWEAK_NAME = FEW1NMod
+
+          FEW1NMod_FILES = Tweak.xm
+          FEW1NMod_CFLAGS = -fobjc-arc -Wno-deprecated-declarations -Wno-unused-variable -Wno-unused-function -Wno-unused-but-set-variable -Wno-format-invalid-specifier
+          FEW1NMod_FRAMEWORKS = UIKit Foundation QuartzCore CoreGraphics ImageIO PhotosUI
+          FEW1NMod_LIBRARIES = substrate
+
+          include $(THEOS_MAKE_PATH)/tweak.mk
+          EOF
+
+          cat > FEW1NMod.plist << 'EOF'
+          { Filter = { Bundles = ( "com.TenebryFox.DreamRoadMultiplayer" ); }; }
+          EOF
+
+      - name: Build Tweak
+        run: |
+          export THEOS=$HOME/theos
+          make clean
+          make package FINALPACKAGE=1
+
+      - name: Rename Package
+        run: |
+          mkdir -p output
+          cp packages/*.deb output/FEW1NMod_89.0_${{ github.run_number }}.deb
+
+      - name: Extract dylib for sideloading
+        run: |
+          DYLIB=$(find .theos/obj -name "*.dylib" | head -1)
+          if [ -z "$DYLIB" ]; then
+            dpkg -x packages/*.deb extracted
+            DYLIB=$(find extracted -name "*.dylib" | head -1)
+          fi
+          echo "dylib: $DYLIB"
+          cp "$DYLIB" output/FEW1NMod.dylib
+          ls -la output/
+
+      - name: Upload .deb (jailbreak)
+        uses: actions/upload-artifact@v4
+        with:
+          name: FEW1N-ModMenu-v89.0-deb-${{ github.run_number }}
+          path: output/*.deb
+
+      - name: Upload .dylib (sideload)
+        uses: actions/upload-artifact@v4
+        with:
+          name: FEW1N-ModMenu-v89.0-dylib-${{ github.run_number }}
+          path: output/FEW1NMod.dylib
+      # v88: Sileo repo tamamen kaldirildi. Deb ve dylib artifact olarak Actions'ta duruyor.
+      # Kurulum: Actions -> Build run -> Artifacts -> FEW1N-ModMenu-vXX.X-deb-YYY indir -> Filza ile kur.
