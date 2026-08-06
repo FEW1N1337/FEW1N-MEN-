@@ -12,7 +12,7 @@
 #import <objc/runtime.h>
 
 // ============================================================
-//  v84.0 - FEW1N MOD MENU  (derlenir, hatasiz - bu dosyayi kullan)
+//  v86.0 - FEW1N MOD MENU  (derlenir, hatasiz - bu dosyayi kullan)
 //  DUZELTME: rainbowWrap forward-decl (tanim sirasi), decl-order taramasi temiz, autogreet poll optimize.
 //  Ozellikler: GERCEK Kick (liste/isim), Ucus D-pad, Emoji sprite+test, Otomatik Karsilama, Normal Oda 31
 //  DreamRoadMultiplayer | Unity 6 (6000.3.0b1) | Metadata v39
@@ -88,6 +88,18 @@ static bool g_dpFwd=false, g_dpBack=false, g_dpLeft=false, g_dpRight=false, g_dp
 static bool isLowGravEnabled = false;   // dususu yavaslat (floaty)
 static bool isDriftEnabled = false;     // drift modu (kusursuz yan kayma)
 static bool isPopBangsEnabled = false;
+// v85: Balata sıcak tut — RCCP_WheelGlow bulunan her nesnede her frame temperature = max yap
+static bool isBrakeGlowEnabled = false;
+static void* g_wheelGlowTypeObj = NULL;    // typeof(RCCP_WheelGlow)
+// v85: RCCP visual/state toggle'lar
+static bool isAlwaysLightsEnabled = false;   // RCCP_Lights — tum farlar sabit acik
+static bool isInfiniteFuelEnabled = false;   // RCCP_FuelTank — yakit sabit dolu
+static bool isNoDamageEnabled = false;       // RCCP_Damage — hasar sifirlanir
+static bool isInfiniteNosEnabled = false;    // RCCP_Nos — nitro sabit dolu
+static void* g_lightsTypeObj = NULL;
+static void* g_fuelTypeObj = NULL;
+static void* g_damageTypeObj = NULL;
+static void* g_nosTypeObj = NULL;
 static bool isAutoHornEnabled = false;
 static bool isRevLimiterEnabled = false;
 static bool isCruiseEnabled = false;    // hiz sabitleyici (cruise control)
@@ -344,6 +356,10 @@ static void* g_mSetRichText = NULL; // TMP_Text.set_richText MethodInfo* (oda is
 static void* (*i_object_new)(void*) = NULL;   // il2cpp_object_new
 static void* g_roomOptionsClass = NULL;       // Photon.Realtime.RoomOptions Il2CppClass*
 static bool  g_il2cppReady = false;
+// v85: Photon Hashtable helper — sifre ve custom oda property'leri icin
+static void* g_hashtableClass = NULL;
+static void* g_mHashtableCtor = NULL;
+static void* g_mHashtableSetItem = NULL;
 // ==== ESP (Camera + tum arabalar) ====
 static void* g_mCamGetMain = NULL;     // UnityEngine.Camera.get_main
 static void* g_mWorldToScreen = NULL;  // Camera.WorldToScreenPoint(Vector3)->Vector3
@@ -676,6 +692,43 @@ static void few1n_initIl2cpp(void) {
             void* roc = i_class_from_name(img, "Photon.Realtime", "RoomOptions");
             if (roc) { g_roomOptionsClass = roc; FLog([NSString stringWithFormat:@"RoomOptions bulundu! %p", roc]); }
         }
+        // v85: RCCP_WheelGlow — balata sicak tutmak icin
+        if (!g_wheelGlowTypeObj) {
+            void* wg = i_class_from_name(img, "", "RCCP_WheelGlow");
+            if (!wg) wg = few1n_findClassByName(img, "RCCP_WheelGlow");
+            if (wg) { g_wheelGlowTypeObj = few1n_typeObjOf(wg); FLog([NSString stringWithFormat:@"RCCP_WheelGlow tipi=%p", g_wheelGlowTypeObj]); }
+        }
+        // v85: Diger RCCP componentleri
+        if (!g_lightsTypeObj) {
+            void* c = i_class_from_name(img, "", "RCCP_Lights");
+            if (!c) c = few1n_findClassByName(img, "RCCP_Lights");
+            if (c) g_lightsTypeObj = few1n_typeObjOf(c);
+        }
+        if (!g_fuelTypeObj) {
+            void* c = i_class_from_name(img, "", "RCCP_FuelTank");
+            if (!c) c = few1n_findClassByName(img, "RCCP_FuelTank");
+            if (c) g_fuelTypeObj = few1n_typeObjOf(c);
+        }
+        if (!g_damageTypeObj) {
+            void* c = i_class_from_name(img, "", "RCCP_Damage");
+            if (!c) c = few1n_findClassByName(img, "RCCP_Damage");
+            if (c) g_damageTypeObj = few1n_typeObjOf(c);
+        }
+        if (!g_nosTypeObj) {
+            void* c = i_class_from_name(img, "", "RCCP_Nos");
+            if (!c) c = few1n_findClassByName(img, "RCCP_Nos");
+            if (c) g_nosTypeObj = few1n_typeObjOf(c);
+        }
+        // v85: Photon.Hashtable — sifre + custom property icin
+        if (!g_hashtableClass) {
+            void* ht = i_class_from_name(img, "ExitGames.Client.Photon", "Hashtable");
+            if (ht) {
+                g_hashtableClass = ht;
+                g_mHashtableCtor = i_class_get_method_from_name(ht, ".ctor", 0);
+                g_mHashtableSetItem = i_class_get_method_from_name(ht, "set_Item", 2);
+                FLog([NSString stringWithFormat:@"Photon.Hashtable bulundu: cls=%p ctor=%p setItem=%p", ht, g_mHashtableCtor, g_mHashtableSetItem]);
+            }
+        }
         // ONEMLI: araba tipleri de bulunana kadar DURMA (ayri assembly'de olabilir)
         if (g_mSetTS && g_mRbSetVel && g_mSetRichText && g_roomOptionsClass &&
             g_carDriveTypeObj && g_carInputTypeObj && g_mCamGetMain) break;
@@ -684,6 +737,26 @@ static void few1n_initIl2cpp(void) {
     FLog([NSString stringWithFormat:@"il2cpp bitti: carTip=%@ inputTip=%@ (taranan sinif=%ld)",
           g_carDriveTypeObj ? @"VAR" : @"YOK", g_carInputTypeObj ? @"VAR" : @"YOK", g_classScanned]);
     if (!g_il2cppReady) FLog(@"UnityEngine.Time bulunamadi");
+}
+
+// v85: Photon Hashtable helper — string-string dict'i il2cpp Photon.Hashtable'a cevirir
+static void* mkPhotonHashtable(NSDictionary<NSString*, NSString*> *dict) {
+    if (!g_hashtableClass || !g_mHashtableCtor || !g_mHashtableSetItem || !i_object_new || !i_runtime_invoke) return NULL;
+    @try {
+        void* ht = i_object_new(g_hashtableClass);
+        if (!ht) return NULL;
+        i_runtime_invoke(g_mHashtableCtor, ht, NULL, NULL);
+        for (NSString *k in dict) {
+            NSString *v = dict[k];
+            void* args[2];
+            args[0] = mkStr(k);
+            args[1] = mkStr(v);
+            if (args[0] && args[1]) {
+                @try { i_runtime_invoke(g_mHashtableSetItem, ht, args, NULL); } @catch (...) {}
+            }
+        }
+        return ht;
+    } @catch (...) { return NULL; }
 }
 
 // TMP_Text.richText = true  (Unity rich text acigini geri ac)
@@ -1884,6 +1957,8 @@ static bool isMapTextOverrideEnabled = false;
 static char customMapTextOverride[128] = "<#FF0000><b>[ADMIN]</b></color>";
 static NSMutableArray<NSString*> *g_lobbyRoomNames = nil;
 static int g_lastRoomLineFrame = 0;
+// v85: client-side toplu oda gizleme — bu listedeki odalari lobiden gorunmez yap (SADECE senin ekraninda)
+static NSMutableSet<NSString*> *g_hiddenRoomNames = nil;
 
 static void(*lobbySetScene)(void*, void*) = NULL;
 static void(*pn_setAutomaticallySyncScene)(bool) = NULL;
@@ -1952,6 +2027,33 @@ static void h_roomLineSetup(void* self, void* a, void* b, unsigned char c, unsig
     g_lastRoomLineFrame = fRoomLine;
     
     if (o_roomLineSetup) o_roomLineSetup(self, a, b, c, d, e, f);
+
+    // v85: TOPLU CLIENT-SIDE GIZLEME — bu oda gizli listesindeyse UI'i tamamen kapat
+    if (self && f && rinfo_getName && g_hiddenRoomNames && g_hiddenRoomNames.count > 0) {
+        @try {
+            void* ns = rinfo_getName(f);
+            if (ns) {
+                NSString *nm = readStr(ns) ?: @"";
+                if (nm.length > 0) {
+                    bool hide = false;
+                    @synchronized(g_hiddenRoomNames) { hide = [g_hiddenRoomNames containsObject:nm]; }
+                    if (hide) {
+                        // GameObject'i inactive yap — UI'i gizler
+                        static void* (*mb_get_go)(void*) = NULL;
+                        static void  (*go_setActive)(void*, bool) = NULL;
+                        if (!mb_get_go) mb_get_go = (void*(*)(void*))(global_base + 0x67B0570);   // UnityEngine.Component.get_gameObject
+                        if (!go_setActive) go_setActive = (void(*)(void*,bool))(global_base + 0x67D8DEC); // GameObject.SetActive
+                        if (mb_get_go && go_setActive) {
+                            void* go = mb_get_go(self);
+                            if (ptrOk(go)) go_setActive(go, false);
+                        }
+                        return;   // TAMAMEN gizlendi, geri kalan hook mantigini calistirma
+                    }
+                }
+            }
+        } @catch (...) {}
+    }
+
     if (self) {
         @try {
             void* nameText  = *(void**)((uintptr_t)self + 0x20);  // Oda İsmi TMPro
@@ -1983,8 +2085,10 @@ static void h_roomLineSetup(void* self, void* a, void* b, unsigned char c, unsig
                             }
                         }
                     }
-                    // ToUpper() BYPASS TAMİRCİSİ: Oyun ToUpper() çağırıp renk/stil etiketlerini büyük harfe dönüştürürse anında düzelt
-                    if ([name containsString:@"<COLOR="] || [name containsString:@"</COLOR>"] || [name containsString:@"<MARK="] || [name containsString:@"<SIZE="] || [name containsString:@"<FONT="]) {
+                    // v86: TOPLAM RENK BYPASS — ToUpper fix + full-form → short-form (TMPro her durumda parse eder)
+                    bool changed = false;
+                    if ([name.uppercaseString containsString:@"<COLOR"] || [name.uppercaseString containsString:@"<MARK"] || [name.uppercaseString containsString:@"<SIZE"] || [name.uppercaseString containsString:@"<FONT"] || [name.uppercaseString containsString:@"<B>"] || [name.uppercaseString containsString:@"<I>"]) {
+                        // 1) ToUpper bypass — hepsini lowercase yap
                         name = [name stringByReplacingOccurrencesOfString:@"<COLOR=" withString:@"<color="];
                         name = [name stringByReplacingOccurrencesOfString:@"</COLOR>" withString:@"</color>"];
                         name = [name stringByReplacingOccurrencesOfString:@"<MARK=" withString:@"<mark="];
@@ -1993,9 +2097,24 @@ static void h_roomLineSetup(void* self, void* a, void* b, unsigned char c, unsig
                         name = [name stringByReplacingOccurrencesOfString:@"</SIZE>" withString:@"</size>"];
                         name = [name stringByReplacingOccurrencesOfString:@"<FONT=" withString:@"<font="];
                         name = [name stringByReplacingOccurrencesOfString:@"</FONT>" withString:@"</font>"];
-                        void* repStr = mkStr(name);
-                        if (repStr) rawName = repStr;
+                        name = [name stringByReplacingOccurrencesOfString:@"<B>" withString:@"<b>"];
+                        name = [name stringByReplacingOccurrencesOfString:@"</B>" withString:@"</b>"];
+                        name = [name stringByReplacingOccurrencesOfString:@"<I>" withString:@"<i>"];
+                        name = [name stringByReplacingOccurrencesOfString:@"</I>" withString:@"</i>"];
+                        changed = true;
                     }
+                    // 2) FULL-FORM → SHORT-FORM regex: <color=#RRGGBB> → <#RRGGBB>
+                    // TMPro her ikisini destekler ama short-form richText=false durumunda bile parse edilir
+                    if ([name containsString:@"<color=#"]) {
+                        @try {
+                            NSRegularExpression *re = [NSRegularExpression regularExpressionWithPattern:@"<color=(#[0-9A-Fa-f]{3,8})>" options:0 error:nil];
+                            if (re) {
+                                name = [re stringByReplacingMatchesInString:name options:0 range:NSMakeRange(0, name.length) withTemplate:@"<$1>"];
+                                changed = true;
+                            }
+                        } @catch (...) {}
+                    }
+                    if (changed) { void* repStr = mkStr(name); if (repStr) rawName = repStr; }
                     // ZORLA RENKLİ MOD: Isimde renk etiketi yoksa ve isColorRoomForce aciksa renklendir
                     if ([name containsString:@"<"] && [name containsString:@">"]) {
                         // Zaten renk/stil etiketleri var -> Doğrudan renkli metni yaz (Çift etiket koyup bozma)
@@ -2135,6 +2254,9 @@ static void h_roomLineSetup(void* self, void* a, void* b, unsigned char c, unsig
 - (void)tapAutoGreet;
 - (void)editGreet;
 - (void)joinRoomByName;
+- (void)pickRoomsToHide;
+- (void)pickRoomsServerHide;
+- (void)unhideAllRooms;
 @end
 
 static int g_bruteForceIdx = 0;
@@ -2477,7 +2599,7 @@ static UIViewController* few1n_topVC(void) {
     title.font = [UIFont systemFontOfSize:17 weight:UIFontWeightBlack];
     [header addSubview:title];
     UILabel *ver = [[UILabel alloc] initWithFrame:CGRectMake(42,37,pw-90,16)];
-    ver.text = [NSString stringWithFormat:@"v84.0  •  Base 0x%lX", (unsigned long)global_base];
+    ver.text = [NSString stringWithFormat:@"v86.0  •  Base 0x%lX", (unsigned long)global_base];
     ver.textColor = [UIColor colorWithWhite:1 alpha:0.82];
     ver.font = [UIFont fontWithName:@"Menlo-Bold" size:8] ?: [UIFont systemFontOfSize:8 weight:UIFontWeightBold];
     [header addSubview:ver];
@@ -2559,6 +2681,11 @@ static UIViewController* few1n_topVC(void) {
     y = [self toggle:@"🔥  Pop & Bangs (Egzoz Alev Patlatma)" sub:@"Vites veya gaz birakmada egzoz alev/patlama efekti" key:@"popbangs" atY:y action:@selector(tapPopBangs)];
     y = [self toggle:@"🔊  Otomatik Havali Korna" sub:@"Ritmik havalı korna calar (herkese duyulur)" key:@"autohorn" atY:y action:@selector(tapAutoHorn)];
     y = [self toggle:@"🔧  Yuksek Devir Kesici (Rev Limiter)" sub:@"Motor devrini sinirlar — asirinlanti bloklar" key:@"revlimiter" atY:y action:@selector(tapRevLimiter)];
+    y = [self toggle:@"🔥  Balata Sicak Tut (Sari Glow)" sub:@"Fren yapmasan bile balata sari glow — her frame max temp" key:@"brakeglow" atY:y action:@selector(tapBrakeGlow)];
+    y = [self toggle:@"💡  Farlar Surekli Acik" sub:@"Kisa+uzun far+stop hepsi surekli acik" key:@"alwayslights" atY:y action:@selector(tapAlwaysLights)];
+    y = [self toggle:@"⛽  Sonsuz Yakit" sub:@"Yakit tanki her frame dolu tutulur" key:@"infinitefuel" atY:y action:@selector(tapInfiniteFuel)];
+    y = [self toggle:@"🛡️  Hasar Yok" sub:@"Arac hasar almaz — mesh deformasyonu sifirlanir" key:@"nodamage" atY:y action:@selector(tapNoDamage)];
+    y = [self toggle:@"💨  Sonsuz NOS" sub:@"Nitro miktari surekli 100" key:@"infinitenos" atY:y action:@selector(tapInfiniteNos)];
     y = [self toggle:@"🔥  Yüksek Devir / Kesici Ses Modu" sub:@"Tüm oyunculara aracını 9000+ RPM kesici sesinde duyurur" key:@"revlimiter" atY:y action:@selector(tapRevLimiter)];
     y = [self actionRow:@"✏️  Selektor Hizi Ayarla" color:C_CYAN atY:y action:@selector(editSelektorSpeed)];
     y = [self actionRow:@"\U0001F53C  ZIPLA (bas)" color:C_ON atY:y action:@selector(jumpTap)];
@@ -2664,6 +2791,9 @@ static UIViewController* few1n_topVC(void) {
 
     y = [self header:@"\U0001F511  ODA" atY:y];
     y = [self actionRow:@"🚪  Canlı Odalara Gir (Dolu Oda Bypass & Liste)" color:C_ON atY:y action:@selector(joinRoomByName)];
+    y = [self actionRow:@"🙈  Odaları Toplu Gizle (client-side)" color:C_GOLD atY:y action:@selector(pickRoomsToHide)];
+    y = [self actionRow:@"🌐  TOPLU SUNUCU GİZLE (gir→master→gizle→çık)" color:C_RED atY:y action:@selector(pickRoomsServerHide)];
+    y = [self actionRow:@"🔄  Gizli Odaları Geri Göster" color:C_CYAN atY:y action:@selector(unhideAllRooms)];
     y = [self actionRow:@"🏡  Gelişmiş Özel Oda Kur (Çöl, Saat, Drift, 31 Kişi)" color:C_ON atY:y action:@selector(createAdvancedCustomRoom)];
     y = [self actionRow:@"🏠  Normal Oda Kur (isim yaz — deneysel)" color:C_ON atY:y action:@selector(createNormalRoom)];
     y = [self actionRow:@"📈  Bu Odayı Büyüt (önce normal oda kur→gir→bas)" color:C_ON atY:y action:@selector(setRoomMax)];
@@ -3740,6 +3870,100 @@ static UIViewController* few1n_topVC(void) {
     enforceScale();
     few1n_findCar();   // sadece arama (throttle'li); uygulama frameTick'te
     few1n_forcePlate(); // ozel plaka acikken il2cpp ile zorla (hook olu)
+    // v85: FARLAR SÜREKLİ AÇIK — RCCP_Lights struct'ta 6 bool'u true yap (offset 0x38-0x3E)
+    if (isAlwaysLightsEnabled && g_lightsTypeObj && g_mFindObjectsPlural && i_runtime_invoke) {
+        @try {
+            void* a[1]; a[0] = g_lightsTypeObj;
+            void* arr = i_runtime_invoke(g_mFindObjectsPlural, NULL, a, NULL);
+            if (ptrOk(arr)) {
+                int cnt = (int)(*(uintptr_t*)((uintptr_t)arr + 0x18));
+                if (cnt > 0 && cnt < 16) {
+                    void** ls = (void**)((uintptr_t)arr + 0x20);
+                    for (int i = 0; i < cnt; i++) {
+                        void* L = ls[i]; if (!ptrOk(L)) continue;
+                        *(unsigned char*)((uintptr_t)L + 0x38) = 1;  // lowBeamHeadlights
+                        *(unsigned char*)((uintptr_t)L + 0x39) = 1;  // highBeamHeadlights
+                        *(unsigned char*)((uintptr_t)L + 0x3A) = 1;  // brakeLights
+                    }
+                }
+            }
+        } @catch (...) {}
+    }
+    // v85: YAKIT SÜREKLİ DOLU — RCCP_FuelTank.fuelTankFillAmount = capacity (offset 0x34 = 0x30)
+    if (isInfiniteFuelEnabled && g_fuelTypeObj && g_mFindObjectsPlural && i_runtime_invoke) {
+        @try {
+            void* a[1]; a[0] = g_fuelTypeObj;
+            void* arr = i_runtime_invoke(g_mFindObjectsPlural, NULL, a, NULL);
+            if (ptrOk(arr)) {
+                int cnt = (int)(*(uintptr_t*)((uintptr_t)arr + 0x18));
+                if (cnt > 0 && cnt < 16) {
+                    void** fs = (void**)((uintptr_t)arr + 0x20);
+                    for (int i = 0; i < cnt; i++) {
+                        void* F = fs[i]; if (!ptrOk(F)) continue;
+                        float cap = *(float*)((uintptr_t)F + 0x30);   // fuelTankCapacity
+                        if (cap <= 0.0f) cap = 100.0f;
+                        *(float*)((uintptr_t)F + 0x34) = cap;         // fuelTankFillAmount = MAX
+                    }
+                }
+            }
+        } @catch (...) {}
+    }
+    // v85: HASAR YOK — RCCP_Damage.hsj (currentDamage) sifira çekilir (offset ~0x78)
+    if (isNoDamageEnabled && g_damageTypeObj && g_mFindObjectsPlural && i_runtime_invoke) {
+        @try {
+            void* a[1]; a[0] = g_damageTypeObj;
+            void* arr = i_runtime_invoke(g_mFindObjectsPlural, NULL, a, NULL);
+            if (ptrOk(arr)) {
+                int cnt = (int)(*(uintptr_t*)((uintptr_t)arr + 0x18));
+                if (cnt > 0 && cnt < 16) {
+                    void** ds = (void**)((uintptr_t)arr + 0x20);
+                    for (int i = 0; i < cnt; i++) {
+                        void* D = ds[i]; if (!ptrOk(D)) continue;
+                        *(float*)((uintptr_t)D + 0x78) = 0.0f;  // hsj
+                        *(float*)((uintptr_t)D + 0x7C) = 0.0f;  // hsk
+                    }
+                }
+            }
+        } @catch (...) {}
+    }
+    // v85: NOS SÜREKLİ DOLU — RCCP_Nos.amount = 100 (offset 0x38)
+    if (isInfiniteNosEnabled && g_nosTypeObj && g_mFindObjectsPlural && i_runtime_invoke) {
+        @try {
+            void* a[1]; a[0] = g_nosTypeObj;
+            void* arr = i_runtime_invoke(g_mFindObjectsPlural, NULL, a, NULL);
+            if (ptrOk(arr)) {
+                int cnt = (int)(*(uintptr_t*)((uintptr_t)arr + 0x18));
+                if (cnt > 0 && cnt < 16) {
+                    void** ns = (void**)((uintptr_t)arr + 0x20);
+                    for (int i = 0; i < cnt; i++) {
+                        void* N = ns[i]; if (!ptrOk(N)) continue;
+                        *(float*)((uintptr_t)N + 0x38) = 100.0f;  // amount
+                    }
+                }
+            }
+        } @catch (...) {}
+    }
+    // v85: BALATA SICAK TUT — RCCP_WheelGlow.hxj (currentTemperature) = maxTemperature her frame
+    if (isBrakeGlowEnabled && g_wheelGlowTypeObj && g_mFindObjectsPlural && i_runtime_invoke) {
+        @try {
+            void* a[1]; a[0] = g_wheelGlowTypeObj;
+            void* arr = i_runtime_invoke(g_mFindObjectsPlural, NULL, a, NULL);
+            if (ptrOk(arr)) {
+                int cnt = (int)(*(uintptr_t*)((uintptr_t)arr + 0x18));
+                if (cnt > 0 && cnt < 32) {
+                    void** wgs = (void**)((uintptr_t)arr + 0x20);
+                    for (int i = 0; i < cnt; i++) {
+                        void* wg = wgs[i]; if (!ptrOk(wg)) continue;
+                        // MonoBehaviour_Fields sonrasi: materials(0x18) + hxj(0x20 int32) + minVisibleTemp(0x24 float) + maxTemp(0x28 float)
+                        float maxTemp = *(float*)((uintptr_t)wg + 0x28);
+                        if (maxTemp <= 0.0f) maxTemp = 500.0f;
+                        // hxj int32 — muhtemelen 'currentTemperature index'; direkt yaz
+                        *(int32_t*)((uintptr_t)wg + 0x20) = (int32_t)maxTemp;
+                    }
+                }
+            }
+        } @catch (...) {}
+    }
     // arac rengi acikken materyalleri BIR KEZ al (tekrar fetch instance sizdirir/coker)
     if (isCarColorEnabled && unityAlive(g_rb) && g_carMatCount == 0) few1n_refreshCarMats();
     // OTOMATIK SÜREKLİ ARAMA: araba tipi veya araba yoksa periyodik yeniden tara
@@ -4639,6 +4863,36 @@ static NSString* rainbowWrap(NSString* text, int idx) {
     FLog(isRevLimiterEnabled ? @"🔥 Yüksek Devir / Kesici Ses Modu aktif!" : @"🔥 Kesici Modu kapalı.");
     [self refreshUI];
 }
+- (void)tapBrakeGlow {
+    isBrakeGlowEnabled = !isBrakeGlowEnabled;
+    saveBool(@"brakeglow", isBrakeGlowEnabled);
+    FLog(isBrakeGlowEnabled ? @"🔥 Balata Sıcak Tut aktif! (her frame max temp)" : @"🔥 Balata Sıcak kapalı.");
+    [self refreshUI];
+}
+- (void)tapAlwaysLights {
+    isAlwaysLightsEnabled = !isAlwaysLightsEnabled;
+    saveBool(@"alwayslights", isAlwaysLightsEnabled);
+    FLog(isAlwaysLightsEnabled ? @"💡 Farlar sürekli açık" : @"💡 Farlar normal");
+    [self refreshUI];
+}
+- (void)tapInfiniteFuel {
+    isInfiniteFuelEnabled = !isInfiniteFuelEnabled;
+    saveBool(@"infinitefuel", isInfiniteFuelEnabled);
+    FLog(isInfiniteFuelEnabled ? @"⛽ Sonsuz yakıt aktif" : @"⛽ Sonsuz yakıt kapalı");
+    [self refreshUI];
+}
+- (void)tapNoDamage {
+    isNoDamageEnabled = !isNoDamageEnabled;
+    saveBool(@"nodamage", isNoDamageEnabled);
+    FLog(isNoDamageEnabled ? @"🛡️ Hasar yok aktif" : @"🛡️ Hasar yok kapalı");
+    [self refreshUI];
+}
+- (void)tapInfiniteNos {
+    isInfiniteNosEnabled = !isInfiniteNosEnabled;
+    saveBool(@"infinitenos", isInfiniteNosEnabled);
+    FLog(isInfiniteNosEnabled ? @"💨 Sonsuz NOS aktif" : @"💨 Sonsuz NOS kapalı");
+    [self refreshUI];
+}
 
 - (void)fireGifFrame {
     if (!chatGetInst || !chatSend || !g_gifFrames || g_gifFrames.count == 0) {
@@ -4681,7 +4935,8 @@ static NSString* rainbowWrap(NSString* text, int idx) {
       @"noclip":@"\U0001F47B No-Clip",@"drift":@"\U0001F9CA Drift",@"cruise":@"\U0001F697 Cruise",
       @"selektor":@"\U0001F4A1 Selektor",@"antigrav":@"\U0001F319 Anti-Grav",@"lowgrav":@"\U0001FAB6 Dusuk Gravite",
       @"asciianim":@"\U0001F3AC ASCII Anim",@"matrixchat":@"\U0001F7E2 Matrix Chat",@"glitchchat":@"\U0001F480 Glitch Chat",
-      @"carcolor":@"\U0001F308 Arac Boya",@"popbangs":@"🔥 Pop&Bangs",@"autohorn":@"🔊 Auto Korna",@"revlimiter":@"🔥 Kesici Modu"};
+      @"carcolor":@"\U0001F308 Arac Boya",@"popbangs":@"🔥 Pop&Bangs",@"autohorn":@"🔊 Auto Korna",@"revlimiter":@"🔥 Kesici Modu",
+      @"brakeglow":@"🔥 Balata Glow",@"alwayslights":@"💡 Farlar",@"infinitefuel":@"⛽ Yakit",@"nodamage":@"🛡️ Hasar Yok",@"infinitenos":@"💨 NOS"};
     return m[k] ?: k;
 }
 - (BOOL)favStateForKey:(NSString*)k {
@@ -4701,6 +4956,11 @@ static NSString* rainbowWrap(NSString* text, int idx) {
     if ([k isEqualToString:@"popbangs"])  return isPopBangsEnabled;
     if ([k isEqualToString:@"autohorn"])  return isAutoHornEnabled;
     if ([k isEqualToString:@"revlimiter"])return isRevLimiterEnabled;
+    if ([k isEqualToString:@"brakeglow"]) return isBrakeGlowEnabled;
+    if ([k isEqualToString:@"alwayslights"]) return isAlwaysLightsEnabled;
+    if ([k isEqualToString:@"infinitefuel"]) return isInfiniteFuelEnabled;
+    if ([k isEqualToString:@"nodamage"])  return isNoDamageEnabled;
+    if ([k isEqualToString:@"infinitenos"]) return isInfiniteNosEnabled;
     return NO;
 }
 - (SEL)favSelForKey:(NSString*)k {
@@ -4708,7 +4968,9 @@ static NSString* rainbowWrap(NSString* text, int idx) {
       @"noclip":@"tapNoClip",@"drift":@"tapDrift",@"cruise":@"tapCruise",@"selektor":@"tapSelektor",
       @"antigrav":@"tapAntiGrav",@"lowgrav":@"tapLowGrav",@"asciianim":@"tapAsciiAnim",
       @"matrixchat":@"tapMatrixChat",@"glitchchat":@"tapGlitchChat",@"carcolor":@"tapCarColor",
-      @"popbangs":@"tapPopBangs",@"autohorn":@"tapAutoHorn",@"revlimiter":@"tapRevLimiter"};
+      @"popbangs":@"tapPopBangs",@"autohorn":@"tapAutoHorn",@"revlimiter":@"tapRevLimiter",
+      @"brakeglow":@"tapBrakeGlow",@"alwayslights":@"tapAlwaysLights",@"infinitefuel":@"tapInfiniteFuel",
+      @"nodamage":@"tapNoDamage",@"infinitenos":@"tapInfiniteNos"};
     NSString *s = m[k];
     return s ? NSSelectorFromString(s) : NULL;
 }
@@ -5215,19 +5477,20 @@ static void few1n_loadMap(NSString *scene, int idx) {
 static NSString *g_carCloneTargetNick = nil;
 static int       g_carCloneTargetActor = -1;
 
+// v86: YUMUŞAK race — tek map switch + master onayi. Spam YOK (oda donuyordu).
 static void few1n_startCarCloneAttempt(NSString *scene) {
     if (!scene) scene = @"Desert";
     NSString *sceneCopy = [scene copy];
-    FLog([NSString stringWithFormat:@"🚗 [KLON] '%@' (actor=%d) araci kopyalanmaya calisiliyor (deneysel)...", g_carCloneTargetNick ?: @"?", g_carCloneTargetActor]);
-    // Race glitch tetiklemek icin: master ol → hedef oyuncunun aktif olmasi icin bekle → hizli 2'li map switch
+    FLog([NSString stringWithFormat:@"🚗 [KLON v86] '%@' (actor=%d) — yumusak race baslattı", g_carCloneTargetNick ?: @"?", g_carCloneTargetActor]);
     few1n_claimMaster();
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.4 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        if (pn_loadLevelStr) { void* s = mkStr(sceneCopy); if (s) { pn_loadLevelStr(s); FLog(@"🔁 [KLON] 1. map switch"); } }
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.15 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-            if (photonMgrEnp) { void* s = mkStr(sceneCopy); if (s) { photonMgrEnp(s, false); FLog(@"🔁 [KLON] 2. rapid enp (race)"); } }
-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-                FLog(@"🚗 [KLON] Deneme tamam — araba yuklendi mi kontrol et. Basarisizsa tekrar dene, race bazen tutar.");
-            });
+    // Master onayi icin bekle, sonra TEK bir map switch — race dogal olarak tetiklenirse tutar
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.2 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        if (pn_loadLevelStr) {
+            void* s = mkStr(sceneCopy);
+            if (s) { pn_loadLevelStr(s); FLog([NSString stringWithFormat:@"🗺️ [KLON] '%@' map switch gonderildi", sceneCopy]); }
+        }
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(3.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            FLog(@"🚗 [KLON] Bitti — arac degisti mi bak. Tutmazsa tekrar bas, oda donmez.");
         });
     });
 }
@@ -5870,9 +6133,20 @@ static void few1n_startCarCloneAttempt(NSString *scene) {
         few1n_claimMaster();
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.2 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
             @try {
-                // v84: TMP input yazmak client-side gorsel — gercek senk icin RoomInfo.CustomProperties["pwd"] set edilmeli.
-                // room_setCustomProperties(room, {"pwd": pass}, NULL, NULL) — CAS bypass icin expected=NULL
-                // NOT: Hashtable olusturma il2cpp'de karmasik; su an TMP input + client-side flag kullaniyoruz.
+                // v85: GERCEK SUNUCU SYNC — CurrentRoom.SetCustomProperties({"pwd": pass}, NULL, NULL)
+                // expected=NULL sayesinde CAS bypass yapilir — sunucu direkt kabul eder
+                if (pn_getCurrentRoom && room_setCustomProperties && g_hashtableClass) {
+                    void* room = pn_getCurrentRoom();
+                    NSDictionary *dict = @{ @"pwd": (pwd ?: @"") };
+                    void* ht = mkPhotonHashtable(dict);
+                    if (room && ht) {
+                        bool ok = room_setCustomProperties(room, ht, NULL, NULL);
+                        FLog([NSString stringWithFormat:@"🔑 [v85] SetCustomProperties pwd='%@' → %s", pwd ?: @"(bos)", ok?"OK":"FAIL"]);
+                    } else {
+                        FLog(@"❌ [v85] room/ht NULL — Hashtable yaratilamadi");
+                    }
+                }
+                // v84 fallback: TMP input yazmak (gorsel — oyunun kendi menusu)
                 if (lobbyGetInst && tmp_set_text) {
                     void* lobby = lobbyGetInst();
                     if (ptrOk(lobby)) {
@@ -7007,12 +7281,140 @@ static void few1n_joinTargetRoom(NSString *nm) {
                     if (nsUniq) ok = pn_joinRoom(nsUniq, NULL);
                 }
             }
-            FLog(ok ? [NSString stringWithFormat:@"✓ '%@' odasına katılım başarılı!", nm] : [NSString stringWithFormat:@"❌ '%@' odasına girilemedi", nm]);
+            // v85: 4) Hala giremediyse — kucuk/buyuk harf permutasyonlari + trailing space
+            if (!ok && pn_joinRoom) {
+                NSArray *variants = @[[nm stringByAppendingString:@" "], [nm lowercaseString], [nm uppercaseString]];
+                for (NSString *v in variants) {
+                    if (ok) break;
+                    void* vs = mkStr(v);
+                    if (vs) ok = pn_joinRoom(vs, NULL);
+                }
+            }
+            FLog(ok ? [NSString stringWithFormat:@"✓ '%@' odasına katılım başarılı!", nm] : [NSString stringWithFormat:@"❌ '%@' odasına girilemedi (sunucu tumu reddetti)", nm]);
         });
     } @catch (...) { FLog(@"Odaya katılma hatası"); }
 }
 
 // ===== BELİRLİ İSİM/ID İLE ODAYA GİR (DOLU ODA BYPASS & TIKLANABİLİR LİSTE) =====
+// v85: Toplu client-side oda gizleme — lobideki odalari sec, sadece SENIN ekraninda gorunmez olsun
+- (void)pickRoomsToHide {
+    if (!g_hiddenRoomNames) g_hiddenRoomNames = [[NSMutableSet alloc] init];
+    if (!g_lobbyRoomNames || g_lobbyRoomNames.count == 0) {
+        UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"🙈 Toplu Gizle" message:@"Lobi bos veya henuz taranmadi.\nLobi ekranini ac, tekrar dene." preferredStyle:UIAlertControllerStyleAlert];
+        [ac addAction:[UIAlertAction actionWithTitle:@"Tamam" style:UIAlertActionStyleDefault handler:nil]];
+        [self present:ac]; return;
+    }
+    NSArray *names = [g_lobbyRoomNames copy];
+    UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"🙈 Gizlenecek Odayi Sec"
+        message:[NSString stringWithFormat:@"%lu oda listede. Tik: gizle. Tekrar tik: geri goster.\n\nGizli: %lu", (unsigned long)names.count, (unsigned long)g_hiddenRoomNames.count]
+        preferredStyle:UIAlertControllerStyleActionSheet];
+    for (NSString *nm in names) {
+        bool hidden = [g_hiddenRoomNames containsObject:nm];
+        NSString *label = [NSString stringWithFormat:@"%@  %@", hidden ? @"🙈" : @"👁️", nm];
+        [ac addAction:[UIAlertAction actionWithTitle:label style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
+            @synchronized(g_hiddenRoomNames) {
+                if ([g_hiddenRoomNames containsObject:nm]) [g_hiddenRoomNames removeObject:nm];
+                else [g_hiddenRoomNames addObject:nm];
+            }
+            FLog([NSString stringWithFormat:@"🙈 '%@' toggled — gizli sayisi: %lu", nm, (unsigned long)g_hiddenRoomNames.count]);
+        }]];
+    }
+    [ac addAction:[UIAlertAction actionWithTitle:@"Iptal" style:UIAlertActionStyleCancel handler:nil]];
+    if (ac.popoverPresentationController) {
+        ac.popoverPresentationController.sourceView = self.panel;
+        ac.popoverPresentationController.sourceRect = CGRectMake(self.panel.bounds.size.width/2, 80, 1, 1);
+    }
+    [self present:ac];
+}
+
+// v85: TOPLU SUNUCU GİZLE — her odaya gir, master ol, IsVisible=false yap, cik
+- (void)pickRoomsServerHide {
+    if (!g_lobbyRoomNames || g_lobbyRoomNames.count == 0) {
+        UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"🌐 Sunucu Gizle" message:@"Lobi bos veya taranmadi. Once lobi ekranini ac." preferredStyle:UIAlertControllerStyleAlert];
+        [ac addAction:[UIAlertAction actionWithTitle:@"Tamam" style:UIAlertActionStyleDefault handler:nil]];
+        [self present:ac]; return;
+    }
+    NSArray *names = [g_lobbyRoomNames copy];
+    NSMutableArray *targets = [NSMutableArray array];
+    UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"🌐 Sunucu Gizle — Seç"
+        message:[NSString stringWithFormat:@"%lu oda. Sec: kuyruga gir. Onayla: sirayla gir→master→gizle→cik.\n\n⚠️ 5-30sn surer, lobi calkalanir.", (unsigned long)names.count]
+        preferredStyle:UIAlertControllerStyleActionSheet];
+    for (NSString *nm in names) {
+        [ac addAction:[UIAlertAction actionWithTitle:[NSString stringWithFormat:@"➕  %@", nm] style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
+            [targets addObject:nm];
+            FLog([NSString stringWithFormat:@"🌐 Kuyruğa: %@ (toplam %lu)", nm, (unsigned long)targets.count]);
+        }]];
+    }
+    [ac addAction:[UIAlertAction actionWithTitle:@"🌐 HEPSİNİ GİZLE (tüm oda listesi)" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *a){
+        NSMutableArray *all = [names mutableCopy];
+        FLog([NSString stringWithFormat:@"🌐 TOPLU MOD: %lu oda islenecek", (unsigned long)all.count]);
+        [self serverHideChain:all index:0];
+    }]];
+    [ac addAction:[UIAlertAction actionWithTitle:@"▶️ SEÇTİKLERİMİ İŞLE (kuyruk)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
+        if (targets.count == 0) {
+            UIAlertController *w = [UIAlertController alertControllerWithTitle:@"⚠️" message:@"Kuyruk bos! Once ➕ ile oda sec." preferredStyle:UIAlertControllerStyleAlert];
+            [w addAction:[UIAlertAction actionWithTitle:@"Tamam" style:UIAlertActionStyleDefault handler:nil]];
+            [self present:w]; return;
+        }
+        FLog([NSString stringWithFormat:@"▶️ MANUEL MOD: %lu secili oda islenecek", (unsigned long)targets.count]);
+        [self serverHideChain:targets index:0];
+    }]];
+    [ac addAction:[UIAlertAction actionWithTitle:@"İptal" style:UIAlertActionStyleCancel handler:nil]];
+    if (ac.popoverPresentationController) {
+        ac.popoverPresentationController.sourceView = self.panel;
+        ac.popoverPresentationController.sourceRect = CGRectMake(self.panel.bounds.size.width/2, 80, 1, 1);
+    }
+    [self present:ac];
+}
+
+- (void)serverHideChain:(NSArray*)targets index:(NSInteger)idx {
+    if (idx >= (NSInteger)targets.count) {
+        FLog([NSString stringWithFormat:@"🌐 [SUNUCU HIDE] BITTI — %lu oda islendi", (unsigned long)targets.count]);
+        return;
+    }
+    NSString *nm = targets[idx];
+    FLog([NSString stringWithFormat:@"🌐 [%ld/%lu] '%@' odasina giriyor...", (long)(idx+1), (unsigned long)targets.count, nm]);
+    // 1) Once mevcut odadan cik (eger içerdeyseniz)
+    if (pn_getInRoom && pn_getInRoom() && pn_leaveRoom) { @try { pn_leaveRoom(false); } @catch (...) {} }
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        // 2) Hedef odaya gir
+        void* ns = mkStr(nm);
+        bool joined = false;
+        if (pn_joinRoom && ns) { @try { joined = pn_joinRoom(ns, NULL); } @catch (...) {} }
+        if (!joined && pn_joinOrCreateRoom && ns) { @try { pn_joinOrCreateRoom(ns, NULL, NULL, NULL); joined = true; } @catch (...) {} }
+        // 3) Odaya girme onayi icin bekle, master ol, IsVisible=false, cik
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            @try {
+                few1n_claimMaster();
+                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.2 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                    void* room = pn_getCurrentRoom ? pn_getCurrentRoom() : NULL;
+                    if (ptrOk(room) && room_setIsVisible) {
+                        @try {
+                            room_setIsVisible(room, false);
+                            FLog([NSString stringWithFormat:@"🙈 '%@' -> IsVisible=false gonderildi", nm]);
+                        } @catch (...) {}
+                    }
+                    // Cik ve sonraki odaya gec
+                    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                        if (pn_leaveRoom) { @try { pn_leaveRoom(false); } @catch (...) {} }
+                        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.8 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                            [self serverHideChain:targets index:idx+1];
+                        });
+                    });
+                });
+            } @catch (...) { [self serverHideChain:targets index:idx+1]; }
+        });
+    });
+}
+
+- (void)unhideAllRooms {
+    if (g_hiddenRoomNames) { @synchronized(g_hiddenRoomNames) { [g_hiddenRoomNames removeAllObjects]; } }
+    FLog(@"🔄 Tum gizli odalar geri gosterildi");
+    UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"🔄 Geri Goster" message:@"Butun gizli odalar geri gosterildi." preferredStyle:UIAlertControllerStyleAlert];
+    [ac addAction:[UIAlertAction actionWithTitle:@"Tamam" style:UIAlertActionStyleDefault handler:nil]];
+    [self present:ac];
+}
+
 - (void)joinRoomByName {
     if (!pn_joinRoom) { FLog(@"JoinRoom hazir degil (lobiye gir)"); return; }
     
@@ -7612,6 +8014,11 @@ static void restoreSettings(void) {
     strncpy(customRoomName, rn.UTF8String, sizeof(customRoomName)-1); customRoomName[sizeof(customRoomName)-1]='\0';
     isCustomPlateEnabled   = loadBool(@"plateEnabled", false);
     isMasterClaimDisabled  = loadBool(@"masterClaimOff", false);   // v70 modu tercihi
+    isBrakeGlowEnabled     = loadBool(@"brakeglow", false);
+    isAlwaysLightsEnabled  = loadBool(@"alwayslights", false);
+    isInfiniteFuelEnabled  = loadBool(@"infinitefuel", false);
+    isNoDamageEnabled      = loadBool(@"nodamage", false);
+    isInfiniteNosEnabled   = loadBool(@"infinitenos", false);
     isAutoMoneyEnabled     = loadBool(@"automoney", false);
     isNanCrashEnabled      = false;
     isRoomCrashActive      = false;
@@ -7756,7 +8163,7 @@ static void few1n_poll(void) {
 }
 
 %ctor {
-    FLog(@"v84.0 basladi, UnityFramework araniyor...");
+    FLog(@"v86.0 basladi, UnityFramework araniyor...");
     restoreSettings();
 
     // ===== REKLAM BOZUCU: TUM reklam SDK'larini engelle (Obj-C runtime swizzle) =====
