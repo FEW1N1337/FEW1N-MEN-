@@ -47,9 +47,9 @@ jobs:
           Package: com.few1n.dreamroadmod
           Name: FEW1N Mod Menu
           Depends: mobilesubstrate, firmware (>= 14.0)
-          Version: 76.0
+          Version: 86.0
           Architecture: iphoneos-arm64
-          Description: FEW1N Mod Menu v76.0 - Gelismis Ozel Oda (31 Kisi, Ozel Harita Etiketi, Canli Harita & Isim Degistirme, TMPro Short Hex Renkler, Polis Cakar/Siren, Pop&Bangs, Kesici Ses Modu, Otomatik Korna, Canli Reklam Bozucu)
+          Description: FEW1N Mod Menu v86.0 - Gelismis Ozel Oda (31 Kisi, Ozel Harita Etiketi, Canli Harita & Isim Degistirme, TMPro Short Hex Renkler, Polis Cakar/Siren, Pop&Bangs, Kesici Ses Modu, Otomatik Korna, Canli Reklam Bozucu)
           Maintainer: few1n
           Author: few1n
           Section: Tweaks
@@ -86,7 +86,7 @@ jobs:
       - name: Rename Package
         run: |
           mkdir -p output
-          cp packages/*.deb output/FEW1NMod_76.0_${{ github.run_number }}.deb
+          cp packages/*.deb output/FEW1NMod_86.0_${{ github.run_number }}.deb
 
       - name: Extract dylib for sideloading
         run: |
@@ -102,13 +102,13 @@ jobs:
       - name: Upload .deb (jailbreak)
         uses: actions/upload-artifact@v4
         with:
-          name: FEW1N-ModMenu-v76.0-deb-${{ github.run_number }}
+          name: FEW1N-ModMenu-v86.0-deb-${{ github.run_number }}
           path: output/*.deb
 
       - name: Upload .dylib (sideload)
         uses: actions/upload-artifact@v4
         with:
-          name: FEW1N-ModMenu-v76.0-dylib-${{ github.run_number }}
+          name: FEW1N-ModMenu-v86.0-dylib-${{ github.run_number }}
           path: output/FEW1NMod.dylib
 
       # ===== SILEO / ZEBRA REPO (GitHub Pages) =====
@@ -165,7 +165,7 @@ jobs:
           git config user.email "actions@github.com"
           git config user.name "GitHub Actions Bot"
           git add docs/
-          git commit -m "Repo update: v76.0 build ${{ github.run_number }}" || echo "no changes"
+          git commit -m "Repo update: v86.0 build ${{ github.run_number }}" || echo "no changes"
           git push origin HEAD:${{ github.ref_name }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
