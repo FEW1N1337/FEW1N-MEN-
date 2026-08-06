@@ -15,7 +15,7 @@ permissions:
 
 jobs:
   build:
-    runs-on: macos-latest
+    runs-on: ubuntu-latest   # v89: macOS quota tukendi, Linux runner limitsiz + hizli
 
     steps:
       - name: Checkout Repository
@@ -24,11 +24,10 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Install Dependencies
+      - name: Install Dependencies (Linux)
         run: |
-          export HOMEBREW_NO_INSTALL_CLEANUP=1
-          export HOMEBREW_NO_REQUIRE_TAP_TRUST=1
-          brew install dpkg ldid xz || true
+          sudo apt-get update -y
+          sudo apt-get install -y dpkg-dev ldid xz-utils fakeroot build-essential curl git perl
 
       - name: Setup Theos
         run: |
@@ -52,9 +51,9 @@ jobs:
           Package: com.few1n.dreamroadmod
           Name: FEW1N Mod Menu
           Depends: mobilesubstrate, firmware (>= 14.0)
-          Version: 88.0
+          Version: 89.0
           Architecture: iphoneos-arm64
-          Description: FEW1N Mod Menu v88.0 - Gelismis Ozel Oda (31 Kisi, Ozel Harita Etiketi, Canli Harita & Isim Degistirme, TMPro Short Hex Renkler, Polis Cakar/Siren, Pop&Bangs, Kesici Ses Modu, Otomatik Korna, Canli Reklam Bozucu)
+          Description: FEW1N Mod Menu v89.0 - Gelismis Ozel Oda (31 Kisi, Ozel Harita Etiketi, Canli Harita & Isim Degistirme, TMPro Short Hex Renkler, Polis Cakar/Siren, Pop&Bangs, Kesici Ses Modu, Otomatik Korna, Canli Reklam Bozucu)
           Maintainer: few1n
           Author: few1n
           Section: Tweaks
@@ -91,7 +90,7 @@ jobs:
       - name: Rename Package
         run: |
           mkdir -p output
-          cp packages/*.deb output/FEW1NMod_88.0_${{ github.run_number }}.deb
+          cp packages/*.deb output/FEW1NMod_89.0_${{ github.run_number }}.deb
 
       - name: Extract dylib for sideloading
         run: |
@@ -107,13 +106,13 @@ jobs:
       - name: Upload .deb (jailbreak)
         uses: actions/upload-artifact@v4
         with:
-          name: FEW1N-ModMenu-v88.0-deb-${{ github.run_number }}
+          name: FEW1N-ModMenu-v89.0-deb-${{ github.run_number }}
           path: output/*.deb
 
       - name: Upload .dylib (sideload)
         uses: actions/upload-artifact@v4
         with:
-          name: FEW1N-ModMenu-v88.0-dylib-${{ github.run_number }}
+          name: FEW1N-ModMenu-v89.0-dylib-${{ github.run_number }}
           path: output/FEW1NMod.dylib
       # v88: Sileo repo tamamen kaldirildi. Deb ve dylib artifact olarak Actions'ta duruyor.
       # Kurulum: Actions -> Build run -> Artifacts -> FEW1N-ModMenu-vXX.X-deb-YYY indir -> Filza ile kur.
