@@ -12,7 +12,7 @@
 #import <objc/runtime.h>
 
 // ============================================================
-//  v86.0 - FEW1N MOD MENU  (derlenir, hatasiz - bu dosyayi kullan)
+//  v88.0 - FEW1N MOD MENU  (derlenir, hatasiz - bu dosyayi kullan)
 //  DUZELTME: rainbowWrap forward-decl (tanim sirasi), decl-order taramasi temiz, autogreet poll optimize.
 //  Ozellikler: GERCEK Kick (liste/isim), Ucus D-pad, Emoji sprite+test, Otomatik Karsilama, Normal Oda 31
 //  DreamRoadMultiplayer | Unity 6 (6000.3.0b1) | Metadata v39
@@ -2599,7 +2599,7 @@ static UIViewController* few1n_topVC(void) {
     title.font = [UIFont systemFontOfSize:17 weight:UIFontWeightBlack];
     [header addSubview:title];
     UILabel *ver = [[UILabel alloc] initWithFrame:CGRectMake(42,37,pw-90,16)];
-    ver.text = [NSString stringWithFormat:@"v86.0  •  Base 0x%lX", (unsigned long)global_base];
+    ver.text = [NSString stringWithFormat:@"v88.0  •  Base 0x%lX", (unsigned long)global_base];
     ver.textColor = [UIColor colorWithWhite:1 alpha:0.82];
     ver.font = [UIFont fontWithName:@"Menlo-Bold" size:8] ?: [UIFont systemFontOfSize:8 weight:UIFontWeightBold];
     [header addSubview:ver];
@@ -5864,13 +5864,29 @@ static void few1n_startCarCloneAttempt(NSString *scene) {
             NSString *uniq = [newName stringByAppendingString:@"​"];
             void* nameStr = mkStr(uniq);
 
-            // Photon RoomInfo.name field'ının KESİN offset'i = 0x40 (dump.cs doğrulanmış)
+            // 1) CLIENT-SIDE memory patch — RoomInfo.name @ 0x40 (hızlı, sadece senin ekranında ve mod'lu client'larda görülür)
             if (pn_getCurrentRoom && nameStr) {
                 void* room = pn_getCurrentRoom();
                 if (ptrOk(room)) {
-                    // RoomInfo.name (0x40) adresine doğrudan yeni ismi yaz
                     *(void**)((uintptr_t)room + 0x40) = nameStr;
-                    FLog([NSString stringWithFormat:@"✓ Room.Name (0x40) başarıyla yazıldı: '%@'", newName]);
+                    FLog([NSString stringWithFormat:@"✓ Room.Name (0x40) client-side yazildi: '%@'", newName]);
+
+                    // 2) v87: SUNUCU-TARAFLI SYNC — CustomProperties["customName"] = newName
+                    // Hashtable helper ile gerçek Photon property gönder → diğer client'lar da (mod'suz dahil) uygun kodla okursa görebilir
+                    // few1n_claimMaster + Hashtable + room_setCustomProperties(expected=NULL, CAS bypass)
+                    few1n_claimMaster();
+                    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.2 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                        if (room_setCustomProperties && g_hashtableClass) {
+                            NSDictionary *dict = @{ @"customName": newName };
+                            void* ht = mkPhotonHashtable(dict);
+                            if (ht) {
+                                @try {
+                                    bool ok = room_setCustomProperties(room, ht, NULL, NULL);
+                                    FLog([NSString stringWithFormat:@"🎨 [v87] Oda ismi server sync: SetCustomProperties(customName='%@') → %s", newName, ok?"OK":"FAIL"]);
+                                } @catch (...) { FLog(@"🎨 [v87] SetCustomProperties exception"); }
+                            }
+                        }
+                    });
                 }
             }
 
@@ -8163,7 +8179,7 @@ static void few1n_poll(void) {
 }
 
 %ctor {
-    FLog(@"v86.0 basladi, UnityFramework araniyor...");
+    FLog(@"v88.0 basladi, UnityFramework araniyor...");
     restoreSettings();
 
     // ===== REKLAM BOZUCU: TUM reklam SDK'larini engelle (Obj-C runtime swizzle) =====
