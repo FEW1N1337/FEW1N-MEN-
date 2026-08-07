@@ -15,7 +15,7 @@ permissions:
 
 jobs:
   build:
-    runs-on: ubuntu-latest   # v89: macOS quota tukendi, Linux runner limitsiz + hizli
+    runs-on: ubuntu-22.04   # v89: ubuntu-latest = 24.04, libtinfo5 yok. 22.04'te native destek var.
 
     steps:
       - name: Checkout Repository
@@ -24,19 +24,16 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Install Dependencies (Linux)
+      - name: Install Dependencies (Linux 22.04)
         run: |
           sudo apt-get update -y
-          sudo apt-get install -y dpkg-dev xz-utils fakeroot build-essential curl git perl clang libncurses6
-          # v89: ldid Ubuntu repo'da yok — ProcursusTeam GitHub release'inden binary indir
+          # v89: Ubuntu 22.04 — libtinfo5 native olarak apt'ta var (24.04'te yok)
+          sudo apt-get install -y dpkg-dev xz-utils fakeroot build-essential curl git perl clang libtinfo5 libncurses5
+          # ldid Ubuntu repo'da yok — GitHub release binary
           sudo curl -L https://github.com/ProcursusTeam/ldid/releases/download/v2.1.5-procursus7/ldid_linux_x86_64 -o /usr/local/bin/ldid
           sudo chmod +x /usr/local/bin/ldid
-          ldid --version || echo "ldid installed"
-          # v89: Sam Bingner toolchain'i libtinfo.so.5 arıyor — Ubuntu 24.04'te libtinfo6 var, symlink
-          sudo ln -sf /usr/lib/x86_64-linux-gnu/libtinfo.so.6 /usr/lib/x86_64-linux-gnu/libtinfo.so.5
-          sudo ln -sf /usr/lib/x86_64-linux-gnu/libncurses.so.6 /usr/lib/x86_64-linux-gnu/libncurses.so.5 || true
-          echo "==> libtinfo symlink kuruldu:"
-          ls -la /usr/lib/x86_64-linux-gnu/libtinfo.so.*
+          echo "==> libtinfo durumu:"
+          ls -la /usr/lib/x86_64-linux-gnu/libtinfo* 2>/dev/null || echo "yok"
 
       - name: Setup Theos
         run: |
