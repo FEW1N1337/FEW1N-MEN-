@@ -27,7 +27,11 @@ jobs:
       - name: Install Dependencies (Linux)
         run: |
           sudo apt-get update -y
-          sudo apt-get install -y dpkg-dev ldid xz-utils fakeroot build-essential curl git perl clang
+          sudo apt-get install -y dpkg-dev xz-utils fakeroot build-essential curl git perl clang
+          # v89: ldid Ubuntu repo'da yok — ProcursusTeam GitHub release'inden binary indir
+          sudo curl -L https://github.com/ProcursusTeam/ldid/releases/download/v2.1.5-procursus7/ldid_linux_x86_64 -o /usr/local/bin/ldid
+          sudo chmod +x /usr/local/bin/ldid
+          ldid --version || echo "ldid installed"
 
       - name: Setup Theos
         run: |
