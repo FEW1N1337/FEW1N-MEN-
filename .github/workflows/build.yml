@@ -46,14 +46,15 @@ jobs:
       - name: Setup iOS Cross Toolchain (Sam Bingner llvm)
         run: |
           cd $HOME/theos
-          mkdir -p toolchain
-          cd toolchain
-          curl -L -o toolchain.tar.lzma https://github.com/sbingner/llvm-project/releases/download/v10.0.0-1/linux-ios-arm64e-clang-toolchain.tar.lzma
-          xz -d toolchain.tar.lzma
-          tar -xf toolchain.tar
-          mv ios-arm64e-clang-toolchain linux
-          rm toolchain.tar
-          ls -la $HOME/theos/toolchain/linux/iphone/bin/ | head -10
+          mkdir -p toolchain/linux/iphone
+          curl -L -o /tmp/toolchain.tar.lzma https://github.com/sbingner/llvm-project/releases/download/v10.0.0-1/linux-ios-arm64e-clang-toolchain.tar.lzma
+          ls -la /tmp/toolchain.tar.lzma
+          xz -d /tmp/toolchain.tar.lzma
+          tar -xf /tmp/toolchain.tar -C toolchain/linux/iphone --strip-components=1
+          rm /tmp/toolchain.tar
+          echo "==> Toolchain kuruldu:"
+          ls -la toolchain/linux/iphone/bin/ | head -10
+          test -f toolchain/linux/iphone/bin/clang && echo "✓ clang bulundu" || (echo "✗ clang YOK"; exit 1)
 
       - name: Prepare Build Files
         run: |
@@ -130,4 +131,3 @@ jobs:
         with:
           name: FEW1N-ModMenu-v89.0-dylib-${{ github.run_number }}
           path: output/FEW1NMod.dylib
- 
