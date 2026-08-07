@@ -27,11 +27,16 @@ jobs:
       - name: Install Dependencies (Linux)
         run: |
           sudo apt-get update -y
-          sudo apt-get install -y dpkg-dev xz-utils fakeroot build-essential curl git perl clang
+          sudo apt-get install -y dpkg-dev xz-utils fakeroot build-essential curl git perl clang libncurses6
           # v89: ldid Ubuntu repo'da yok — ProcursusTeam GitHub release'inden binary indir
           sudo curl -L https://github.com/ProcursusTeam/ldid/releases/download/v2.1.5-procursus7/ldid_linux_x86_64 -o /usr/local/bin/ldid
           sudo chmod +x /usr/local/bin/ldid
           ldid --version || echo "ldid installed"
+          # v89: Sam Bingner toolchain'i libtinfo.so.5 arıyor — Ubuntu 24.04'te libtinfo6 var, symlink
+          sudo ln -sf /usr/lib/x86_64-linux-gnu/libtinfo.so.6 /usr/lib/x86_64-linux-gnu/libtinfo.so.5
+          sudo ln -sf /usr/lib/x86_64-linux-gnu/libncurses.so.6 /usr/lib/x86_64-linux-gnu/libncurses.so.5 || true
+          echo "==> libtinfo symlink kuruldu:"
+          ls -la /usr/lib/x86_64-linux-gnu/libtinfo.so.*
 
       - name: Setup Theos
         run: |
