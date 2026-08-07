@@ -44,6 +44,8 @@ jobs:
         run: |
           git clone --depth 1 https://github.com/theos/sdks.git
           cp -R sdks/iPhoneOS* $HOME/theos/sdks/ || true
+          # Fix: SDK ve toolchain arasindaki C++ modulemap cakismasini kaldir
+          rm -f $HOME/theos/sdks/iPhoneOS*.sdk/usr/include/c++/v1/module.modulemap
 
       - name: Setup iOS Cross Toolchain (Sam Bingner llvm)
         run: |
