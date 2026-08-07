@@ -15,7 +15,7 @@ permissions:
 
 jobs:
   build:
-    runs-on: macos-14
+    runs-on: ubuntu-22.04   # v89: ubuntu-latest = 24.04, libtinfo5 yok. 22.04'te native destek var.
 
     steps:
       - name: Checkout Repository
@@ -24,19 +24,45 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Install Dependencies
+      - name: Install Dependencies (Linux 22.04)
         run: |
-          brew install ldid dpkg xz
-          echo "Xcode: $(xcode-select -p)"
-          echo "SDK: $(xcrun --sdk iphoneos --show-sdk-path)"
+          sudo apt-get update -y
+          # v89: Ubuntu 22.04 — libtinfo5 native olarak apt'ta var (24.04'te yok)
+          sudo apt-get install -y dpkg-dev xz-utils fakeroot build-essential curl git perl clang libtinfo5 libncurses5
+          # ldid Ubuntu repo'da yok — GitHub release binary
+          sudo curl -L https://github.com/ProcursusTeam/ldid/releases/download/v2.1.5-procursus7/ldid_linux_x86_64 -o /usr/local/bin/ldid
+          sudo chmod +x /usr/local/bin/ldid
+          echo "==> libtinfo durumu:"
+          ls -la /usr/lib/x86_64-linux-gnu/libtinfo* 2>/dev/null || echo "yok"
 
       - name: Setup Theos
         run: |
           git clone --recursive https://github.com/theos/theos.git $HOME/theos
           echo "THEOS=$HOME/theos" >> $GITHUB_ENV
 
+      - name: Setup iOS SDK
+        run: |
+          git clone --depth 1 https://github.com/theos/sdks.git
+          cp -R sdks/iPhoneOS* $HOME/theos/sdks/ || true
+          # Fix: SDK ve toolchain arasindaki C++ modulemap cakismasini kaldir
+          rm -f $HOME/theos/sdks/iPhoneOS*.sdk/usr/include/c++/v1/module.modulemap
+
+      - name: Setup iOS Cross Toolchain (Sam Bingner llvm)
+        run: |
+          cd $HOME/theos
+          mkdir -p toolchain/linux/iphone
+          curl -L -o /tmp/toolchain.tar.lzma https://github.com/sbingner/llvm-project/releases/download/v10.0.0-1/linux-ios-arm64e-clang-toolchain.tar.lzma
+          ls -la /tmp/toolchain.tar.lzma
+          xz -d /tmp/toolchain.tar.lzma
+          tar -xf /tmp/toolchain.tar -C toolchain/linux/iphone --strip-components=1
+          rm /tmp/toolchain.tar
+          echo "==> Toolchain kuruldu:"
+          ls -la toolchain/linux/iphone/bin/ | head -10
+          test -f toolchain/linux/iphone/bin/clang && echo "✓ clang bulundu" || (echo "✗ clang YOK"; exit 1)
+
       - name: Prepare Build Files
         run: |
+          # Tweak.xm kokte degil template/ icindeyse koke kopyala
           if [ ! -f Tweak.xm ] && [ -f template/Tweak.xm ]; then
             cp template/Tweak.xm ./Tweak.xm
           fi
@@ -48,7 +74,7 @@ jobs:
           Depends: mobilesubstrate, firmware (>= 14.0)
           Version: 89.0
           Architecture: iphoneos-arm64
-          Description: FEW1N Mod Menu v89.0
+          Description: FEW1N Mod Menu v89.0 - Gelismis Ozel Oda (31 Kisi, Ozel Harita Etiketi, Canli Harita & Isim Degistirme, TMPro Short Hex Renkler, Polis Cakar/Siren, Pop&Bangs, Kesici Ses Mod[...]
           Maintainer: few1n
           Author: few1n
           Section: Tweaks
@@ -82,47 +108,30 @@ jobs:
           make clean
           make package FINALPACKAGE=1
 
-      - name: Prepare Output
+      - name: Rename Package
         run: |
           mkdir -p output
           cp packages/*.deb output/FEW1NMod_89.0_${{ github.run_number }}.deb
+
+      - name: Extract dylib for sideloading
+        run: |
           DYLIB=$(find .theos/obj -name "*.dylib" | head -1)
           if [ -z "$DYLIB" ]; then
             dpkg -x packages/*.deb extracted
             DYLIB=$(find extracted -name "*.dylib" | head -1)
           fi
+          echo "dylib: $DYLIB"
           cp "$DYLIB" output/FEW1NMod.dylib
-          echo "==> Output:"
           ls -la output/
 
-      - name: Upload .deb
+      - name: Upload .deb (jailbreak)
         uses: actions/upload-artifact@v4
         with:
           name: FEW1N-ModMenu-v89.0-deb-${{ github.run_number }}
           path: output/*.deb
 
-      - name: Upload .dylib
+      - name: Upload .dylib (sideload)
         uses: actions/upload-artifact@v4
         with:
           name: FEW1N-ModMenu-v89.0-dylib-${{ github.run_number }}
           path: output/FEW1NMod.dylib
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            output/*.deb
-            output/*.dylib
-          tag_name: v89.0-build${{ github.run_number }}
-          name: FEW1N Mod Menu v89.0 (Build #${{ github.run_number }})
-          body: |
-            🚀 **FEW1N Mod Menu Otomatik Derleme**
-            
-            - **Sürüm:** v89.0
-            - **Build:** #${{ github.run_number }}
-            - **Commit:** ${{ github.sha }}
-            
-            `.deb` → Jailbreak (Filza/Sileo)
-            `.dylib` → Sideload (ESign/TrollStore)
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
