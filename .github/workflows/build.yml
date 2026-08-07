@@ -89,7 +89,7 @@ jobs:
           TWEAK_NAME = FEW1NMod
 
           FEW1NMod_FILES = Tweak.xm
-          FEW1NMod_CFLAGS = -fobjc-arc -Wno-deprecated-declarations -Wno-unused-variable -Wno-unused-function -Wno-unused-but-set-variable -Wno-format-invalid-specifier
+          FEW1NMod_CFLAGS = -fobjc-arc -Wno-deprecated-declarations -Wno-unused-variable -Wno-unused-function -Wno-format-invalid-specifier -Wno-unknown-warning-option
           FEW1NMod_FRAMEWORKS = UIKit Foundation QuartzCore CoreGraphics ImageIO PhotosUI
           FEW1NMod_LIBRARIES = substrate
 
