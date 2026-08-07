@@ -323,6 +323,12 @@ static NSArray* chatTemplates(void) {
     ];
 }
 static void* (*cached_il2cpp_string_new)(const char*) = NULL;
+static void* mkStr(NSString* s) {
+    if (!cached_il2cpp_string_new)
+        cached_il2cpp_string_new = (void*(*)(const char*))dlsym(RTLD_DEFAULT, "il2cpp_string_new");
+    if (!cached_il2cpp_string_new || !s) return NULL;
+    return cached_il2cpp_string_new(s.UTF8String);
+}
 static uintptr_t global_base = 0;
 static int hookSuccessCount = 0;
 static int hookFailCount = 0;
@@ -831,12 +837,7 @@ static float getTimeScaleVal(void) {
     return *(float*)((uintptr_t)box + 0x10);                    // unbox
 }
 
-static void* mkStr(NSString* s) {
-    if (!cached_il2cpp_string_new)
-        cached_il2cpp_string_new = (void*(*)(const char*))dlsym(RTLD_DEFAULT, "il2cpp_string_new");
-    if (!cached_il2cpp_string_new || !s) return NULL;
-    return cached_il2cpp_string_new(s.UTF8String);
-}
+
 static NSString* readStr(void* il2s) {
     if (!il2s) return @"";
     @try {
