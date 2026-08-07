@@ -43,6 +43,18 @@ jobs:
           git clone --depth 1 https://github.com/theos/sdks.git
           cp -R sdks/iPhoneOS* $HOME/theos/sdks/ || true
 
+      - name: Setup iOS Cross Toolchain (Sam Bingner llvm)
+        run: |
+          cd $HOME/theos
+          mkdir -p toolchain
+          cd toolchain
+          curl -L -o toolchain.tar.lzma https://github.com/sbingner/llvm-project/releases/download/v10.0.0-1/linux-ios-arm64e-clang-toolchain.tar.lzma
+          xz -d toolchain.tar.lzma
+          tar -xf toolchain.tar
+          mv ios-arm64e-clang-toolchain linux
+          rm toolchain.tar
+          ls -la $HOME/theos/toolchain/linux/iphone/bin/ | head -10
+
       - name: Prepare Build Files
         run: |
           # Tweak.xm kokte degil template/ icindeyse koke kopyala
