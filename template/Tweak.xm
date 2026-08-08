@@ -91,6 +91,8 @@ static bool isPopBangsEnabled = false;
 // v85: Balata sıcak tut — RCCP_WheelGlow bulunan her nesnede her frame temperature = max yap
 static bool isBrakeGlowEnabled = false;
 static void* g_wheelGlowTypeObj = NULL;    // typeof(RCCP_WheelGlow)
+// v91: Hasar Yok — RCCP_Damage.Update hook ile
+static bool isNoDamageEnabled = false;
 // v85: RCCP visual/state toggle'lar
 // v90: 4 RCCP toggle SİLİNDİ (Farlar, Yakıt, Hasar Yok, NOS) — offset uyumsuzluğu crash sebep
 static bool isAutoHornEnabled = false;
