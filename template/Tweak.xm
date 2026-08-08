@@ -12,7 +12,7 @@
 #import <objc/runtime.h>
 
 // ============================================================
-//  v91.0 - FEW1N MOD MENU  (derlenir, hatasiz - bu dosyayi kullan)
+//  v95.0 - FEW1N MOD MENU  (derlenir, hatasiz - bu dosyayi kullan)
 //  DUZELTME: rainbowWrap forward-decl (tanim sirasi), decl-order taramasi temiz, autogreet poll optimize.
 //  Ozellikler: GERCEK Kick (liste/isim), Ucus D-pad, Emoji sprite+test, Otomatik Karsilama, Normal Oda 31
 //  DreamRoadMultiplayer | Unity 6 (6000.3.0b1) | Metadata v39
@@ -154,6 +154,7 @@ static NSTimer *tickTimer = nil;
 static NSTimer *asciiTimer = nil;
 static NSTimer *lyricsTimer = nil;
 static NSTimer *roomSpamTimer = nil;
+static NSTimer *brakeGlowTimer = nil;   // v93: Balata SUREKLI aktif tutmak icin 2s reapply timer
 static NSTimer *nameMarqueeTimer = nil;   // kayan yazi isim / isim dongusu
 static NSTimer *announceTimer = nil;      // chat oto-duyuru
 
@@ -1811,13 +1812,7 @@ static void h_playerInputFixed(void* self) {
     if (o_playerInputFixed) o_playerInputFixed(self);
 }
 
-// v91: RCCP_Damage.Update hook — hasar sistemi
-static void (*o_damageUpdate)(void*) = NULL;
-static void h_damageUpdate(void* self) {
-    // isNoDamageEnabled açıksa Update'i çağırma → damage tracking hiç çalışmaz → hasar oluşmaz
-    if (isNoDamageEnabled) return;
-    if (o_damageUpdate) o_damageUpdate(self);
-}
+// v92: RCCP_Damage.Update hook GERI ALINDI — dokunmatik/input bug sebep olabilir
 
 // ===== RCCP araba (oyuncu bunu kullaniyor) - Rigidbody yakala =====
 // RCCP_MainComponent Rigidbody @ self+0x48
@@ -2561,7 +2556,7 @@ static UIViewController* few1n_topVC(void) {
     title.font = [UIFont systemFontOfSize:17 weight:UIFontWeightBlack];
     [header addSubview:title];
     UILabel *ver = [[UILabel alloc] initWithFrame:CGRectMake(42,37,pw-90,16)];
-    ver.text = [NSString stringWithFormat:@"v91.0  •  Base 0x%lX", (unsigned long)global_base];
+    ver.text = [NSString stringWithFormat:@"v95.0  •  Base 0x%lX", (unsigned long)global_base];
     ver.textColor = [UIColor colorWithWhite:1 alpha:0.82];
     ver.font = [UIFont fontWithName:@"Menlo-Bold" size:8] ?: [UIFont systemFontOfSize:8 weight:UIFontWeightBold];
     [header addSubview:ver];
@@ -3030,6 +3025,29 @@ static UIViewController* few1n_topVC(void) {
 }
 
 - (void)refreshUI {
+    // v93 KESIN FIX: bir UIAlertController veya keyboard aktifken refreshUI ATLA.
+    // Yoksa 0.02s roomSpam / 0.3s tickTimer subview'lari destroy edip TextField'i
+    // FirstResponder'dan kopariyor -> yazamama + dokunmatik bug. Bu bug sporadikti,
+    // suanki Balata rollback'inden BAGIMSIZ ve ONCEDEN de vardi.
+    @try {
+        UIWindow *kw = nil;
+        if (@available(iOS 13.0, *)) {
+            for (UIScene *sc in [UIApplication sharedApplication].connectedScenes) {
+                if ([sc isKindOfClass:[UIWindowScene class]]) {
+                    for (UIWindow *w in ((UIWindowScene*)sc).windows) { if (w.isKeyWindow) { kw = w; break; } }
+                }
+                if (kw) break;
+            }
+        }
+        if (!kw) kw = [UIApplication sharedApplication].keyWindow;
+        UIViewController *root = kw.rootViewController;
+        UIViewController *pres = root;
+        while (pres.presentedViewController) pres = pres.presentedViewController;
+        if ([pres isKindOfClass:[UIAlertController class]]) {
+            // Bir alert (textfield dahil) acik - refreshUI'yi ATLA, TextField focus kaybini onle
+            return;
+        }
+    } @catch (...) {}
     for (NSNumber *v in self.speedBtns) {
         UIButton *b = self.speedBtns[v];
         BOOL on = (speedMode == v.intValue);
@@ -3073,6 +3091,12 @@ static UIViewController* few1n_topVC(void) {
     [self setToggle:@"popbangs" on:isPopBangsEnabled];
     [self setToggle:@"autohorn" on:isAutoHornEnabled];
     [self setToggle:@"revlimiter" on:isRevLimiterEnabled];
+    // v95 FIX: 4 buton EKSIK KALDI refreshUI'da — basınca iç state değişiyordu ama pill güncellenmiyordu
+    // Kullanıcı "açılmıyor" sanıyordu. Şimdi eklendi.
+    [self setToggle:@"automaster"     on:isAutoMasterEnabled];
+    [self setToggle:@"brakeglow"      on:isBrakeGlowEnabled];
+    [self setToggle:@"nodamage"       on:isNoDamageEnabled];
+    [self setToggle:@"colorroomforce" on:isColorRoomForce];
 
     // canli durum rozeti
     if (self.statusLabel && self.statusCard) {
@@ -3901,48 +3925,8 @@ static UIViewController* few1n_topVC(void) {
     enforceScale();
     few1n_findCar();   // sadece arama (throttle'li); uygulama frameTick'te
     few1n_forcePlate(); // ozel plaka acikken il2cpp ile zorla (hook olu)
-    // v91: HASAR YOK — RCCP_Damage.Update hook aktif (h_damageUpdate). Toggle open → skip Update.
-    // v91: BALATA SICAK TUT — WheelGlow.materials[N].renderer.material'a SARI renk ata (10 frame'de bir throttle)
-    if (isBrakeGlowEnabled && g_wheelGlowTypeObj && g_mFindObjectsPlural && i_runtime_invoke
-        && g_mRendGetMat && g_mMatSetColor) {
-        static int brakeGlowThrottle = 0;
-        if (++brakeGlowThrottle >= 30) {   // ~saniyede 2 kez (30 frame @ 60fps)
-            brakeGlowThrottle = 0;
-            @try {
-                void* a[1]; a[0] = g_wheelGlowTypeObj;
-                void* arr = i_runtime_invoke(g_mFindObjectsPlural, NULL, a, NULL);
-                if (ptrOk(arr)) {
-                    int cnt = (int)(*(uintptr_t*)((uintptr_t)arr + 0x18));
-                    if (cnt > 0 && cnt < 32) {
-                        void** wgs = (void**)((uintptr_t)arr + 0x20);
-                        Color4 hotYellow = {1.0f, 0.6f, 0.0f, 1.0f};  // turuncu-sarı
-                        for (int i = 0; i < cnt; i++) {
-                            void* wg = wgs[i]; if (!ptrOk(wg)) continue;
-                            // WheelGlow.materials @ offset 0x10 (MonoBehaviour base + first field)
-                            void* materials = *(void**)((uintptr_t)wg + 0x10);
-                            if (!ptrOk(materials)) continue;
-                            int matCnt = (int)(*(uintptr_t*)((uintptr_t)materials + 0x18));
-                            if (matCnt <= 0 || matCnt > 16) continue;
-                            void** matArr = (void**)((uintptr_t)materials + 0x20);
-                            for (int m = 0; m < matCnt; m++) {
-                                void* bm = matArr[m]; if (!ptrOk(bm)) continue;
-                                // BrakeMaterial struct: renderer @ offset 0 (ilk field)
-                                void* renderer = *(void**)((uintptr_t)bm + 0x0);
-                                if (!ptrOk(renderer)) continue;
-                                @try {
-                                    void* mat = i_runtime_invoke(g_mRendGetMat, renderer, NULL, NULL);
-                                    if (ptrOk(mat)) {
-                                        void* args[1]; args[0] = &hotYellow;
-                                        i_runtime_invoke(g_mMatSetColor, mat, args, NULL);
-                                    }
-                                } @catch (...) {}
-                            }
-                        }
-                    }
-                }
-            } @catch (...) {}
-        }
-    }
+    // v92: BALATA SICAK TUT + HASAR YOK frame update GERI ALINDI — dokunmatik/input bug sebep olabilir
+    // Toggle'lar UI'da duruyor ama etkisiz (placeholder). Bug root cause'u bulunca gercek fix gelecek.
     // arac rengi acikken materyalleri BIR KEZ al (tekrar fetch instance sizdirir/coker)
     if (isCarColorEnabled && unityAlive(g_rb) && g_carMatCount == 0) few1n_refreshCarMats();
     // OTOMATIK SÜREKLİ ARAMA: araba tipi veya araba yoksa periyodik yeniden tara
@@ -4842,11 +4826,60 @@ static NSString* rainbowWrap(NSString* text, int idx) {
     FLog(isRevLimiterEnabled ? @"🔥 Yüksek Devir / Kesici Ses Modu aktif!" : @"🔥 Kesici Modu kapalı.");
     [self refreshUI];
 }
+// v94: applyBrakeGlow — WheelGlow materyallerini sarı yap (BIR SEFER)
+// Timer'dan periyodik cagirilir. Per-frame degil (input bug'i onlemek icin).
+- (void)applyBrakeGlow {
+    if (!g_wheelGlowTypeObj || !g_mFindObjectsPlural || !i_runtime_invoke || !g_mRendGetMat || !g_mMatSetColor) return;
+    @try {
+        void* a[1]; a[0] = g_wheelGlowTypeObj;
+        void* arr = i_runtime_invoke(g_mFindObjectsPlural, NULL, a, NULL);
+        if (!ptrOk(arr)) return;
+        int cnt = (int)(*(uintptr_t*)((uintptr_t)arr + 0x18));
+        if (cnt <= 0 || cnt > 32) return;
+        void** wgs = (void**)((uintptr_t)arr + 0x20);
+        Color4 hotYellow = {1.0f, 0.55f, 0.0f, 1.0f};
+        for (int i = 0; i < cnt; i++) {
+            void* wg = wgs[i]; if (!ptrOk(wg)) continue;
+            void* materials = *(void**)((uintptr_t)wg + 0x10);
+            if (!ptrOk(materials)) continue;
+            int matCnt = (int)(*(uintptr_t*)((uintptr_t)materials + 0x18));
+            if (matCnt <= 0 || matCnt > 16) continue;
+            void** matArr = (void**)((uintptr_t)materials + 0x20);
+            for (int m = 0; m < matCnt; m++) {
+                void* bm = matArr[m]; if (!ptrOk(bm)) continue;
+                void* renderer = *(void**)((uintptr_t)bm + 0x0);
+                if (!ptrOk(renderer)) continue;
+                @try {
+                    void* mat = i_runtime_invoke(g_mRendGetMat, renderer, NULL, NULL);
+                    if (ptrOk(mat)) {
+                        void* args[1]; args[0] = &hotYellow;
+                        i_runtime_invoke(g_mMatSetColor, mat, args, NULL);
+                    }
+                } @catch (...) {}
+            }
+        }
+    } @catch (...) {}
+}
+
 - (void)tapBrakeGlow {
     isBrakeGlowEnabled = !isBrakeGlowEnabled;
     saveBool(@"brakeglow", isBrakeGlowEnabled);
-    FLog(isBrakeGlowEnabled ? @"🔥 Balata Sıcak Tut aktif! (her frame max temp)" : @"🔥 Balata Sıcak kapalı.");
     [self refreshUI];
+    // v94: toggle ON => NSTimer 2s ile SUREKLI reapply (kaza sonrasi da sari kalir)
+    //       toggle OFF => timer invalidate
+    // Per-frame DEGIL (0.5Hz sadece) => input pipeline'a zarar vermez.
+    if (brakeGlowTimer) { [brakeGlowTimer invalidate]; brakeGlowTimer = nil; }
+    if (!isBrakeGlowEnabled) {
+        FLog(@"🔥 Balata Sıcak KAPALI (timer durdu)");
+        return;
+    }
+    FLog(@"🔥 Balata Sıcak AKTIF — 2sn'de bir reapply (sürekli sarı kalır)");
+    [self applyBrakeGlow];   // hemen bir kez uygula
+    brakeGlowTimer = [NSTimer scheduledTimerWithTimeInterval:2.0
+                                                       target:self
+                                                     selector:@selector(applyBrakeGlow)
+                                                     userInfo:nil
+                                                      repeats:YES];
 }
 - (void)tapAlwaysLights {   // v90: SILINDI ama forward-decl'i sildim yavaslar, no-op birak
     FLog(@"💡 Farlar toggle kaldirildi (v90)");
@@ -6651,7 +6684,10 @@ static bool few1n_invoke0(void* method, void* obj, const char* label) {
         if (!lobby) return;
         if (roomSpamPhase == 0) { [self createOneRoom]; roomSpamCount++; roomSpamPhase = 1; }
         else { if (lobby_leaveRoom) lobby_leaveRoom(lobby); roomSpamPhase = 0; }
-        [self refreshUI];   // durum etiketini guncelle
+        // v93: refreshUI 50Hz cagirisi TextField FirstResponder'i koparıyordu.
+        // Sadece her 10 tick'te bir (0.2sn'de bir) durum etiketini guncelle.
+        static int rsCnt = 0; rsCnt++;
+        if (rsCnt % 10 == 0) [self refreshUI];
     } @catch (...) {}
 }
 
@@ -8119,7 +8155,7 @@ static void InstallEverything(uintptr_t b) {
     safeHook((void*)(b + 0x54CCAA0), (void*)h_driveMove,      (void**)&o_driveMove,       "CarDriveSystem.Move");
     safeHook((void*)(b + 0x54D0BC0), (void*)h_playerInputFixed,(void**)&o_playerInputFixed,"CarPlayerInput.FixedUpdate *ANA*");
     safeHook((void*)(b + 0x59C4BCC), (void*)h_rccpUpdate,     (void**)&o_rccpUpdate,      "RCCP.Update(rb yakala)");
-    safeHook((void*)(b + 0x59C9DAC), (void*)h_damageUpdate,   (void**)&o_damageUpdate,    "RCCP_Damage.Update (Hasar Yok)");
+    // v92: RCCP_Damage.Update hook KALDIRILDI (dokunmatik bug sebep)
     safeHook((void*)(b + 0x5A57390), (void*)h_smRCC,          (void**)&o_smRCC,           "SmoothSyncRCC.Update(rb!)");
     safeHook((void*)(b + 0x5A4F72C), (void*)h_smPUN,          (void**)&o_smPUN,           "SmoothSyncPUN2.Update");
     safeHook((void*)(b + 0x54EA1FC), (void*)h_plateChange,    (void**)&o_plateChange,     "PlateVariant.Change");
@@ -8154,7 +8190,7 @@ static void few1n_poll(void) {
 }
 
 %ctor {
-    FLog(@"v91.0 basladi, UnityFramework araniyor...");
+    FLog(@"v95.0 basladi, UnityFramework araniyor...");
     restoreSettings();
 
     // ===== REKLAM BOZUCU: TUM reklam SDK'larini engelle (Obj-C runtime swizzle) =====
