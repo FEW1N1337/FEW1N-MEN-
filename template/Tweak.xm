@@ -12,7 +12,7 @@
 #import <objc/runtime.h>
 
 // ============================================================
-//  v95.0 - FEW1N MOD MENU  (derlenir, hatasiz - bu dosyayi kullan)
+//  v97.0 - FEW1N MOD MENU  (derlenir, hatasiz - bu dosyayi kullan)
 //  DUZELTME: rainbowWrap forward-decl (tanim sirasi), decl-order taramasi temiz, autogreet poll optimize.
 //  Ozellikler: GERCEK Kick (liste/isim), Ucus D-pad, Emoji sprite+test, Otomatik Karsilama, Normal Oda 31
 //  DreamRoadMultiplayer | Unity 6 (6000.3.0b1) | Metadata v39
@@ -81,7 +81,7 @@ static bool isRoomCrashActive = false;
 static int  nanCrashMode = 0;        // 0=kapali 1=yerel 2=uzak 3=oda
 static bool panicCrash = false;      // aninda cokert
 // ==== REKLAM BOZUCU ====
-static bool isAdBlockEnabled = true;  // varsayilan ACIK (reklam engelle)
+static bool isAdBlockEnabled = false;  // v96: VARSAYILAN KAPALI - kullanici bug yaratiyor dedi
 // ==== UCUS D-PAD (ekran kumandasi - mod butonlariyla ucus, g_myRccp gerekmez) ====
 static bool isFlyPadShown = false;
 static bool g_dpFwd=false, g_dpBack=false, g_dpLeft=false, g_dpRight=false, g_dpUp=false, g_dpDown=false;
@@ -90,6 +90,7 @@ static bool isDriftEnabled = false;     // drift modu (kusursuz yan kayma)
 static bool isPopBangsEnabled = false;
 // v85: Balata sıcak tut — RCCP_WheelGlow bulunan her nesnede her frame temperature = max yap
 static bool isBrakeGlowEnabled = false;
+static bool isAlwaysLightsEnabled = false;   // v97: Farlar Surekli Acik geri geldi (RCCP_Lights offset 0x40/0x41)
 static void* g_wheelGlowTypeObj = NULL;    // typeof(RCCP_WheelGlow)
 // v91: Hasar Yok — RCCP_Damage.Update hook ile
 static bool isNoDamageEnabled = false;
@@ -1743,6 +1744,39 @@ static void few1n_applyGodmode(void) {
 }
 
 // ===== SELEKTOR: RCCP_Lights.highBeamHeadlights@0x41 hizli ac/kapat (g_rb'ye en yakin) =====
+// v97: Farlar Surekli Acik - RCCP_Lights bulup her frame lowBeam+highBeam = ON
+static void few1n_applyAlwaysLights(void) {
+    if (!isAlwaysLightsEnabled) return;
+    if (!g_rccpLightsType || !g_mFindObjectsPlural || !i_runtime_invoke) return;
+    static int tick = 0;
+    // her 15 frame'de bir tara (arac spawn olduysa hemen bulur) - CPU dostu
+    if ((tick++ % 15) != 0 && !unityAlive(g_myLights)) return;
+    if (!unityAlive(g_myLights) && unityAlive(g_rb)) {
+        @try {
+            Vec3 myPos; rbGetPosIl(g_rb, &myPos);
+            void* a[1]; a[0] = g_rccpLightsType;
+            void* arr = i_runtime_invoke(g_mFindObjectsPlural, NULL, a, NULL);
+            if (!ptrOk(arr)) return;
+            int cnt = (int)(*(uintptr_t*)((uintptr_t)arr + 0x18));
+            if (cnt <= 0 || cnt > 256) return;
+            void** ls = (void**)((uintptr_t)arr + 0x20);
+            void* best = NULL; float bestD = 1e18f;
+            for (int i = 0; i < cnt; i++) {
+                void* L = ls[i]; if (!unityAlive(L)) continue;
+                Vec3 p; if (!few1n_objPos(L, &p)) continue;
+                float dx=p.x-myPos.x,dy=p.y-myPos.y,dz=p.z-myPos.z; float d=dx*dx+dy*dy+dz*dz;
+                if (d < bestD) { bestD = d; best = L; }
+            }
+            if (ptrOk(best) && bestD < 100.0f) g_myLights = best;
+        } @catch (...) {}
+        if (!unityAlive(g_myLights)) return;
+    }
+    @try {
+        *(unsigned char*)((uintptr_t)g_myLights + 0x40) = 1;   // lowBeam SUREKLI ON
+        *(unsigned char*)((uintptr_t)g_myLights + 0x41) = 1;   // highBeam SUREKLI ON
+    } @catch (...) {}
+}
+
 static void few1n_applySelektor(void) {
     if (!isSelektor) return;
     if (g_myLights && !unityAlive(g_myLights)) g_myLights = NULL;
@@ -2556,7 +2590,7 @@ static UIViewController* few1n_topVC(void) {
     title.font = [UIFont systemFontOfSize:17 weight:UIFontWeightBlack];
     [header addSubview:title];
     UILabel *ver = [[UILabel alloc] initWithFrame:CGRectMake(42,37,pw-90,16)];
-    ver.text = [NSString stringWithFormat:@"v95.0  •  Base 0x%lX", (unsigned long)global_base];
+    ver.text = [NSString stringWithFormat:@"v97.0  •  Base 0x%lX", (unsigned long)global_base];
     ver.textColor = [UIColor colorWithWhite:1 alpha:0.82];
     ver.font = [UIFont fontWithName:@"Menlo-Bold" size:8] ?: [UIFont systemFontOfSize:8 weight:UIFontWeightBold];
     [header addSubview:ver];
@@ -2635,6 +2669,7 @@ static UIViewController* few1n_topVC(void) {
     y = [self toggle:@"\U0001F47B  No-Clip (Araclardan Gec)" sub:@"Trafikten/duvardan gec - godmode gibi ama fiziksel gecis" key:@"noclip" atY:y action:@selector(tapNoClip)];
     y = [self toggle:@"\U0001F6E1  GODMODE (Kaza Yapma)" sub:@"Trafige carpsan bile olmezsin" key:@"godmode" atY:y action:@selector(tapGodmode)];
     y = [self toggle:@"\U0001F4A1  Hizli Selektor (far cakma)" sub:@"On farlari hizli ac/kapat (RCCP)" key:@"selektor" atY:y action:@selector(tapSelektor)];
+    y = [self toggle:@"💡  Farlar Surekli Acik" sub:@"low+high beam SUREKLI ON (RCCP offset 0x40/0x41)" key:@"alwayslights" atY:y action:@selector(tapAlwaysLights)];
     y = [self toggle:@"🔥  Pop & Bangs (Egzoz Alev Patlatma)" sub:@"Vites veya gaz birakmada egzoz alev/patlama efekti" key:@"popbangs" atY:y action:@selector(tapPopBangs)];
     y = [self toggle:@"🔊  Otomatik Havali Korna" sub:@"Ritmik havalı korna calar (herkese duyulur)" key:@"autohorn" atY:y action:@selector(tapAutoHorn)];
     y = [self toggle:@"🔧  Yuksek Devir Kesici (Rev Limiter)" sub:@"Motor devrini sinirlar — asirinlanti bloklar" key:@"revlimiter" atY:y action:@selector(tapRevLimiter)];
@@ -2728,14 +2763,7 @@ static UIViewController* few1n_topVC(void) {
     y = [self toggle:@"\U0001F501  Bitince Basa Sar" sub:@"Sarki sozunu tekrarla" key:@"lyricsLoop" atY:y action:@selector(tapLyricsLoop)];
 
 
-    y = [self header:@"💀  EXPLOIT / CRASH" atY:y];
-    y = [self actionRow:@"🎯  Tek Oyuncuyu Seç & Çökert / At" color:C_RED atY:y action:@selector(targetPlayerCrash)];
-    y = [self toggle:@"💀  Exploit Crash (Yerel Fizik)" sub:@"Asiri koordinat inject - odadakiler coker (Anti-Cheat Korumali)" key:@"nancrash" atY:y action:@selector(tapNanCrash)];
-    y = [self actionRow:@"💀  Exploit Crash (Uzaktan RPC)" color:C_RED atY:y action:@selector(tapNanCrashRemote)];
-    y = [self actionRow:@"☠️  Odayı Çökert (RPC Exploit)" color:C_RED atY:y action:@selector(tapRoomCrash)];
-    y = [self actionRow:@"🔴  PANIC - Anında Çökert" color:[UIColor colorWithRed:1 green:0 blue:0 alpha:1] atY:y action:@selector(tapInstantCrash)];
-    y = [self actionRow:@"🧨  TextMeshPro UI Overflow Spam" color:C_RED atY:y action:@selector(tapSurrogateSpam)];
-    y = [self actionRow:@"📛  MaxPlayer Overflow (INT_MAX)" color:C_RED atY:y action:@selector(tapMaxPlayerOverflow)];
+    // v96: EXPLOIT / CRASH bolumu tamamen SILINDI (kullanici istegi - hicbiri calismiyordu)
 
     y = [self header:@"\U0001F4DB  OYUNCU" atY:y];
     self.nameBtn = [self actionButtonRow:&y];
@@ -3097,6 +3125,7 @@ static UIViewController* few1n_topVC(void) {
     [self setToggle:@"brakeglow"      on:isBrakeGlowEnabled];
     [self setToggle:@"nodamage"       on:isNoDamageEnabled];
     [self setToggle:@"colorroomforce" on:isColorRoomForce];
+    [self setToggle:@"alwayslights"   on:isAlwaysLightsEnabled];
 
     // canli durum rozeti
     if (self.statusLabel && self.statusCard) {
@@ -3145,6 +3174,7 @@ static UIViewController* few1n_topVC(void) {
     few1n_applyColor();      // arac rengini uygula (onbellek materyaller - ucuz)
     few1n_applyGodmode();    // godmode: canCrash=false (hic kaza yapma)
     few1n_applySelektor();   // selektor: RCCP high/low beam hizli cakma
+    few1n_applyAlwaysLights(); // v97: Farlar Surekli Acik (offset 0x40/0x41)
     // ===== UCUS: havada GERCEK surus (gaz=ileri, fren=geri, direksiyon=don) - PURUZSUZ =====
     // Hepsi hiz/acisal-hiz (fizik) ile -> Photon dogal senkronlar -> baskalarinda titremez.
     if (isFlyEnabled && !isFlyPadShown && unityAlive(g_rb)) {
@@ -3602,11 +3632,37 @@ static UIViewController* few1n_topVC(void) {
                 style:UIAlertActionStyleDestructive handler:^(UIAlertAction *a){
                 FLog([NSString stringWithFormat:@"🎯 Kick basladi: '%@'", nmCopy]);
 
-                // 1) MASTER OL
-                few1n_claimMaster();
-
-                // 2) 0.8s bekle master onayi icin → sonra 3 kick metodunu sirayla dene
-                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.8 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                // v97: MASTER GARANTI ZINCIRI - 3 kez dene, gerçekten oldun mu kontrol et
+                __block int masterAttempts = 0;
+                void (^tryClaimMaster)(void) = ^{
+                    few1n_claimMaster();
+                    masterAttempts++;
+                    FLog([NSString stringWithFormat:@"👑 Master claim denemesi #%d", masterAttempts]);
+                };
+                tryClaimMaster();
+                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                    BOOL amMaster = NO;
+                    if (pn_getLocalPlayer && ply_getIsMaster) {
+                        void* me = pn_getLocalPlayer();
+                        if (me) amMaster = ply_getIsMaster(me);
+                    }
+                    if (!amMaster) { FLog(@"👑 Hala master degilim - 2. deneme"); tryClaimMaster(); }
+                });
+                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                    BOOL amMaster = NO;
+                    if (pn_getLocalPlayer && ply_getIsMaster) {
+                        void* me = pn_getLocalPlayer();
+                        if (me) amMaster = ply_getIsMaster(me);
+                    }
+                    if (!amMaster) { FLog(@"👑 Hala master degilim - 3. deneme"); tryClaimMaster(); }
+                });
+                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(3.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                    BOOL amMaster = NO;
+                    if (pn_getLocalPlayer && ply_getIsMaster) {
+                        void* me = pn_getLocalPlayer();
+                        if (me) amMaster = ply_getIsMaster(me);
+                    }
+                    FLog([NSString stringWithFormat:@"🎯 Kick baslamadan durum: master=%@ (denemeler=%d)", amMaster ? @"EVET" : @"HAYIR", masterAttempts]);
                     int successCount = 0;
 
                     // Metod A: Oyunun kendi KickPlayerRPC'si (LobbyDummy.KickPlayer)
@@ -4051,7 +4107,20 @@ static UIViewController* few1n_topVC(void) {
 - (void)tapAntiGrav  { isAntiGrav = !isAntiGrav; saveBool(@"antigrav", isAntiGrav); [self refreshUI]; }
 - (void)tapNoClip    { isNoClip = !isNoClip; saveBool(@"noclip", isNoClip); FLog(isNoClip ? @"No-Clip ACIK - araclardan gec (uc ile birlestir)" : @"No-Clip KAPALI"); [self refreshUI]; }
 - (void)tapGodmode   { isGodmode = !isGodmode; saveBool(@"godmode", isGodmode); if(!isGodmode) g_myPlayerHandler = NULL; FLog(isGodmode ? @"GODMODE acik - kaza yapmazsin" : @"Godmode kapali"); [self refreshUI]; }
-- (void)tapSelektor  { isSelektor = !isSelektor; saveBool(@"selektor", isSelektor); if(!isSelektor) g_myLights = NULL; FLog(isSelektor ? @"Selektor acik - far cakiyor" : @"Selektor kapali"); [self refreshUI]; }
+- (void)tapSelektor  {
+    isSelektor = !isSelektor; saveBool(@"selektor", isSelektor);
+    if(!isSelektor) g_myLights = NULL;
+    if (isSelektor) {
+        NSMutableString *d = [NSMutableString stringWithString:@"💡 Selektor AKTIF - "];
+        if (!g_rccpLightsType)    [d appendString:@"RCCP_Lights tipi YOK "];
+        if (!g_mFindObjectsPlural)[d appendString:@"FindObjects YOK "];
+        if (!unityAlive(g_rb))    [d appendString:@"g_rb (arac) YOK "];
+        if (g_rccpLightsType && g_mFindObjectsPlural && unityAlive(g_rb))
+            [d appendString:@"HAZIR (arac 100m icindeyse cakmaya baslar)"];
+        FLog(d);
+    } else FLog(@"💡 Selektor kapali");
+    [self refreshUI];
+}
 - (void)editSelektorSpeed {
     UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"\U0001F4A1 Selektor Hizi"
         message:@"Cakma hizini sec (kucuk = hizli)" preferredStyle:UIAlertControllerStyleAlert];
@@ -4865,25 +4934,34 @@ static NSString* rainbowWrap(NSString* text, int idx) {
     isBrakeGlowEnabled = !isBrakeGlowEnabled;
     saveBool(@"brakeglow", isBrakeGlowEnabled);
     [self refreshUI];
-    // v94: toggle ON => NSTimer 2s ile SUREKLI reapply (kaza sonrasi da sari kalir)
-    //       toggle OFF => timer invalidate
-    // Per-frame DEGIL (0.5Hz sadece) => input pipeline'a zarar vermez.
     if (brakeGlowTimer) { [brakeGlowTimer invalidate]; brakeGlowTimer = nil; }
-    if (!isBrakeGlowEnabled) {
-        FLog(@"🔥 Balata Sıcak KAPALI (timer durdu)");
-        return;
-    }
-    FLog(@"🔥 Balata Sıcak AKTIF — 2sn'de bir reapply (sürekli sarı kalır)");
-    [self applyBrakeGlow];   // hemen bir kez uygula
-    brakeGlowTimer = [NSTimer scheduledTimerWithTimeInterval:2.0
-                                                       target:self
-                                                     selector:@selector(applyBrakeGlow)
-                                                     userInfo:nil
-                                                      repeats:YES];
+    if (!isBrakeGlowEnabled) { FLog(@"🔥 Balata KAPALI"); return; }
+    // v96 DIAGNOZ: neden calismiyor kontrolu
+    NSMutableString *diag = [NSMutableString stringWithString:@"🔥 Balata AKTIF - "];
+    if (!g_wheelGlowTypeObj)  [diag appendString:@"WheelGlow tipi YOK "];
+    if (!g_mFindObjectsPlural)[diag appendString:@"FindObjects API YOK "];
+    if (!g_mRendGetMat)       [diag appendString:@"Renderer.GetMat YOK "];
+    if (!g_mMatSetColor)      [diag appendString:@"Material.SetColor YOK "];
+    if (g_wheelGlowTypeObj && g_mFindObjectsPlural && g_mRendGetMat && g_mMatSetColor)
+        [diag appendString:@"HAZIR (2sn timer basladi, araba sahnedeyken calisir)"];
+    FLog(diag);
+    [self applyBrakeGlow];
+    brakeGlowTimer = [NSTimer scheduledTimerWithTimeInterval:2.0 target:self selector:@selector(applyBrakeGlow) userInfo:nil repeats:YES];
 }
-- (void)tapAlwaysLights {   // v90: SILINDI ama forward-decl'i sildim yavaslar, no-op birak
-    FLog(@"💡 Farlar toggle kaldirildi (v90)");
+- (void)tapAlwaysLights {   // v97: GERI GELDI - RCCP_Lights offset 0x40/0x41 (Selektor ile ayni)
+    isAlwaysLightsEnabled = !isAlwaysLightsEnabled;
+    saveBool(@"alwayslights", isAlwaysLightsEnabled);
     [self refreshUI];
+    if (isAlwaysLightsEnabled) {
+        NSMutableString *diag = [NSMutableString stringWithString:@"💡 Farlar Surekli Acik AKTIF - "];
+        if (!g_rccpLightsType)    [diag appendString:@"RCCP_Lights tipi YOK "];
+        if (!g_mFindObjectsPlural)[diag appendString:@"FindObjects YOK "];
+        if (g_rccpLightsType && g_mFindObjectsPlural)
+            [diag appendString:@"HAZIR (arac spawn olunca farlar acilir)"];
+        FLog(diag);
+    } else {
+        FLog(@"💡 Farlar Surekli Acik KAPALI");
+    }
 }
 - (void)tapInfiniteFuel {
     FLog(@"⛽ Yakit toggle kaldirildi (v90)");
@@ -7322,12 +7400,43 @@ static void few1n_joinTargetRoom(NSString *nm) {
 
 // v85: TOPLU SUNUCU GİZLE — her odaya gir, master ol, IsVisible=false yap, cik
 - (void)pickRoomsServerHide {
-    if (!g_lobbyRoomNames || g_lobbyRoomNames.count == 0) {
-        UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"🌐 Sunucu Gizle" message:@"Lobi bos veya taranmadi. Once lobi ekranini ac." preferredStyle:UIAlertControllerStyleAlert];
+    // v96: g_lobbyRoomNames GUVENILMEZ (hook dolduramiyor bazi kez). showRoomPasswords'un
+    // CANLI RoomLine scan metodunu kullan - il2cpp FindObjectsOfType<RoomLine>().
+    NSMutableArray *liveNames = [NSMutableArray array];
+    if (g_roomLineType && g_mFindObjectsPlural && i_runtime_invoke) {
+        @try {
+            void* a[1]; a[0] = g_roomLineType;
+            void* arr = i_runtime_invoke(g_mFindObjectsPlural, NULL, a, NULL);
+            if (ptrOk(arr)) {
+                int cnt = (int)(*(uintptr_t*)((uintptr_t)arr + 0x18));
+                if (cnt > 0 && cnt < 256) {
+                    void** lines = (void**)((uintptr_t)arr + 0x20);
+                    for (int i = 0; i < cnt; i++) {
+                        void* ln = lines[i]; if (!unityAlive(ln)) continue;
+                        void* rinfo = *(void**)((uintptr_t)ln + 0x58);
+                        if (ptrOk(rinfo) && rinfo_getName) {
+                            NSString *nm = readStr(rinfo_getName(rinfo));
+                            if (nm.length > 0 && ![liveNames containsObject:nm]) [liveNames addObject:nm];
+                        }
+                    }
+                }
+            }
+        } @catch (...) {}
+    }
+    // fallback: eski g_lobbyRoomNames dolu ise onu da ekle
+    if (g_lobbyRoomNames) {
+        @synchronized(g_lobbyRoomNames) {
+            for (NSString *nm in g_lobbyRoomNames) if (nm.length > 0 && ![liveNames containsObject:nm]) [liveNames addObject:nm];
+        }
+    }
+    if (liveNames.count == 0) {
+        UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"🌐 Sunucu Gizle"
+                                                                   message:@"Lobide oda gorunmuyor. Once oda listesi ekranini ac (lobi/liste sekmesine gir), sonra tekrar bas."
+                                                            preferredStyle:UIAlertControllerStyleAlert];
         [ac addAction:[UIAlertAction actionWithTitle:@"Tamam" style:UIAlertActionStyleDefault handler:nil]];
         [self present:ac]; return;
     }
-    NSArray *names = [g_lobbyRoomNames copy];
+    NSArray *names = [liveNames copy];
     NSMutableArray *targets = [NSMutableArray array];
     UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"🌐 Sunucu Gizle — Seç"
         message:[NSString stringWithFormat:@"%lu oda. Sec: kuyruga gir. Onayla: sirayla gir→master→gizle→cik.\n\n⚠️ 5-30sn surer, lobi calkalanir.", (unsigned long)names.count]
@@ -7444,31 +7553,51 @@ static void few1n_joinTargetRoom(NSString *nm) {
 
 - (void)joinRoomByName {
     if (!pn_joinRoom) { FLog(@"JoinRoom hazir degil (lobiye gir)"); return; }
-    
-    NSString *subTitle = (g_lobbyRoomNames && g_lobbyRoomNames.count > 0)
-        ? [NSString stringWithFormat:@"Lobide %lu aktif oda bulundu.\nKatılmak istediğin odaya dokun\n(Dolu 10/10 odalar dahil!):", (unsigned long)g_lobbyRoomNames.count]
-        : @"⚠️ Liste bos.\n\n1) Once LOBI ekranini ac (oda listesi gorunecek)\n2) 2-3 saniye kaydir (asagi/yukari)\n3) Butonu YENIDEN bas\n\nOda listesi hook otomatik doldurulur.";
-        
+
+    // v96: Hook doldurmasi guvenilmez. showRoomPasswords'un CANLI RoomLine scan metodunu
+    // kullan - il2cpp FindObjectsOfType<RoomLine>() sahnedeki oda kartlarindan direkt oku.
+    NSMutableArray *liveNames = [NSMutableArray array];
+    if (g_roomLineType && g_mFindObjectsPlural && i_runtime_invoke) {
+        @try {
+            void* a[1]; a[0] = g_roomLineType;
+            void* arr = i_runtime_invoke(g_mFindObjectsPlural, NULL, a, NULL);
+            if (ptrOk(arr)) {
+                int cnt = (int)(*(uintptr_t*)((uintptr_t)arr + 0x18));
+                if (cnt > 0 && cnt < 256) {
+                    void** lines = (void**)((uintptr_t)arr + 0x20);
+                    for (int i = 0; i < cnt; i++) {
+                        void* ln = lines[i]; if (!unityAlive(ln)) continue;
+                        void* rinfo = *(void**)((uintptr_t)ln + 0x58);
+                        if (ptrOk(rinfo) && rinfo_getName) {
+                            NSString *nm = readStr(rinfo_getName(rinfo));
+                            if (nm.length > 0 && ![liveNames containsObject:nm]) [liveNames addObject:nm];
+                        }
+                    }
+                }
+            }
+        } @catch (...) {}
+    }
+    // fallback: hook cache'i de dene
+    if (g_lobbyRoomNames) {
+        @synchronized(g_lobbyRoomNames) {
+            for (NSString *nm in g_lobbyRoomNames) if (nm.length > 0 && ![liveNames containsObject:nm]) [liveNames addObject:nm];
+        }
+    }
+
+    NSString *subTitle = (liveNames.count > 0)
+        ? [NSString stringWithFormat:@"Lobide %lu aktif oda bulundu.\nKatılmak istediğin odaya dokun\n(Dolu 10/10 odalar dahil!):", (unsigned long)liveNames.count]
+        : @"⚠️ Lobide oda gorunmuyor.\n\n1) Once LOBI ekranini ac (oda listesi gorunecek)\n2) 2-3 saniye kaydir (asagi/yukari)\n3) Butonu YENIDEN bas";
+
     UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"🚪 Canlı Odalara Gir (Dolu Oda Bypass)"
                                                                message:subTitle preferredStyle:UIAlertControllerStyleAlert];
 
-    // TESPİT EDİLEN ODALARI TIKLANABİLİR BUTON OLARAK EKLE
-    if (g_lobbyRoomNames) {
-        NSArray *copyRooms = nil;
-        @synchronized(g_lobbyRoomNames) {
-            copyRooms = [g_lobbyRoomNames copy];
-        }
-        if (copyRooms && copyRooms.count > 0) {
-            for (NSString *roomNm in copyRooms) {
-                // Rich text etiketlerini temizle ki buton adı temiz görünsün
-                NSString *cleanName = stripRichTextTags(roomNm);
-                if (cleanName.length == 0) cleanName = roomNm;
-                [ac addAction:[UIAlertAction actionWithTitle:[NSString stringWithFormat:@"🚪 🟢 %@", cleanName]
-                    style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
-                    few1n_joinTargetRoom(roomNm);
-                }]];
-            }
-        }
+    for (NSString *roomNm in liveNames) {
+        NSString *cleanName = stripRichTextTags(roomNm);
+        if (cleanName.length == 0) cleanName = roomNm;
+        [ac addAction:[UIAlertAction actionWithTitle:[NSString stringWithFormat:@"🚪 🟢 %@", cleanName]
+            style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
+            few1n_joinTargetRoom(roomNm);
+        }]];
     }
 
     [ac addAction:[UIAlertAction actionWithTitle:@"İptal" style:UIAlertActionStyleCancel handler:nil]];
@@ -8010,6 +8139,7 @@ static void restoreSettings(void) {
     isAnnounceEnabled      = false;
     isGodmode              = false;   // godmode her aciliste kapali (guvenlik)
     isSelektor             = false;   // selektor her aciliste kapali
+    isAlwaysLightsEnabled  = loadBool(@"alwayslights", false);
     g_selFlashRate         = loadInt(@"selRate", 1);
     announceInterval       = (float)loadInt(@"announceIv", 5);
     { NSString *at = loadStr(@"announceText", @""); if (at.length) { strncpy(announceText, at.UTF8String, sizeof(announceText)-1); announceText[sizeof(announceText)-1]='\0'; } }
@@ -8049,7 +8179,7 @@ static void restoreSettings(void) {
     isNanCrashEnabled      = false;
     isRoomCrashActive      = false;
     panicCrash             = false;
-    isAdBlockEnabled       = loadBool(@"adblock", true);  // varsayilan ACIK
+    isAdBlockEnabled       = loadBool(@"adblock", false);  // v96: VARSAYILAN KAPALI (bug yaratiyordu)
     customMoneyAmount      = loadInt(@"moneyAmount", 100000000);
     NSString* pt = loadStr(@"plateText", @"FEW1N");
     strncpy(customPlateText, pt.UTF8String, sizeof(customPlateText)-1); customPlateText[sizeof(customPlateText)-1]='\0';
@@ -8190,7 +8320,7 @@ static void few1n_poll(void) {
 }
 
 %ctor {
-    FLog(@"v95.0 basladi, UnityFramework araniyor...");
+    FLog(@"v97.0 basladi, UnityFramework araniyor...");
     restoreSettings();
 
     // ===== REKLAM BOZUCU: TUM reklam SDK'larini engelle (Obj-C runtime swizzle) =====
