@@ -12,7 +12,7 @@
 #import <objc/runtime.h>
 
 // ============================================================
-//  v113.0 - FEW1N MOD MENU  (derlenir, hatasiz - bu dosyayi kullan)
+//  v113.1 - FEW1N MOD MENU  (derlenir, hatasiz - bu dosyayi kullan)
 //  DUZELTME: rainbowWrap forward-decl (tanim sirasi), decl-order taramasi temiz, autogreet poll optimize.
 //  Ozellikler: GERCEK Kick (liste/isim), Ucus D-pad, Emoji sprite+test, Otomatik Karsilama, Normal Oda 31
 //  DreamRoadMultiplayer | Unity 6 (6000.3.0b1) | Metadata v39
@@ -209,7 +209,7 @@ static void* g_hrBombTypeObj = NULL;
 static void* g_hrTrafficCarTypeObj = NULL;
 static void* g_hrPhotonSyncTypeObj = NULL;
 static void* g_rccpDetachTypeObj = NULL;
-// v113.0: HR_PhotonLobbyManagerDummy - chain sonu oda listesi ekrani icin
+// v113.1: HR_PhotonLobbyManagerDummy - chain sonu oda listesi ekrani icin
 static void* g_hrLobbyMgrDummyType = NULL;
 static void* g_mGoSetActive = NULL;      // UnityEngine.GameObject.SetActive(bool)
 static int g_offRoomListPanel = 0;
@@ -867,7 +867,7 @@ static void few1n_initIl2cpp(void) {
                 }
             }
         }
-        // v113.0: HR_PhotonLobbyManagerDummy resolve + roomListPanel offset
+        // v113.1: HR_PhotonLobbyManagerDummy resolve + roomListPanel offset
         if (!g_hrLobbyMgrDummyType) {
             void* c = i_class_from_name(img, "", "HR_PhotonLobbyManagerDummy");
             if (!c) c = few1n_findClassByName(img, "HR_PhotonLobbyManagerDummy");
@@ -906,7 +906,7 @@ static void few1n_initIl2cpp(void) {
         if (!g_roomOptionsClass) {
             void* roc = i_class_from_name(img, "Photon.Realtime", "RoomOptions");
             if (roc) { g_roomOptionsClass = roc; FLog([NSString stringWithFormat:@"RoomOptions bulundu! %p", roc]); }
-            // v113.0: Room class + set_Name method
+            // v113.1: Room class + set_Name method
             if (!g_roomClass) {
                 void* rc = i_class_from_name(img, "Photon.Realtime", "Room");
                 if (!rc) rc = few1n_findClassByName(img, "Room");
@@ -2249,72 +2249,17 @@ static NSString* stripRichTextTags(NSString *text) {
 
 // ===== CHAT =====
 // v110: ChatManager.fup(string) - GELEN chat mesaji (baska oyuncudan geldigi zaman burada tetiklenir)
+// v113.1 BUILD FIX: gercek body AI globalleri/fonksiyonlarından SONRA tanımlı (asagida)
 static void (*o_chatFup)(void*, void*) = NULL;
-static void h_chatFup(void* self, void* msg) {
-    if (msg) @try {
-        NSString *received = readStr(msg);
-        if (received && received.length > 0) {
-            NSString *lower = received.lowercaseString;
-            NSRange r = [lower rangeOfString:@"/ai "];
-            // Bot cevaplarini tekrar yakalama (dongusuz)
-            BOOL isBotMsg = [received containsString:@"🤖"];
-            // v111: KENDI MESAJIMI FILTER — recentlySentByMe listesinde varsa skip
-            BOOL isMine = NO;
-            if (g_recentlySentByMe) {
-                @synchronized(g_recentlySentByMe) {
-                    for (NSString *m in g_recentlySentByMe) {
-                        if ([received containsString:m] || [m containsString:received]) { isMine = YES; break; }
-                    }
-                }
-            }
-            if (!isBotMsg && !isMine) {
-                NSString *prompt = nil;
-                BOOL shouldReply = NO;
-                // 1. /ai prefix - her zaman cevap ver
-                if (r.location != NSNotFound) {
-                    prompt = [received substringFromIndex:r.location + 4];
-                    shouldReply = YES;
-                }
-                // 2. v111: AI Sohbet Modu acikken - hitap veya rastgele %40 cevap
-                else if (isAiChatModeEnabled) {
-                    NSString *lo = [received.lowercaseString stringByReplacingOccurrencesOfString:@"ı" withString:@"i"];
-                    BOOL isHitap = [lo containsString:@"bot"] || [lo containsString:@"ai "] || [lo containsString:@"few1n"] || [lo containsString:@" ai"] || [lo hasPrefix:@"ai "] || [lo hasSuffix:@" ai"];
-                    if (isHitap) { prompt = received; shouldReply = YES; }
-                    else if (arc4random_uniform(100) < 40) { prompt = received; shouldReply = YES; }   // %40 rastgele
-                }
-                if (shouldReply && prompt) {
-                    prompt = [prompt stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
-                    if (prompt.length > 0 && prompt.length < 300) {
-                        FLog([NSString stringWithFormat:@"🤖 %@ cevabi: '%@'", r.location != NSNotFound ? @"/ai" : @"sohbet", prompt]);
-                        few1n_groqAsk(prompt, ^(NSString *reply) {
-                            NSString *finalReply = (reply && reply.length > 0) ? reply : few1n_aiReply(prompt);
-                            // v113.0: Matrix format + KULLANICI SECILEN renkler
-                            NSString *nameCol = [NSString stringWithUTF8String:g_aiNameColorHex];
-                            NSString *replyCol = [NSString stringWithUTF8String:g_aiReplyColorHex];
-                            NSString *finalMsg = [NSString stringWithFormat:@"<color=#%@><b>[🤖 FEW1N AI]</b></color> <color=#%@>%@</color>", nameCol, replyCol, finalReply];
-                            dispatch_async(dispatch_get_main_queue(), ^{
-                                @try {
-                                    if (chatGetInst && chatSend) {
-                                        void* mgr = chatGetInst();
-                                        void* ns = mkStr(finalMsg);
-                                        if (mgr && ns) chatSend(mgr, ns);
-                                    }
-                                } @catch (...) {}
-                            });
-                        });
-                    }
-                }
-            }
-        }
-    } @catch (...) {}
-    if (o_chatFup) o_chatFup(self, msg);
-}
+static void h_chatFup(void* self, void* msg);   // forward decl - body aşağıda
+// v113.1: FEW1NMenu forward decl (h_chatSend içinde [FEW1NMenu shared] için)
+@class FEW1NMenu;
 
 static void (*o_chatSend)(void*, void*) = NULL;
 // v111: AI Sohbet Modu - /ai olmadan aktif konusma
 static bool isAiChatModeEnabled = false;
 static NSMutableArray<NSString*> *g_recentlySentByMe = nil;  // son 10 mesaj (kendi mesajlarima cevap vermemek icin)
-// v113.0: AI cevap renkleri (kullanici NSUserDefaults'tan sec)
+// v113.1: AI cevap renkleri (kullanici NSUserDefaults'tan sec)
 static char g_aiNameColorHex[8] = "00E5FF";  // cyan default
 static char g_aiReplyColorHex[8] = "FF00FF"; // magenta default
 
@@ -2612,7 +2557,8 @@ static void h_chatSend(void* self, void* msg) {
                             BOOL toggle = [st.lowercaseString isEqualToString:@"toggle"];
                             dispatch_async(dispatch_get_main_queue(), ^{
                                 @try {
-                                    FEW1NMenu *m = [FEW1NMenu shared];
+                                    // v113.1: FEW1NMenu forward decl yerine dynamic dispatch (compile warning'i azalt)
+                                    id m = [NSClassFromString(@"FEW1NMenu") performSelector:@selector(shared)];
                                     if ([act isEqualToString:@"infinite_nos"]) { isInfiniteNosEnabled = toggle ? !isInfiniteNosEnabled : on; saveBool(@"infnos", isInfiniteNosEnabled); [m startGizliTimerIfNeeded]; }
                                     else if ([act isEqualToString:@"infinite_fuel"]) { isInfiniteFuelEnabled = toggle ? !isInfiniteFuelEnabled : on; saveBool(@"inffuel", isInfiniteFuelEnabled); [m startGizliTimerIfNeeded]; }
                                     else if ([act isEqualToString:@"no_damage"]) { isNoDamageV2Enabled = toggle ? !isNoDamageV2Enabled : on; saveBool(@"nodamagev2", isNoDamageV2Enabled); [m startGizliTimerIfNeeded]; }
@@ -2688,6 +2634,59 @@ static void h_chatSend(void* self, void* msg) {
         }
     }
     if (o_chatSend) o_chatSend(self, msg);
+}
+
+// v113.1: h_chatFup GERCEK BODY (AI globalleri/fonksiyonlarindan sonra tanimli, compile hatasi bitti)
+static void h_chatFup(void* self, void* msg) {
+    if (msg) @try {
+        NSString *received = readStr(msg);
+        if (received && received.length > 0) {
+            NSString *lower = received.lowercaseString;
+            NSRange r = [lower rangeOfString:@"/ai "];
+            BOOL isBotMsg = [received containsString:@"🤖"];
+            BOOL isMine = NO;
+            if (g_recentlySentByMe) {
+                @synchronized(g_recentlySentByMe) {
+                    for (NSString *m in g_recentlySentByMe) {
+                        if ([received containsString:m] || [m containsString:received]) { isMine = YES; break; }
+                    }
+                }
+            }
+            if (!isBotMsg && !isMine) {
+                NSString *prompt = nil;
+                BOOL shouldReply = NO;
+                if (r.location != NSNotFound) { prompt = [received substringFromIndex:r.location + 4]; shouldReply = YES; }
+                else if (isAiChatModeEnabled) {
+                    NSString *lo = [received.lowercaseString stringByReplacingOccurrencesOfString:@"ı" withString:@"i"];
+                    BOOL isHitap = [lo containsString:@"bot"] || [lo containsString:@"ai "] || [lo containsString:@"few1n"] || [lo containsString:@" ai"] || [lo hasPrefix:@"ai "] || [lo hasSuffix:@" ai"];
+                    if (isHitap) { prompt = received; shouldReply = YES; }
+                    else if (arc4random_uniform(100) < 40) { prompt = received; shouldReply = YES; }
+                }
+                if (shouldReply && prompt) {
+                    prompt = [prompt stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+                    if (prompt.length > 0 && prompt.length < 300) {
+                        FLog([NSString stringWithFormat:@"🤖 %@ cevabi: '%@'", r.location != NSNotFound ? @"/ai" : @"sohbet", prompt]);
+                        few1n_groqAsk(prompt, ^(NSString *reply) {
+                            NSString *finalReply = (reply && reply.length > 0) ? reply : few1n_aiReply(prompt);
+                            NSString *nameCol = [NSString stringWithUTF8String:g_aiNameColorHex];
+                            NSString *replyCol = [NSString stringWithUTF8String:g_aiReplyColorHex];
+                            NSString *finalMsg = [NSString stringWithFormat:@"<color=#%@><b>[🤖 FEW1N AI]</b></color> <color=#%@>%@</color>", nameCol, replyCol, finalReply];
+                            dispatch_async(dispatch_get_main_queue(), ^{
+                                @try {
+                                    if (chatGetInst && chatSend) {
+                                        void* mgr = chatGetInst();
+                                        void* ns = mkStr(finalMsg);
+                                        if (mgr && ns) chatSend(mgr, ns);
+                                    }
+                                } @catch (...) {}
+                            });
+                        });
+                    }
+                }
+            }
+        }
+    } @catch (...) {}
+    if (o_chatFup) o_chatFup(self, msg);
 }
 
 // ===== PASSWORD BYPASS =====
@@ -3392,7 +3391,7 @@ static UIViewController* few1n_topVC(void) {
     title.font = [UIFont systemFontOfSize:17 weight:UIFontWeightBlack];
     [header addSubview:title];
     UILabel *ver = [[UILabel alloc] initWithFrame:CGRectMake(42,37,pw-90,16)];
-    ver.text = [NSString stringWithFormat:@"v113.0  •  Base 0x%lX", (unsigned long)global_base];
+    ver.text = [NSString stringWithFormat:@"v113.1  •  Base 0x%lX", (unsigned long)global_base];
     ver.textColor = [UIColor colorWithWhite:1 alpha:0.82];
     ver.font = [UIFont fontWithName:@"Menlo-Bold" size:8] ?: [UIFont systemFontOfSize:8 weight:UIFontWeightBold];
     [header addSubview:ver];
@@ -3629,7 +3628,7 @@ static UIViewController* few1n_topVC(void) {
     y = [self actionRow:@"🗺️  Odadayken Harita Değiştir (v233 minimal + master zorla)" color:C_ON atY:y action:@selector(changeMapInRoom)];
     y = [self actionRow:@"🚗  Kişi Aracı Klonla (deneysel race glitch)" color:C_GOLD atY:y action:@selector(cloneCarPicker)];
     y = [self actionRow:@"🌤️  Hava Durumu & Zaman Seç (Aktarmasız Canlı)" color:C_ON atY:y action:@selector(changeWeatherOnly)];
-    // v113.0: "Odadayken Oda İsmini Değiştir" SİLİNDİ (client-side + CustomProperties + set_Name calismiyordu - mod'suzlar goremiyordu)
+    // v113.1: "Odadayken Oda İsmini Değiştir" SİLİNDİ (client-side + CustomProperties + set_Name calismiyordu - mod'suzlar goremiyordu)
     // Tek gercek yol: 🔄 Odayi Yeniden Olustur (asagida)
     y = [self actionRow:@"👥  Odadayken Max Oyuncu Değiştir (2-100)" color:C_GOLD atY:y action:@selector(changeMaxPlayersInRoom)];
     y = [self actionRow:@"🔄  Odayı YENİDEN OLUŞTUR (herkeste değişir)" color:C_RED atY:y action:@selector(recreateRoomWithNewName)];
@@ -5786,7 +5785,7 @@ static NSString* rainbowWrap(NSString* text, int idx) {
         int totalApplied = 0;
         for (int i = 0; i < cnt; i++) {
             void* wg = wgs[i]; if (!ptrOk(wg)) continue;
-            // v113.0 FIX: materials offset +0x10 -> +0x18 (il2cpp.h dogrulandi, MonoBehaviour base=0x18)
+            // v113.1 FIX: materials offset +0x10 -> +0x18 (il2cpp.h dogrulandi, MonoBehaviour base=0x18)
             void* materials = *(void**)((uintptr_t)wg + 0x18);
             if (!ptrOk(materials)) continue;
             int matCnt = (int)(*(uintptr_t*)((uintptr_t)materials + 0x18));
@@ -5805,7 +5804,7 @@ static NSString* rainbowWrap(NSString* text, int idx) {
                     }
                 } @catch (...) {}
             }
-            // v113.0 ALTERNATIF: maxTemperature @+0x28, minVisibleTemperature @+0x24
+            // v113.1 ALTERNATIF: maxTemperature @+0x28, minVisibleTemperature @+0x24
             // RCCP kendi Gradient'iyle balatayi renklendirir - Material.SetColor gerekmez
             @try {
                 *(float*)((uintptr_t)wg + 0x28) = 10000.0f;   // maxTemperature = cok yuksek
@@ -6000,7 +5999,7 @@ static NSString* rainbowWrap(NSString* text, int idx) {
     [self present:ac];
 }
 
-// v113.0: AI cevap renklerini sec (isim + cevap ayri)
+// v113.1: AI cevap renklerini sec (isim + cevap ayri)
 - (void)pickAiColorFor:(BOOL)forName {
     NSString *title = forName ? @"🎨 İsim Rengi Seç [FEW1N AI]" : @"🎨 Cevap Rengi Seç";
     NSString *curHex = [NSString stringWithUTF8String:forName ? g_aiNameColorHex : g_aiReplyColorHex];
@@ -6195,7 +6194,7 @@ static NSString* rainbowWrap(NSString* text, int idx) {
     } @catch (...) {}
 }
 
-// v113.0: Odayi Yeniden Olustur - SUNUCUDA GERCEK isim degisikligi (herkes duser + yeni odada sen)
+// v113.1: Odayi Yeniden Olustur - SUNUCUDA GERCEK isim degisikligi (herkes duser + yeni odada sen)
 - (void)recreateRoomWithNewName {
     if (!pn_leaveRoom || !pn_createRoom || !i_object_new || !g_roomOptionsClass) {
         FLog(@"❌ recreate: pn_leaveRoom/createRoom/RoomOptions YOK");
@@ -6351,7 +6350,7 @@ static NSString* rainbowWrap(NSString* text, int idx) {
             NSString *nmCopy = [nm copy];
             [ac addAction:[UIAlertAction actionWithTitle:[NSString stringWithFormat:@"🎯 %@", nmClean]
                 style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
-                // v113.0: MANUEL METOD SECIMI - hedef secildikten sonra hangi saldirinin uygulanacagini kullanici sec
+                // v113.1: MANUEL METOD SECIMI - hedef secildikten sonra hangi saldirinin uygulanacagini kullanici sec
                 UIAlertController *pick = [UIAlertController alertControllerWithTitle:[NSString stringWithFormat:@"🎯 '%@'", nmCopy]
                     message:@"Hangi saldiri?" preferredStyle:UIAlertControllerStyleAlert];
                 // A) Sadece Bomb
@@ -7474,7 +7473,7 @@ static void few1n_startCarCloneAttempt(NSString *scene) {
                     *(void**)((uintptr_t)room + 0x40) = nameStr;
                     FLog([NSString stringWithFormat:@"✓ Metod 1 Room.Name (0x40) client-side yazildi: '%@'", newName]);
 
-                    // v113.0: Metod 2 - SUNUCU push - Room.set_Name(string) invoke
+                    // v113.1: Metod 2 - SUNUCU push - Room.set_Name(string) invoke
                     // Bu Photon internal method; sunucuya sync eder mi denemek lazim
                     if (g_mRoomSetName && i_runtime_invoke && nameStr) {
                         @try {
@@ -9012,7 +9011,7 @@ static void few1n_joinTargetRoom(NSString *nm) {
 - (void)serverHideChain:(NSArray*)targets index:(NSInteger)idx {
     if (idx >= (NSInteger)targets.count) {
         FLog([NSString stringWithFormat:@"🌐 [SUNUCU HIDE] BITTI — %lu oda islendi", (unsigned long)targets.count]);
-        // v113.0: Chain bittiginde HR_PhotonLobbyManagerDummy.roomListPanel'i aktif et
+        // v113.1: Chain bittiginde HR_PhotonLobbyManagerDummy.roomListPanel'i aktif et
         // Boylece oyun garaja atmak yerine oda listesi ekranini gosterir
         @try {
             if (g_hrLobbyMgrDummyType && g_offRoomListPanel > 0 && g_mGoSetActive && g_mFindObjectsPlural && i_runtime_invoke) {
@@ -9715,7 +9714,7 @@ static void restoreSettings(void) {
     isExhaustFlameOnEnabled = loadBool(@"exhaustflame", false);
     isVidyoNamesEnabled     = loadBool(@"vidyonames", false);
     isAiChatModeEnabled     = loadBool(@"aichat", false);
-    // v113.0: AI renkleri kalici
+    // v113.1: AI renkleri kalici
     NSString *nc = loadStr(@"aiNameCol", @"00E5FF");  strncpy(g_aiNameColorHex, nc.UTF8String, 7); g_aiNameColorHex[7]='\0';
     NSString *rc = loadStr(@"aiReplyCol", @"FF00FF"); strncpy(g_aiReplyColorHex, rc.UTF8String, 7); g_aiReplyColorHex[7]='\0';
     g_selFlashRate         = loadInt(@"selRate", 1);
@@ -9899,7 +9898,7 @@ static void few1n_poll(void) {
 }
 
 %ctor {
-    FLog(@"v113.0 basladi, UnityFramework araniyor...");
+    FLog(@"v113.1 basladi, UnityFramework araniyor...");
     restoreSettings();
 
     // ===== REKLAM BOZUCU: TUM reklam SDK'larini engelle (Obj-C runtime swizzle) =====
