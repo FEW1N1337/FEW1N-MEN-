@@ -3108,6 +3108,7 @@ static void h_roomLineSetup(void* self, void* a, void* b, unsigned char c, unsig
 - (void)editGreet;
 - (void)joinRoomByName;
 - (void)pickRoomsServerHide;
+- (void)present:(UIViewController*)vc;
 @end
 
 static int g_bruteForceIdx = 0;
@@ -3360,6 +3361,11 @@ static UIViewController* few1n_topVC(void) {
 }
 
 @implementation FEW1NMenu
+
+- (void)present:(UIViewController*)vc {
+    UIViewController *top = few1n_topVC();
+    if (top && vc) [top presentViewController:vc animated:YES completion:nil];
+}
 
 + (instancetype)shared {
     static FEW1NMenu *inst = nil;
