@@ -46,9 +46,9 @@ jobs:
           Package: com.few1n.dreamroadmod
           Name: FEW1N Mod Menu
           Depends: mobilesubstrate, firmware (>= 14.0)
-          Version: 113.1
+          Version: 113.2
           Architecture: iphoneos-arm64
-          Description: FEW1N Mod Menu v113.1
+          Description: FEW1N Mod Menu v113.2
           Maintainer: few1n
           Author: few1n
           Section: Tweaks
@@ -85,7 +85,7 @@ jobs:
       - name: Prepare Output
         run: |
           mkdir -p output
-          cp packages/*.deb output/FEW1NMod_113.1_${{ github.run_number }}.deb
+          cp packages/*.deb output/FEW1NMod_113.2_${{ github.run_number }}.deb
           DYLIB=$(find .theos/obj -name "*.dylib" | head -1)
           if [ -z "$DYLIB" ]; then
             dpkg -x packages/*.deb extracted
@@ -98,13 +98,13 @@ jobs:
       - name: Upload .deb
         uses: actions/upload-artifact@v4
         with:
-          name: FEW1N-ModMenu-v113.1-deb-${{ github.run_number }}
+          name: FEW1N-ModMenu-v113.2-deb-${{ github.run_number }}
           path: output/*.deb
 
       - name: Upload .dylib
         uses: actions/upload-artifact@v4
         with:
-          name: FEW1N-ModMenu-v113.1-dylib-${{ github.run_number }}
+          name: FEW1N-ModMenu-v113.2-dylib-${{ github.run_number }}
           path: output/FEW1NMod.dylib
 
       - name: Create GitHub Release
@@ -113,12 +113,12 @@ jobs:
           files: |
             output/*.deb
             output/*.dylib
-          tag_name: v113.1-build${{ github.run_number }}
-          name: FEW1N Mod Menu v113.1 (Build #${{ github.run_number }})
+          tag_name: v113.2-build${{ github.run_number }}
+          name: FEW1N Mod Menu v113.2 (Build #${{ github.run_number }})
           body: |
             🚀 **FEW1N Mod Menu Otomatik Derleme**
             
-            - **Sürüm:** v113.1
+            - **Sürüm:** v113.2
             - **Build:** #${{ github.run_number }}
             - **Commit:** ${{ github.sha }}
             
