@@ -12,7 +12,7 @@
 #import <objc/runtime.h>
 
 // ============================================================
-//  v113.1 - FEW1N MOD MENU  (derlenir, hatasiz - bu dosyayi kullan)
+//  v113.2 - FEW1N MOD MENU  (derlenir, hatasiz - bu dosyayi kullan)
 //  DUZELTME: rainbowWrap forward-decl (tanim sirasi), decl-order taramasi temiz, autogreet poll optimize.
 //  Ozellikler: GERCEK Kick (liste/isim), Ucus D-pad, Emoji sprite+test, Otomatik Karsilama, Normal Oda 31
 //  DreamRoadMultiplayer | Unity 6 (6000.3.0b1) | Metadata v39
@@ -209,7 +209,7 @@ static void* g_hrBombTypeObj = NULL;
 static void* g_hrTrafficCarTypeObj = NULL;
 static void* g_hrPhotonSyncTypeObj = NULL;
 static void* g_rccpDetachTypeObj = NULL;
-// v113.1: HR_PhotonLobbyManagerDummy - chain sonu oda listesi ekrani icin
+// v113.2: HR_PhotonLobbyManagerDummy - chain sonu oda listesi ekrani icin
 static void* g_hrLobbyMgrDummyType = NULL;
 static void* g_mGoSetActive = NULL;      // UnityEngine.GameObject.SetActive(bool)
 static int g_offRoomListPanel = 0;
@@ -867,7 +867,7 @@ static void few1n_initIl2cpp(void) {
                 }
             }
         }
-        // v113.1: HR_PhotonLobbyManagerDummy resolve + roomListPanel offset
+        // v113.2: HR_PhotonLobbyManagerDummy resolve + roomListPanel offset
         if (!g_hrLobbyMgrDummyType) {
             void* c = i_class_from_name(img, "", "HR_PhotonLobbyManagerDummy");
             if (!c) c = few1n_findClassByName(img, "HR_PhotonLobbyManagerDummy");
@@ -906,7 +906,7 @@ static void few1n_initIl2cpp(void) {
         if (!g_roomOptionsClass) {
             void* roc = i_class_from_name(img, "Photon.Realtime", "RoomOptions");
             if (roc) { g_roomOptionsClass = roc; FLog([NSString stringWithFormat:@"RoomOptions bulundu! %p", roc]); }
-            // v113.1: Room class + set_Name method
+            // v113.2: Room class + set_Name method
             if (!g_roomClass) {
                 void* rc = i_class_from_name(img, "Photon.Realtime", "Room");
                 if (!rc) rc = few1n_findClassByName(img, "Room");
@@ -2249,17 +2249,17 @@ static NSString* stripRichTextTags(NSString *text) {
 
 // ===== CHAT =====
 // v110: ChatManager.fup(string) - GELEN chat mesaji (baska oyuncudan geldigi zaman burada tetiklenir)
-// v113.1 BUILD FIX: gercek body AI globalleri/fonksiyonlarından SONRA tanımlı (asagida)
+// v113.2 BUILD FIX: gercek body AI globalleri/fonksiyonlarından SONRA tanımlı (asagida)
 static void (*o_chatFup)(void*, void*) = NULL;
 static void h_chatFup(void* self, void* msg);   // forward decl - body aşağıda
-// v113.1: FEW1NMenu forward decl (h_chatSend içinde [FEW1NMenu shared] için)
+// v113.2: FEW1NMenu forward decl (h_chatSend içinde [FEW1NMenu shared] için)
 @class FEW1NMenu;
 
 static void (*o_chatSend)(void*, void*) = NULL;
 // v111: AI Sohbet Modu - /ai olmadan aktif konusma
 static bool isAiChatModeEnabled = false;
 static NSMutableArray<NSString*> *g_recentlySentByMe = nil;  // son 10 mesaj (kendi mesajlarima cevap vermemek icin)
-// v113.1: AI cevap renkleri (kullanici NSUserDefaults'tan sec)
+// v113.2: AI cevap renkleri (kullanici NSUserDefaults'tan sec)
 static char g_aiNameColorHex[8] = "00E5FF";  // cyan default
 static char g_aiReplyColorHex[8] = "FF00FF"; // magenta default
 
@@ -2347,6 +2347,56 @@ static NSString* few1n_writeFieldOnAllOfClass(NSString *className, NSString *fie
     } @catch (...) { return @"exception"; }
 }
 
+// v109: Groq API entegrasyonu - GERCEK yer (v113.2: hackerAsk'ten once tanimlanmali)
+static NSString* g_groqApiKey = nil;
+static NSString* const kGroqApiKeyDefault = @"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";
+static NSString* const kGroqModel = @"llama-3.3-70b-versatile";
+static NSString* const kGroqEndpoint = @"https://api.groq.com/openai/v1/chat/completions";
+
+static inline NSString* few1n_groqApiKey(void) {
+    if (g_groqApiKey && g_groqApiKey.length > 0) return g_groqApiKey;
+    NSString *k = [[NSUserDefaults standardUserDefaults] stringForKey:@"few1n_groqKey"];
+    if (k && k.length > 0) { g_groqApiKey = k; return k; }
+    g_groqApiKey = kGroqApiKeyDefault;
+    return g_groqApiKey;
+}
+
+static void few1n_groqAsk(NSString *prompt, void(^completion)(NSString*)) {
+    NSString *key = few1n_groqApiKey();
+    if (!key || key.length == 0) { completion(nil); return; }
+    NSMutableURLRequest *req = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:kGroqEndpoint]];
+    req.HTTPMethod = @"POST";
+    req.timeoutInterval = 8.0;
+    [req setValue:[NSString stringWithFormat:@"Bearer %@", key] forHTTPHeaderField:@"Authorization"];
+    [req setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
+    NSDictionary *body = @{
+        @"model": kGroqModel,
+        @"messages": @[
+            @{@"role": @"system", @"content": @"Sen DreamRoad Multiplayer yaris oyununda chat'te AI botsun. Turkce cevap ver, cok kisa (max 15 kelime), argo/sohbet dilinde. Kufur yok. Emoji cok az."},
+            @{@"role": @"user", @"content": prompt ?: @""}
+        ],
+        @"max_tokens": @80,
+        @"temperature": @0.9,
+        @"stream": @NO
+    };
+    NSError *jerr = nil;
+    req.HTTPBody = [NSJSONSerialization dataWithJSONObject:body options:0 error:&jerr];
+    if (jerr) { completion(nil); return; }
+    [[[NSURLSession sharedSession] dataTaskWithRequest:req completionHandler:^(NSData *data, NSURLResponse *resp, NSError *err) {
+        if (err || !data) { FLog([NSString stringWithFormat:@"🤖 Groq err: %@", err.localizedDescription ?: @"no data"]); completion(nil); return; }
+        NSDictionary *json = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+        if (![json isKindOfClass:[NSDictionary class]]) { completion(nil); return; }
+        NSDictionary *errObj = json[@"error"];
+        if ([errObj isKindOfClass:[NSDictionary class]]) { FLog([NSString stringWithFormat:@"🤖 Groq API error: %@", errObj[@"message"] ?: errObj]); completion(nil); return; }
+        NSArray *choices = json[@"choices"];
+        if (![choices isKindOfClass:[NSArray class]] || choices.count == 0) { completion(nil); return; }
+        NSDictionary *msg2 = choices[0][@"message"];
+        NSString *content = msg2[@"content"];
+        if (![content isKindOfClass:[NSString class]] || content.length == 0) { completion(nil); return; }
+        completion([content stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]]);
+    }] resume];
+}
+
 // v112: Hacker AI - JSON action donduren system prompt ile mod'daki hile'leri tetikle
 static NSString* const kHackerSystem = @"Sen DreamRoad hile bot'usun. Kullanici dogal dilde istedigini yazar, sen SADECE JSON dondurursun (baska hicbir sey yok, aciklama yok). Format: {\"action\":\"NAME\",\"state\":\"on|off|toggle\"}. Coklu istek varsa array: [{\"action\":\"X\",\"state\":\"on\"},{\"action\":\"Y\",\"state\":\"off\"}]. Kullanilabilir action'lar:\n- infinite_nos: sonsuz NOS\n- infinite_fuel: sonsuz yakit\n- no_damage: hasar yok\n- max_rpm: motor max rpm/turbo\n- engine_immortal: motor olmez\n- no_traffic: trafik dursun\n- emissive: parlak emissive boya\n- exhaust_flame: egzoz alev surekli\n- godmode: godmode\n- drift: drift modu\n- fly: ucus\n- noclip: no-clip\n- selektor: far cakma\n- balata: balata sicak sari\n- popbangs: pop bangs egzoz\n- autohorn: otomatik korna\n- brakeglow: balata glow\n- carsize: buyuk arac boyutu\n- speed_low: yavas hiz\n- speed_high: hizli hiz\n- detach: parca sok firlat (action, state gerekmez)\n- teleport_all: herkesi bana teleport (action)\n- hijack: yabanci arac hijack (action)\n- unknown: taninmayan istek\n\nOrnek: 'sonsuz gaz ac' -> {\"action\":\"infinite_nos\",\"state\":\"on\"}\n'trafik dur ve motor olsun' -> [{\"action\":\"no_traffic\",\"state\":\"on\"},{\"action\":\"engine_immortal\",\"state\":\"on\"}]\n'her seyi kapat' -> [{\"action\":\"infinite_nos\",\"state\":\"off\"},{\"action\":\"infinite_fuel\",\"state\":\"off\"},{\"action\":\"no_damage\",\"state\":\"off\"},{\"action\":\"godmode\",\"state\":\"off\"}]\n'herkesi ver' -> {\"action\":\"teleport_all\"}";
 
@@ -2388,22 +2438,11 @@ static void few1n_hackerAsk(NSString *prompt, void(^completion)(NSArray*)) {
     }] resume];
 }
 
-// v109: Groq API entegrasyonu - gercek AI cevap
-static NSString* g_groqApiKey = nil;
-static NSString* const kGroqApiKeyDefault = @"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";
-static NSString* const kGroqModel = @"llama-3.3-70b-versatile";
-static NSString* const kGroqEndpoint = @"https://api.groq.com/openai/v1/chat/completions";
-
-static inline NSString* few1n_groqApiKey(void) {
-    if (g_groqApiKey && g_groqApiKey.length > 0) return g_groqApiKey;
-    NSString *k = [[NSUserDefaults standardUserDefaults] stringForKey:@"few1n_groqKey"];
-    if (k && k.length > 0) { g_groqApiKey = k; return k; }
-    g_groqApiKey = kGroqApiKeyDefault;
-    return g_groqApiKey;
-}
-
-// Async Groq API cagrisi. completion(nil) = basarisiz, fallback kural
-static void few1n_groqAsk(NSString *prompt, void(^completion)(NSString*)) {
+// v113.2: Groq bloğu yukarı taşındı (hackerAsk'ten önce). Kalan few1n_groqAsk duplicate silinecek.
+// Duplicate function tanımı ÖNLEMEK için sadece bir tane groqAsk kalır (yukarıda).
+#if 0
+// Async Groq API cagrisi. completion(nil) = basarisiz, fallback kural  -- DUPLICATE, DEVRE DIŞI
+static void few1n_groqAsk_DEAD(NSString *prompt, void(^completion)(NSString*)) {
     NSString *key = few1n_groqApiKey();
     if (!key || key.length == 0) { completion(nil); return; }
     NSMutableURLRequest *req = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:kGroqEndpoint]];
@@ -2444,6 +2483,7 @@ static void few1n_groqAsk(NSString *prompt, void(^completion)(NSString*)) {
         completion([content stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]]);
     }] resume];
 }
+#endif // v113.2 DUPLICATE Groq bloğu sonu
 
 // v108: Basit kural tabanli AI cevap - /ai prefix ile chat'te calisir (Groq basarisiz olursa fallback)
 static NSString* few1n_aiReply(NSString *prompt) {
@@ -2557,29 +2597,29 @@ static void h_chatSend(void* self, void* msg) {
                             BOOL toggle = [st.lowercaseString isEqualToString:@"toggle"];
                             dispatch_async(dispatch_get_main_queue(), ^{
                                 @try {
-                                    // v113.1: FEW1NMenu forward decl yerine dynamic dispatch (compile warning'i azalt)
+                                    // v113.2: FEW1NMenu forward decl yerine dynamic dispatch (compile warning'i azalt)
                                     id m = [NSClassFromString(@"FEW1NMenu") performSelector:@selector(shared)];
-                                    if ([act isEqualToString:@"infinite_nos"]) { isInfiniteNosEnabled = toggle ? !isInfiniteNosEnabled : on; saveBool(@"infnos", isInfiniteNosEnabled); [m startGizliTimerIfNeeded]; }
-                                    else if ([act isEqualToString:@"infinite_fuel"]) { isInfiniteFuelEnabled = toggle ? !isInfiniteFuelEnabled : on; saveBool(@"inffuel", isInfiniteFuelEnabled); [m startGizliTimerIfNeeded]; }
-                                    else if ([act isEqualToString:@"no_damage"]) { isNoDamageV2Enabled = toggle ? !isNoDamageV2Enabled : on; saveBool(@"nodamagev2", isNoDamageV2Enabled); [m startGizliTimerIfNeeded]; }
-                                    else if ([act isEqualToString:@"max_rpm"]) { isMaxRpmEnabled = toggle ? !isMaxRpmEnabled : on; saveBool(@"maxrpm", isMaxRpmEnabled); [m startGizliTimerIfNeeded]; }
-                                    else if ([act isEqualToString:@"engine_immortal"]) { isEngineImmortalEnabled = toggle ? !isEngineImmortalEnabled : on; saveBool(@"immortalengine", isEngineImmortalEnabled); [m startGizliTimerIfNeeded]; }
-                                    else if ([act isEqualToString:@"no_traffic"]) { isNoTrafficEnabled = toggle ? !isNoTrafficEnabled : on; saveBool(@"notraffic", isNoTrafficEnabled); [m startGizliTimerIfNeeded]; }
-                                    else if ([act isEqualToString:@"emissive"]) { isEmissivePaintEnabled = toggle ? !isEmissivePaintEnabled : on; saveBool(@"emissive", isEmissivePaintEnabled); [m startGizliTimerIfNeeded]; }
-                                    else if ([act isEqualToString:@"exhaust_flame"]) { isExhaustFlameOnEnabled = toggle ? !isExhaustFlameOnEnabled : on; saveBool(@"exhaustflame", isExhaustFlameOnEnabled); [m startGizliTimerIfNeeded]; }
+                                    if ([act isEqualToString:@"infinite_nos"]) { isInfiniteNosEnabled = toggle ? !isInfiniteNosEnabled : on; saveBool(@"infnos", isInfiniteNosEnabled); [m performSelector:@selector(startGizliTimerIfNeeded)]; }
+                                    else if ([act isEqualToString:@"infinite_fuel"]) { isInfiniteFuelEnabled = toggle ? !isInfiniteFuelEnabled : on; saveBool(@"inffuel", isInfiniteFuelEnabled); [m performSelector:@selector(startGizliTimerIfNeeded)]; }
+                                    else if ([act isEqualToString:@"no_damage"]) { isNoDamageV2Enabled = toggle ? !isNoDamageV2Enabled : on; saveBool(@"nodamagev2", isNoDamageV2Enabled); [m performSelector:@selector(startGizliTimerIfNeeded)]; }
+                                    else if ([act isEqualToString:@"max_rpm"]) { isMaxRpmEnabled = toggle ? !isMaxRpmEnabled : on; saveBool(@"maxrpm", isMaxRpmEnabled); [m performSelector:@selector(startGizliTimerIfNeeded)]; }
+                                    else if ([act isEqualToString:@"engine_immortal"]) { isEngineImmortalEnabled = toggle ? !isEngineImmortalEnabled : on; saveBool(@"immortalengine", isEngineImmortalEnabled); [m performSelector:@selector(startGizliTimerIfNeeded)]; }
+                                    else if ([act isEqualToString:@"no_traffic"]) { isNoTrafficEnabled = toggle ? !isNoTrafficEnabled : on; saveBool(@"notraffic", isNoTrafficEnabled); [m performSelector:@selector(startGizliTimerIfNeeded)]; }
+                                    else if ([act isEqualToString:@"emissive"]) { isEmissivePaintEnabled = toggle ? !isEmissivePaintEnabled : on; saveBool(@"emissive", isEmissivePaintEnabled); [m performSelector:@selector(startGizliTimerIfNeeded)]; }
+                                    else if ([act isEqualToString:@"exhaust_flame"]) { isExhaustFlameOnEnabled = toggle ? !isExhaustFlameOnEnabled : on; saveBool(@"exhaustflame", isExhaustFlameOnEnabled); [m performSelector:@selector(startGizliTimerIfNeeded)]; }
                                     else if ([act isEqualToString:@"godmode"]) { isGodmode = toggle ? !isGodmode : on; saveBool(@"godmode", isGodmode); }
                                     else if ([act isEqualToString:@"drift"]) { isDriftEnabled = toggle ? !isDriftEnabled : on; saveBool(@"drift", isDriftEnabled); }
                                     else if ([act isEqualToString:@"fly"]) { isFlyEnabled = toggle ? !isFlyEnabled : on; saveBool(@"fly", isFlyEnabled); }
                                     else if ([act isEqualToString:@"noclip"]) { isNoClip = toggle ? !isNoClip : on; saveBool(@"noclip", isNoClip); }
                                     else if ([act isEqualToString:@"selektor"]) { isSelektor = toggle ? !isSelektor : on; saveBool(@"selektor", isSelektor); }
-                                    else if ([act isEqualToString:@"balata"] || [act isEqualToString:@"brakeglow"]) { [m tapBrakeGlow]; }
+                                    else if ([act isEqualToString:@"balata"] || [act isEqualToString:@"brakeglow"]) { [m performSelector:@selector(tapBrakeGlow)]; }
                                     else if ([act isEqualToString:@"popbangs"]) { isPopBangsEnabled = toggle ? !isPopBangsEnabled : on; saveBool(@"popbangs", isPopBangsEnabled); }
                                     else if ([act isEqualToString:@"autohorn"]) { isAutoHornEnabled = toggle ? !isAutoHornEnabled : on; saveBool(@"autohorn", isAutoHornEnabled); }
-                                    else if ([act isEqualToString:@"detach"]) { [m tapDetachParts]; }
-                                    else if ([act isEqualToString:@"teleport_all"]) { [m tapTeleportAllToMe]; }
-                                    else if ([act isEqualToString:@"hijack"]) { [m tapHijackCar]; }
+                                    else if ([act isEqualToString:@"detach"]) { [m performSelector:@selector(tapDetachParts)]; }
+                                    else if ([act isEqualToString:@"teleport_all"]) { [m performSelector:@selector(tapTeleportAllToMe)]; }
+                                    else if ([act isEqualToString:@"hijack"]) { [m performSelector:@selector(tapHijackCar)]; }
                                     else { [report appendFormat:@" ❓%@", act]; return; }
-                                    [m refreshUI];
+                                    [m performSelector:@selector(refreshUI)];
                                     [report appendFormat:@" ✅%@(%@)", act, toggle ? @"~" : (on ? @"on" : @"off")];
                                 } @catch (...) { [report appendFormat:@" ❌%@", act]; }
                             });
@@ -2636,7 +2676,7 @@ static void h_chatSend(void* self, void* msg) {
     if (o_chatSend) o_chatSend(self, msg);
 }
 
-// v113.1: h_chatFup GERCEK BODY (AI globalleri/fonksiyonlarindan sonra tanimli, compile hatasi bitti)
+// v113.2: h_chatFup GERCEK BODY (AI globalleri/fonksiyonlarindan sonra tanimli, compile hatasi bitti)
 static void h_chatFup(void* self, void* msg) {
     if (msg) @try {
         NSString *received = readStr(msg);
@@ -3391,7 +3431,7 @@ static UIViewController* few1n_topVC(void) {
     title.font = [UIFont systemFontOfSize:17 weight:UIFontWeightBlack];
     [header addSubview:title];
     UILabel *ver = [[UILabel alloc] initWithFrame:CGRectMake(42,37,pw-90,16)];
-    ver.text = [NSString stringWithFormat:@"v113.1  •  Base 0x%lX", (unsigned long)global_base];
+    ver.text = [NSString stringWithFormat:@"v113.2  •  Base 0x%lX", (unsigned long)global_base];
     ver.textColor = [UIColor colorWithWhite:1 alpha:0.82];
     ver.font = [UIFont fontWithName:@"Menlo-Bold" size:8] ?: [UIFont systemFontOfSize:8 weight:UIFontWeightBold];
     [header addSubview:ver];
@@ -3628,7 +3668,7 @@ static UIViewController* few1n_topVC(void) {
     y = [self actionRow:@"🗺️  Odadayken Harita Değiştir (v233 minimal + master zorla)" color:C_ON atY:y action:@selector(changeMapInRoom)];
     y = [self actionRow:@"🚗  Kişi Aracı Klonla (deneysel race glitch)" color:C_GOLD atY:y action:@selector(cloneCarPicker)];
     y = [self actionRow:@"🌤️  Hava Durumu & Zaman Seç (Aktarmasız Canlı)" color:C_ON atY:y action:@selector(changeWeatherOnly)];
-    // v113.1: "Odadayken Oda İsmini Değiştir" SİLİNDİ (client-side + CustomProperties + set_Name calismiyordu - mod'suzlar goremiyordu)
+    // v113.2: "Odadayken Oda İsmini Değiştir" SİLİNDİ (client-side + CustomProperties + set_Name calismiyordu - mod'suzlar goremiyordu)
     // Tek gercek yol: 🔄 Odayi Yeniden Olustur (asagida)
     y = [self actionRow:@"👥  Odadayken Max Oyuncu Değiştir (2-100)" color:C_GOLD atY:y action:@selector(changeMaxPlayersInRoom)];
     y = [self actionRow:@"🔄  Odayı YENİDEN OLUŞTUR (herkeste değişir)" color:C_RED atY:y action:@selector(recreateRoomWithNewName)];
@@ -5785,7 +5825,7 @@ static NSString* rainbowWrap(NSString* text, int idx) {
         int totalApplied = 0;
         for (int i = 0; i < cnt; i++) {
             void* wg = wgs[i]; if (!ptrOk(wg)) continue;
-            // v113.1 FIX: materials offset +0x10 -> +0x18 (il2cpp.h dogrulandi, MonoBehaviour base=0x18)
+            // v113.2 FIX: materials offset +0x10 -> +0x18 (il2cpp.h dogrulandi, MonoBehaviour base=0x18)
             void* materials = *(void**)((uintptr_t)wg + 0x18);
             if (!ptrOk(materials)) continue;
             int matCnt = (int)(*(uintptr_t*)((uintptr_t)materials + 0x18));
@@ -5804,7 +5844,7 @@ static NSString* rainbowWrap(NSString* text, int idx) {
                     }
                 } @catch (...) {}
             }
-            // v113.1 ALTERNATIF: maxTemperature @+0x28, minVisibleTemperature @+0x24
+            // v113.2 ALTERNATIF: maxTemperature @+0x28, minVisibleTemperature @+0x24
             // RCCP kendi Gradient'iyle balatayi renklendirir - Material.SetColor gerekmez
             @try {
                 *(float*)((uintptr_t)wg + 0x28) = 10000.0f;   // maxTemperature = cok yuksek
@@ -5999,7 +6039,7 @@ static NSString* rainbowWrap(NSString* text, int idx) {
     [self present:ac];
 }
 
-// v113.1: AI cevap renklerini sec (isim + cevap ayri)
+// v113.2: AI cevap renklerini sec (isim + cevap ayri)
 - (void)pickAiColorFor:(BOOL)forName {
     NSString *title = forName ? @"🎨 İsim Rengi Seç [FEW1N AI]" : @"🎨 Cevap Rengi Seç";
     NSString *curHex = [NSString stringWithUTF8String:forName ? g_aiNameColorHex : g_aiReplyColorHex];
@@ -6194,7 +6234,7 @@ static NSString* rainbowWrap(NSString* text, int idx) {
     } @catch (...) {}
 }
 
-// v113.1: Odayi Yeniden Olustur - SUNUCUDA GERCEK isim degisikligi (herkes duser + yeni odada sen)
+// v113.2: Odayi Yeniden Olustur - SUNUCUDA GERCEK isim degisikligi (herkes duser + yeni odada sen)
 - (void)recreateRoomWithNewName {
     if (!pn_leaveRoom || !pn_createRoom || !i_object_new || !g_roomOptionsClass) {
         FLog(@"❌ recreate: pn_leaveRoom/createRoom/RoomOptions YOK");
@@ -6350,7 +6390,7 @@ static NSString* rainbowWrap(NSString* text, int idx) {
             NSString *nmCopy = [nm copy];
             [ac addAction:[UIAlertAction actionWithTitle:[NSString stringWithFormat:@"🎯 %@", nmClean]
                 style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
-                // v113.1: MANUEL METOD SECIMI - hedef secildikten sonra hangi saldirinin uygulanacagini kullanici sec
+                // v113.2: MANUEL METOD SECIMI - hedef secildikten sonra hangi saldirinin uygulanacagini kullanici sec
                 UIAlertController *pick = [UIAlertController alertControllerWithTitle:[NSString stringWithFormat:@"🎯 '%@'", nmCopy]
                     message:@"Hangi saldiri?" preferredStyle:UIAlertControllerStyleAlert];
                 // A) Sadece Bomb
@@ -7473,7 +7513,7 @@ static void few1n_startCarCloneAttempt(NSString *scene) {
                     *(void**)((uintptr_t)room + 0x40) = nameStr;
                     FLog([NSString stringWithFormat:@"✓ Metod 1 Room.Name (0x40) client-side yazildi: '%@'", newName]);
 
-                    // v113.1: Metod 2 - SUNUCU push - Room.set_Name(string) invoke
+                    // v113.2: Metod 2 - SUNUCU push - Room.set_Name(string) invoke
                     // Bu Photon internal method; sunucuya sync eder mi denemek lazim
                     if (g_mRoomSetName && i_runtime_invoke && nameStr) {
                         @try {
@@ -9011,7 +9051,7 @@ static void few1n_joinTargetRoom(NSString *nm) {
 - (void)serverHideChain:(NSArray*)targets index:(NSInteger)idx {
     if (idx >= (NSInteger)targets.count) {
         FLog([NSString stringWithFormat:@"🌐 [SUNUCU HIDE] BITTI — %lu oda islendi", (unsigned long)targets.count]);
-        // v113.1: Chain bittiginde HR_PhotonLobbyManagerDummy.roomListPanel'i aktif et
+        // v113.2: Chain bittiginde HR_PhotonLobbyManagerDummy.roomListPanel'i aktif et
         // Boylece oyun garaja atmak yerine oda listesi ekranini gosterir
         @try {
             if (g_hrLobbyMgrDummyType && g_offRoomListPanel > 0 && g_mGoSetActive && g_mFindObjectsPlural && i_runtime_invoke) {
@@ -9714,7 +9754,7 @@ static void restoreSettings(void) {
     isExhaustFlameOnEnabled = loadBool(@"exhaustflame", false);
     isVidyoNamesEnabled     = loadBool(@"vidyonames", false);
     isAiChatModeEnabled     = loadBool(@"aichat", false);
-    // v113.1: AI renkleri kalici
+    // v113.2: AI renkleri kalici
     NSString *nc = loadStr(@"aiNameCol", @"00E5FF");  strncpy(g_aiNameColorHex, nc.UTF8String, 7); g_aiNameColorHex[7]='\0';
     NSString *rc = loadStr(@"aiReplyCol", @"FF00FF"); strncpy(g_aiReplyColorHex, rc.UTF8String, 7); g_aiReplyColorHex[7]='\0';
     g_selFlashRate         = loadInt(@"selRate", 1);
@@ -9898,7 +9938,7 @@ static void few1n_poll(void) {
 }
 
 %ctor {
-    FLog(@"v113.1 basladi, UnityFramework araniyor...");
+    FLog(@"v113.2 basladi, UnityFramework araniyor...");
     restoreSettings();
 
     // ===== REKLAM BOZUCU: TUM reklam SDK'larini engelle (Obj-C runtime swizzle) =====
