@@ -2665,8 +2665,12 @@ static void h_chatSend(void* self, void* msg) {
                     dispatch_async(dispatch_get_main_queue(), ^{
                         @try {
                             void* ns = mkStr(finalMsg);
-                            if (ns && o_chatSend) o_chatSend(selfKept, ns);
-                            else FLog(@"❌ AI cevap gonderemedi - mkStr/o_chatSend NULL");
+                            if (ns && o_chatSend) {
+                                o_chatSend(selfKept, ns);
+                            } else if (chatGetInst && chatSend) {
+                                void* mgr = chatGetInst();
+                                if (mgr && ns) chatSend(mgr, ns);
+                            } else FLog(@"❌ AI cevap gonderemedi - mkStr/o_chatSend/chatSend NULL");
                         } @catch (...) { FLog(@"❌ AI cevap send exception"); }
                     });
                     FLog([NSString stringWithFormat:@"🤖 AI cevap: %@ (%@)", finalReply, source]);
@@ -3109,6 +3113,7 @@ static void h_roomLineSetup(void* self, void* a, void* b, unsigned char c, unsig
 - (void)joinRoomByName;
 - (void)pickRoomsServerHide;
 - (void)present:(UIAlertController*)ac;
+- (void)askAiDirect;
 @end
 
 static int g_bruteForceIdx = 0;
@@ -3565,6 +3570,7 @@ static UIViewController* few1n_topVC(void) {
     y = [self actionRow:@"\U0001F9F2  Oyuncuyu Yanima Cek (RPC Isinla)" color:C_ON atY:y action:@selector(bringPlayerToMe)];
 
     y = [self header:@"\U0001F4AC  CHAT" atY:y];
+    y = [self actionRow:@"💬  AI'ye Dogrudan Soru Sor (Pencereden)" color:C_GOLD atY:y action:@selector(askAiDirect)];
     y = [self actionRow:@"🤖  AI Bot: chat'e /ai <soru> yaz (Groq)" color:C_ON atY:y action:@selector(editAiApiKey)];
     y = [self toggle:@"💬  AI Sohbet Modu" sub:@"AI'ye /ai yazmadan, tum mesajlara %40 + hitaplara cevap ver" key:@"aichat" atY:y action:@selector(tapAiChatMode)];
     y = [self actionRow:@"🎨  AI Cevap Renkleri Sec (isim + cevap)" color:C_GOLD atY:y action:@selector(pickAiColors)];
@@ -5829,14 +5835,6 @@ static NSString* rainbowWrap(NSString* text, int idx) {
     FLog(isRevLimiterEnabled ? @"🔥 Yüksek Devir / Kesici Ses Modu aktif!" : @"🔥 Kesici Modu kapalı.");
     [self refreshUI];
 }
-// v94: applyBrakeGlow — WheelGlow materyallerini sarı yap (BIR SEFER)
-// Timer'dan periyodik cagirilir. Per-frame degil (input bug'i onlemek icin).
-// v113.11: TÜM YÖNTEMLERİ KOMBİNE EDEN kapsamlı balata (5 metod paralel dener)
-// 1. WheelGlow.BrakeMaterial.renderer.material.SetColor
-// 2. WheelGlow.maxTemperature = 10000 + minVisibleTemperature = 0 (Gradient path)
-// 3. WheelGlow.hxm (cached Material) SetColor  <- YENI
-// 4. RCCP_WheelBlur.targetMaterial SetColor  <- YENI (il2cpp.h dogrulandi)
-// 5. RCCP_Caliper.hlw GameObject.GetComponentInChildren<Renderer>.material.SetColor  <- YENI
 - (void)applyBrakeGlowOld_UNUSED { }
 - (void)applyBrakeGlow {
     // v98: class henuz resolve olmadiysa init'i tekrar dene (oyun gec yukleyebilir)
@@ -5846,8 +5844,8 @@ static NSString* rainbowWrap(NSString* text, int idx) {
         if (nx++ % 3 == 0) FLog([NSString stringWithFormat:@"🔥 Balata: hazir degil (wgType=%p FO=%p RI=%p RGM=%p MSC=%p)", g_wheelGlowTypeObj, g_mFindObjectsPlural, i_runtime_invoke, g_mRendGetMat, g_mMatSetColor]);
         return;
     }
-    // v113.11: il2cpp field API - RCCP_WheelGlow.maxTemperature offset runtime al
-    static int g_offMaxTemp = -1, g_offMinVisTemp = -1;
+    // v113.11: il2cpp field API - RCCP_WheelGlow field offsetleri runtime al
+    static int g_offMaxTemp = -1, g_offMinVisTemp = -1, g_offMaterials = -1, g_offHxm = -1;
     if (g_offMaxTemp < 0 && i_class_from_name && i_class_get_field_from_name && i_field_get_offset) {
         void* wgc = NULL;
         NSArray *cands = @[@"RCCP_WheelGlow", @"WheelGlow", @"RCCP_Caliper", @"RCCP_WheelSlipParticles"];
@@ -5857,9 +5855,15 @@ static NSString* rainbowWrap(NSString* text, int idx) {
             if (mt) g_offMaxTemp = (int)i_field_get_offset(mt);
             void* mv = i_class_get_field_from_name(wgc, "minVisibleTemperature");
             if (mv) g_offMinVisTemp = (int)i_field_get_offset(mv);
-            FLog([NSString stringWithFormat:@"🔥 Balata field offsets: maxTemp@%d minVis@%d", g_offMaxTemp, g_offMinVisTemp]);
+            void* mats = i_class_get_field_from_name(wgc, "materials");
+            if (mats) g_offMaterials = (int)i_field_get_offset(mats);
+            void* fHxm = i_class_get_field_from_name(wgc, "hxm");
+            if (fHxm) g_offHxm = (int)i_field_get_offset(fHxm);
+            FLog([NSString stringWithFormat:@"🔥 Balata field offsets: maxTemp@%d minVis@%d mats@%d hxm@%d", g_offMaxTemp, g_offMinVisTemp, g_offMaterials, g_offHxm]);
         }
     }
+    int offMats = (g_offMaterials > 0) ? g_offMaterials : 0x20;
+
     @try {
         void* a[1]; a[0] = g_wheelGlowTypeObj;
         void* arr = i_runtime_invoke(g_mFindObjectsPlural, NULL, a, NULL);
@@ -5871,36 +5875,33 @@ static NSString* rainbowWrap(NSString* text, int idx) {
         int totalApplied = 0;
         for (int i = 0; i < cnt; i++) {
             void* wg = wgs[i]; if (!ptrOk(wg)) continue;
-            // v113.11 FIX: materials offset +0x10 -> +0x18 (il2cpp.h dogrulandi, MonoBehaviour base=0x18)
-            void* materials = *(void**)((uintptr_t)wg + 0x18);
-            if (!ptrOk(materials)) continue;
-            int matCnt = (int)(*(uintptr_t*)((uintptr_t)materials + 0x18));
-            if (matCnt <= 0 || matCnt > 16) continue;
-            void** matArr = (void**)((uintptr_t)materials + 0x20);
-            for (int m = 0; m < matCnt; m++) {
-                void* bm = matArr[m]; if (!ptrOk(bm)) continue;
-                void* renderer = *(void**)((uintptr_t)bm + 0x0);
-                if (!ptrOk(renderer)) continue;
-                @try {
-                    void* mat = i_runtime_invoke(g_mRendGetMat, renderer, NULL, NULL);
-                    if (ptrOk(mat)) {
-                        void* args[1]; args[0] = &hotYellow;
-                        i_runtime_invoke(g_mMatSetColor, mat, args, NULL);
-                        totalApplied++;
+            // materials field (RCCP_WheelGlow_BrakeMaterial_array*)
+            void* materials = *(void**)((uintptr_t)wg + offMats);
+            if (ptrOk(materials)) {
+                int matCnt = (int)(*(uintptr_t*)((uintptr_t)materials + 0x18));
+                if (matCnt > 0 && matCnt <= 16) {
+                    // BrakeMaterial is a C# struct (16 bytes per item: Renderer* + int32 index + padding)
+                    for (int m = 0; m < matCnt; m++) {
+                        uintptr_t structAddr = (uintptr_t)materials + 0x20 + (m * 16);
+                        void* renderer = *(void**)(structAddr);
+                        if (!ptrOk(renderer)) continue;
+                        @try {
+                            void* mat = i_runtime_invoke(g_mRendGetMat, renderer, NULL, NULL);
+                            if (ptrOk(mat)) {
+                                void* args[1]; args[0] = &hotYellow;
+                                i_runtime_invoke(g_mMatSetColor, mat, args, NULL);
+                                totalApplied++;
+                            }
+                        } @catch (...) {}
                     }
-                } @catch (...) {}
+                }
             }
-            // v113.11: il2cpp field API ile runtime offset (garantili)
+            // maxTemperature / minVisibleTemperature
             @try {
                 if (g_offMaxTemp > 0)     *(float*)((uintptr_t)wg + g_offMaxTemp) = 10000.0f;
                 if (g_offMinVisTemp > 0)  *(float*)((uintptr_t)wg + g_offMinVisTemp) = 0.0f;
             } @catch (...) {}
-            // v113.11 METHOD 3: WheelGlow.hxm cached Material direkt SetColor
-            static int g_offHxm = -1;
-            if (g_offHxm < 0 && i_class_from_name && i_class_get_field_from_name && i_field_get_offset) {
-                void* wgc = i_class_from_name(NULL, "", "RCCP_WheelGlow");
-                if (wgc) { void* f = i_class_get_field_from_name(wgc, "hxm"); if (f) g_offHxm = (int)i_field_get_offset(f); }
-            }
+            // hxm cached Material
             if (g_offHxm > 0) {
                 @try {
                     void* cachedMat = *(void**)((uintptr_t)wg + g_offHxm);
@@ -5947,8 +5948,6 @@ static NSString* rainbowWrap(NSString* text, int idx) {
             }
         } @catch (...) {}
         // v113.11 METHOD 6 DOGRU: Shader.PropertyToID -> int nameID -> SetColor(int, Color) + EnableKeyword(_EMISSION)
-        // Unity'nin standart materyal property yaklasimi. SetColor(string) overload'unda il2cpp int'i secip crash yapiyor,
-        // biz manuel int nameID veriyoruz -> hangi overload olursa olsun int alan versiyon tetiklenir.
         static void* g_mMatSetColorInt = NULL;   // Material.SetColor(int, Color)
         static void* g_mMatEnableKw = NULL;      // Material.EnableKeyword(string)
         static int g_emissionColorID = -1;        // Shader.PropertyToID("_EmissionColor") result
@@ -5992,24 +5991,25 @@ static NSString* rainbowWrap(NSString* text, int idx) {
                         void** wgsE = (void**)((uintptr_t)arrE + 0x20);
                         for (int i = 0; i < ecnt; i++) {
                             void* wg = wgsE[i]; if (!ptrOk(wg)) continue;
-                            void* materials = *(void**)((uintptr_t)wg + 0x18);
-                            if (!ptrOk(materials)) continue;
-                            int matCnt = (int)(*(uintptr_t*)((uintptr_t)materials + 0x18));
-                            if (matCnt <= 0 || matCnt > 16) continue;
-                            void** matArr = (void**)((uintptr_t)materials + 0x20);
-                            for (int m = 0; m < matCnt; m++) {
-                                void* bm = matArr[m]; if (!ptrOk(bm)) continue;
-                                void* renderer = *(void**)((uintptr_t)bm + 0x0);
-                                if (!ptrOk(renderer)) continue;
-                                @try {
-                                    void* mat = i_runtime_invoke(g_mRendGetMat, renderer, NULL, NULL);
-                                    if (ptrOk(mat)) {
-                                        void* args[2]; args[0] = &g_emissionColorID; args[1] = &hdrOrange;
-                                        i_runtime_invoke(g_mMatSetColorInt, mat, args, NULL);
-                                        void* kwArgs[1]; kwArgs[0] = g_emisKwStr;
-                                        i_runtime_invoke(g_mMatEnableKw, mat, kwArgs, NULL);
+                            void* materials = *(void**)((uintptr_t)wg + offMats);
+                            if (ptrOk(materials)) {
+                                int matCnt = (int)(*(uintptr_t*)((uintptr_t)materials + 0x18));
+                                if (matCnt > 0 && matCnt <= 16) {
+                                    for (int m = 0; m < matCnt; m++) {
+                                        uintptr_t structAddr = (uintptr_t)materials + 0x20 + (m * 16);
+                                        void* renderer = *(void**)(structAddr);
+                                        if (!ptrOk(renderer)) continue;
+                                        @try {
+                                            void* mat = i_runtime_invoke(g_mRendGetMat, renderer, NULL, NULL);
+                                            if (ptrOk(mat)) {
+                                                void* args[2]; args[0] = &g_emissionColorID; args[1] = &hdrOrange;
+                                                i_runtime_invoke(g_mMatSetColorInt, mat, args, NULL);
+                                                void* kwArgs[1]; kwArgs[0] = g_emisKwStr;
+                                                i_runtime_invoke(g_mMatEnableKw, mat, kwArgs, NULL);
+                                            }
+                                        } @catch (...) {}
                                     }
-                                } @catch (...) {}
+                                }
                             }
                         }
                     }
@@ -6370,11 +6370,10 @@ static NSString* rainbowWrap(NSString* text, int idx) {
     [ac addAction:[UIAlertAction actionWithTitle:@"🔧 Model Seç (preset veya custom)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *aa){
         UIAlertController *mp = [UIAlertController alertControllerWithTitle:@"🔧 Groq Model Seç" message:[NSString stringWithFormat:@"Aktif: %@\n\nGroq'ta ÇALIŞAN native modeller:", kGroqModel()] preferredStyle:UIAlertControllerStyleAlert];
         NSArray *presets = @[
-            @[@"⚡ gpt-oss-120b (en iyi)", @"openai/gpt-oss-120b"],
-            @[@"🚀 gpt-oss-20b (hızlı mini)", @"openai/gpt-oss-20b"],
+            @[@"🦙 llama-3.3-70b-versatile (varsayilan - EN IYI)", @"llama-3.3-70b-versatile"],
+            @[@"⚡ gpt-oss-120b", @"openai/gpt-oss-120b"],
+            @[@"🚀 gpt-oss-20b (hizli mini)", @"openai/gpt-oss-20b"],
             @[@"🧠 qwen3-32b", @"qwen/qwen3-32b"],
-            @[@"🌙 moonshot kimi-k2", @"moonshotai/kimi-k2-instruct"],
-            @[@"❌ gpt-4.1-mini (Groq'ta YOK, 404)", @"gpt-4.1-mini"],
         ];
         for (NSArray *p in presets) {
             NSString *lbl = p[0]; NSString *mn = p[1];
@@ -6405,6 +6404,47 @@ static NSString* rainbowWrap(NSString* text, int idx) {
                     preferredStyle:UIAlertControllerStyleAlert];
                 [r addAction:[UIAlertAction actionWithTitle:@"Tamam" style:UIAlertActionStyleDefault handler:nil]];
                 [self present:r];
+            });
+        });
+    }]];
+    [ac addAction:[UIAlertAction actionWithTitle:@"Iptal" style:UIAlertActionStyleCancel handler:nil]];
+    [self present:ac];
+}
+
+- (void)askAiDirect {
+    UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"🤖 AI'ye Soru Sor (Groq)"
+        message:@"Sormak istedigin soruyu yaz. Cevap hem ekranda gorunecek hem de odaya gonderilecek:"
+        preferredStyle:UIAlertControllerStyleAlert];
+    [ac addTextFieldWithConfigurationHandler:^(UITextField *tf){
+        tf.placeholder = @"Orn: naber, en hizli araba hangisi?";
+        tf.autocapitalizationType = UITextAutocapitalizationTypeNone;
+        tf.autocorrectionType = UITextAutocorrectionTypeNo;
+    }];
+    __weak UIAlertController *w = ac;
+    [ac addAction:[UIAlertAction actionWithTitle:@"🚀 Gonder" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
+        NSString *prompt = w.textFields.firstObject.text;
+        if (!prompt || prompt.length == 0) return;
+        FLog([NSString stringWithFormat:@"🤖 Direct AI soruldu: '%@'", prompt]);
+        few1n_groqAsk(prompt, ^(NSString *reply) {
+            NSString *finalReply = (reply && reply.length > 0) ? reply : few1n_aiReply(prompt);
+            NSString *nameCol = [NSString stringWithUTF8String:g_aiNameColorHex];
+            NSString *replyCol = [NSString stringWithUTF8String:g_aiReplyColorHex];
+            NSString *finalMsg = [NSString stringWithFormat:@"<color=#%@><b>[🤖 FEW1N AI]</b></color> <color=#%@>%@</color>", nameCol, replyCol, finalReply];
+            dispatch_async(dispatch_get_main_queue(), ^{
+                @try {
+                    // 1. Chat'e gonder (il2cpp chatSend ile)
+                    if (chatGetInst && chatSend) {
+                        void* mgr = chatGetInst();
+                        void* ns = mkStr(finalMsg);
+                        if (mgr && ns) chatSend(mgr, ns);
+                    }
+                    // 2. Ekranda göster
+                    UIAlertController *res = [UIAlertController alertControllerWithTitle:@"🤖 AI Cevabi"
+                        message:[NSString stringWithFormat:@"Soru: %@\n\nCevap:\n%@", prompt, finalReply]
+                        preferredStyle:UIAlertControllerStyleAlert];
+                    [res addAction:[UIAlertAction actionWithTitle:@"Tamam" style:UIAlertActionStyleDefault handler:nil]];
+                    [self present:res];
+                } @catch (...) {}
             });
         });
     }]];
