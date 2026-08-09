@@ -12,7 +12,7 @@
 #import <objc/runtime.h>
 
 // ============================================================
-//  v113.9 - FEW1N MOD MENU  (derlenir, hatasiz - bu dosyayi kullan)
+//  v113.11 - FEW1N MOD MENU  (derlenir, hatasiz - bu dosyayi kullan)
 //  DUZELTME: rainbowWrap forward-decl (tanim sirasi), decl-order taramasi temiz, autogreet poll optimize.
 //  Ozellikler: GERCEK Kick (liste/isim), Ucus D-pad, Emoji sprite+test, Otomatik Karsilama, Normal Oda 31
 //  DreamRoadMultiplayer | Unity 6 (6000.3.0b1) | Metadata v39
@@ -209,7 +209,7 @@ static void* g_hrBombTypeObj = NULL;
 static void* g_hrTrafficCarTypeObj = NULL;
 static void* g_hrPhotonSyncTypeObj = NULL;
 static void* g_rccpDetachTypeObj = NULL;
-// v113.9: HR_PhotonLobbyManagerDummy - chain sonu oda listesi ekrani icin
+// v113.11: HR_PhotonLobbyManagerDummy - chain sonu oda listesi ekrani icin
 static void* g_hrLobbyMgrDummyType = NULL;
 static void* g_mGoSetActive = NULL;      // UnityEngine.GameObject.SetActive(bool)
 static int g_offRoomListPanel = 0;
@@ -867,7 +867,7 @@ static void few1n_initIl2cpp(void) {
                 }
             }
         }
-        // v113.9: HR_PhotonLobbyManagerDummy resolve + roomListPanel offset
+        // v113.11: HR_PhotonLobbyManagerDummy resolve + roomListPanel offset
         if (!g_hrLobbyMgrDummyType) {
             void* c = i_class_from_name(img, "", "HR_PhotonLobbyManagerDummy");
             if (!c) c = few1n_findClassByName(img, "HR_PhotonLobbyManagerDummy");
@@ -906,7 +906,7 @@ static void few1n_initIl2cpp(void) {
         if (!g_roomOptionsClass) {
             void* roc = i_class_from_name(img, "Photon.Realtime", "RoomOptions");
             if (roc) { g_roomOptionsClass = roc; FLog([NSString stringWithFormat:@"RoomOptions bulundu! %p", roc]); }
-            // v113.9: Room class + set_Name method
+            // v113.11: Room class + set_Name method
             if (!g_roomClass) {
                 void* rc = i_class_from_name(img, "Photon.Realtime", "Room");
                 if (!rc) rc = few1n_findClassByName(img, "Room");
@@ -2249,17 +2249,17 @@ static NSString* stripRichTextTags(NSString *text) {
 
 // ===== CHAT =====
 // v110: ChatManager.fup(string) - GELEN chat mesaji (baska oyuncudan geldigi zaman burada tetiklenir)
-// v113.9 BUILD FIX: gercek body AI globalleri/fonksiyonlarından SONRA tanımlı (asagida)
+// v113.11 BUILD FIX: gercek body AI globalleri/fonksiyonlarından SONRA tanımlı (asagida)
 static void (*o_chatFup)(void*, void*) = NULL;
 static void h_chatFup(void* self, void* msg);   // forward decl - body aşağıda
-// v113.9: FEW1NMenu forward decl (h_chatSend içinde [FEW1NMenu shared] için)
+// v113.11: FEW1NMenu forward decl (h_chatSend içinde [FEW1NMenu shared] için)
 @class FEW1NMenu;
 
 static void (*o_chatSend)(void*, void*) = NULL;
 // v111: AI Sohbet Modu - /ai olmadan aktif konusma
 static bool isAiChatModeEnabled = false;
 static NSMutableArray<NSString*> *g_recentlySentByMe = nil;  // son 10 mesaj (kendi mesajlarima cevap vermemek icin)
-// v113.9: AI cevap renkleri (kullanici NSUserDefaults'tan sec)
+// v113.11: AI cevap renkleri (kullanici NSUserDefaults'tan sec)
 static char g_aiNameColorHex[8] = "00E5FF";  // cyan default
 static char g_aiReplyColorHex[8] = "FF00FF"; // magenta default
 
@@ -2347,11 +2347,11 @@ static NSString* few1n_writeFieldOnAllOfClass(NSString *className, NSString *fie
     } @catch (...) { return @"exception"; }
 }
 
-// v109: Groq API entegrasyonu - GERCEK yer (v113.9: hackerAsk'ten once tanimlanmali)
+// v109: Groq API entegrasyonu - GERCEK yer (v113.11: hackerAsk'ten once tanimlanmali)
 static NSString* g_groqApiKey = nil;
 static NSString* const kGroqApiKeyDefault = @"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";
-static NSString* g_groqModel = nil;  // v113.9: runtime degistirilebilir
-static NSString* const kGroqModelDefault = @"openai/gpt-oss-120b";  // Groq'un native OpenAI portu (v113.9 doğrulandi)
+static NSString* g_groqModel = nil;  // v113.11: runtime degistirilebilir
+static NSString* const kGroqModelDefault = @"openai/gpt-oss-120b";  // Groq'un native OpenAI portu (v113.11 doğrulandi)
 static inline NSString* kGroqModel(void) {  // hackerAsk/groqAsk uyumlu (fonksiyon cagrisi gibi)
     if (g_groqModel && g_groqModel.length > 0) return g_groqModel;
     NSString *m = [[NSUserDefaults standardUserDefaults] stringForKey:@"few1n_groqModel"];
@@ -2446,7 +2446,7 @@ static void few1n_hackerAsk(NSString *prompt, void(^completion)(NSArray*)) {
     }] resume];
 }
 
-// v113.9: Groq bloğu yukarı taşındı (hackerAsk'ten önce). Kalan few1n_groqAsk duplicate silinecek.
+// v113.11: Groq bloğu yukarı taşındı (hackerAsk'ten önce). Kalan few1n_groqAsk duplicate silinecek.
 // Duplicate function tanımı ÖNLEMEK için sadece bir tane groqAsk kalır (yukarıda).
 #if 0
 // Async Groq API cagrisi. completion(nil) = basarisiz, fallback kural  -- DUPLICATE, DEVRE DIŞI
@@ -2491,7 +2491,7 @@ static void few1n_groqAsk_DEAD(NSString *prompt, void(^completion)(NSString*)) {
         completion([content stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]]);
     }] resume];
 }
-#endif // v113.9 DUPLICATE Groq bloğu sonu
+#endif // v113.11 DUPLICATE Groq bloğu sonu
 
 // v108: Basit kural tabanli AI cevap - /ai prefix ile chat'te calisir (Groq basarisiz olursa fallback)
 static NSString* few1n_aiReply(NSString *prompt) {
@@ -2605,7 +2605,7 @@ static void h_chatSend(void* self, void* msg) {
                             BOOL toggle = [st.lowercaseString isEqualToString:@"toggle"];
                             dispatch_async(dispatch_get_main_queue(), ^{
                                 @try {
-                                    // v113.9: FEW1NMenu forward decl yerine dynamic dispatch (compile warning'i azalt)
+                                    // v113.11: FEW1NMenu forward decl yerine dynamic dispatch (compile warning'i azalt)
                                     id m = [NSClassFromString(@"FEW1NMenu") performSelector:@selector(shared)];
                                     if ([act isEqualToString:@"infinite_nos"]) { isInfiniteNosEnabled = toggle ? !isInfiniteNosEnabled : on; saveBool(@"infnos", isInfiniteNosEnabled); [m performSelector:@selector(startGizliTimerIfNeeded)]; }
                                     else if ([act isEqualToString:@"infinite_fuel"]) { isInfiniteFuelEnabled = toggle ? !isInfiniteFuelEnabled : on; saveBool(@"inffuel", isInfiniteFuelEnabled); [m performSelector:@selector(startGizliTimerIfNeeded)]; }
@@ -2650,7 +2650,7 @@ static void h_chatSend(void* self, void* msg) {
                 if (orig.length > 4) prompt = [orig substringFromIndex:4];
                 void* selfKept = self;   // async için sakla
                 FLog([NSString stringWithFormat:@"🤖 AI istek: '%@' (Groq)", prompt]);
-                // v113.9: Anında feedback - intercept çalıştığını göster
+                // v113.11: Anında feedback - intercept çalıştığını göster
                 @try {
                     NSString *loadingMsg = [NSString stringWithFormat:@"<color=#FFFF00><i>🔄 AI düşünüyor: %@</i></color>", prompt];
                     void* loadStr = mkStr(loadingMsg);
@@ -2694,7 +2694,7 @@ static void h_chatSend(void* self, void* msg) {
     if (o_chatSend) o_chatSend(self, msg);
 }
 
-// v113.9: h_chatFup GERCEK BODY (AI globalleri/fonksiyonlarindan sonra tanimli, compile hatasi bitti)
+// v113.11: h_chatFup GERCEK BODY (AI globalleri/fonksiyonlarindan sonra tanimli, compile hatasi bitti)
 static void h_chatFup(void* self, void* msg) {
     if (msg) @try {
         NSString *received = readStr(msg);
@@ -3450,7 +3450,7 @@ static UIViewController* few1n_topVC(void) {
     title.font = [UIFont systemFontOfSize:17 weight:UIFontWeightBlack];
     [header addSubview:title];
     UILabel *ver = [[UILabel alloc] initWithFrame:CGRectMake(42,37,pw-90,16)];
-    ver.text = [NSString stringWithFormat:@"v113.9  •  Base 0x%lX", (unsigned long)global_base];
+    ver.text = [NSString stringWithFormat:@"v113.11  •  Base 0x%lX", (unsigned long)global_base];
     ver.textColor = [UIColor colorWithWhite:1 alpha:0.82];
     ver.font = [UIFont fontWithName:@"Menlo-Bold" size:8] ?: [UIFont systemFontOfSize:8 weight:UIFontWeightBold];
     [header addSubview:ver];
@@ -3688,7 +3688,7 @@ static UIViewController* few1n_topVC(void) {
     y = [self actionRow:@"🗺️  Odadayken Harita Değiştir (v233 minimal + master zorla)" color:C_ON atY:y action:@selector(changeMapInRoom)];
     y = [self actionRow:@"🚗  Kişi Aracı Klonla (deneysel race glitch)" color:C_GOLD atY:y action:@selector(cloneCarPicker)];
     y = [self actionRow:@"🌤️  Hava Durumu & Zaman Seç (Aktarmasız Canlı)" color:C_ON atY:y action:@selector(changeWeatherOnly)];
-    // v113.9: "Odadayken Oda İsmini Değiştir" SİLİNDİ (client-side + CustomProperties + set_Name calismiyordu - mod'suzlar goremiyordu)
+    // v113.11: "Odadayken Oda İsmini Değiştir" SİLİNDİ (client-side + CustomProperties + set_Name calismiyordu - mod'suzlar goremiyordu)
     // Tek gercek yol: 🔄 Odayi Yeniden Olustur (asagida)
     y = [self actionRow:@"👥  Odadayken Max Oyuncu Değiştir (2-100)" color:C_GOLD atY:y action:@selector(changeMaxPlayersInRoom)];
     y = [self actionRow:@"🔄  Odayı YENİDEN OLUŞTUR (herkeste değişir)" color:C_RED atY:y action:@selector(recreateRoomWithNewName)];
@@ -5830,7 +5830,7 @@ static NSString* rainbowWrap(NSString* text, int idx) {
 }
 // v94: applyBrakeGlow — WheelGlow materyallerini sarı yap (BIR SEFER)
 // Timer'dan periyodik cagirilir. Per-frame degil (input bug'i onlemek icin).
-// v113.9: TÜM YÖNTEMLERİ KOMBİNE EDEN kapsamlı balata (5 metod paralel dener)
+// v113.11: TÜM YÖNTEMLERİ KOMBİNE EDEN kapsamlı balata (5 metod paralel dener)
 // 1. WheelGlow.BrakeMaterial.renderer.material.SetColor
 // 2. WheelGlow.maxTemperature = 10000 + minVisibleTemperature = 0 (Gradient path)
 // 3. WheelGlow.hxm (cached Material) SetColor  <- YENI
@@ -5845,7 +5845,7 @@ static NSString* rainbowWrap(NSString* text, int idx) {
         if (nx++ % 3 == 0) FLog([NSString stringWithFormat:@"🔥 Balata: hazir degil (wgType=%p FO=%p RI=%p RGM=%p MSC=%p)", g_wheelGlowTypeObj, g_mFindObjectsPlural, i_runtime_invoke, g_mRendGetMat, g_mMatSetColor]);
         return;
     }
-    // v113.9: il2cpp field API - RCCP_WheelGlow.maxTemperature offset runtime al
+    // v113.11: il2cpp field API - RCCP_WheelGlow.maxTemperature offset runtime al
     static int g_offMaxTemp = -1, g_offMinVisTemp = -1;
     if (g_offMaxTemp < 0 && i_class_from_name && i_class_get_field_from_name && i_field_get_offset) {
         void* wgc = NULL;
@@ -5870,7 +5870,7 @@ static NSString* rainbowWrap(NSString* text, int idx) {
         int totalApplied = 0;
         for (int i = 0; i < cnt; i++) {
             void* wg = wgs[i]; if (!ptrOk(wg)) continue;
-            // v113.9 FIX: materials offset +0x10 -> +0x18 (il2cpp.h dogrulandi, MonoBehaviour base=0x18)
+            // v113.11 FIX: materials offset +0x10 -> +0x18 (il2cpp.h dogrulandi, MonoBehaviour base=0x18)
             void* materials = *(void**)((uintptr_t)wg + 0x18);
             if (!ptrOk(materials)) continue;
             int matCnt = (int)(*(uintptr_t*)((uintptr_t)materials + 0x18));
@@ -5889,12 +5889,12 @@ static NSString* rainbowWrap(NSString* text, int idx) {
                     }
                 } @catch (...) {}
             }
-            // v113.9: il2cpp field API ile runtime offset (garantili)
+            // v113.11: il2cpp field API ile runtime offset (garantili)
             @try {
                 if (g_offMaxTemp > 0)     *(float*)((uintptr_t)wg + g_offMaxTemp) = 10000.0f;
                 if (g_offMinVisTemp > 0)  *(float*)((uintptr_t)wg + g_offMinVisTemp) = 0.0f;
             } @catch (...) {}
-            // v113.9 METHOD 3: WheelGlow.hxm cached Material direkt SetColor
+            // v113.11 METHOD 3: WheelGlow.hxm cached Material direkt SetColor
             static int g_offHxm = -1;
             if (g_offHxm < 0 && i_class_from_name && i_class_get_field_from_name && i_field_get_offset) {
                 void* wgc = i_class_from_name(NULL, "", "RCCP_WheelGlow");
@@ -5912,7 +5912,7 @@ static NSString* rainbowWrap(NSString* text, int idx) {
         }
         static int diag = 0;
         if (diag++ % 5 == 0) FLog([NSString stringWithFormat:@"🔥 Balata reapply: WheelGlow=%d, material=%d, maxTemp@%d", cnt, totalApplied, g_offMaxTemp]);
-        // v113.9 METHOD 4: RCCP_WheelBlur.targetMaterial - il2cpp.h dogrulandi
+        // v113.11 METHOD 4: RCCP_WheelBlur.targetMaterial - il2cpp.h dogrulandi
         @try {
             static void* g_wheelBlurType = NULL;
             static int g_offBlurTargetMat = -1;
@@ -5945,7 +5945,79 @@ static NSString* rainbowWrap(NSString* text, int idx) {
                 }
             }
         } @catch (...) {}
-        // v113.9 METHOD 6 KRITIK: Material.SetColor("_EmissionColor", HDR) + EnableKeyword("_EMISSION")
+        // v113.11 METHOD 6 DOGRU: Shader.PropertyToID -> int nameID -> SetColor(int, Color) + EnableKeyword(_EMISSION)
+        // Unity'nin standart materyal property yaklasimi. SetColor(string) overload'unda il2cpp int'i secip crash yapiyor,
+        // biz manuel int nameID veriyoruz -> hangi overload olursa olsun int alan versiyon tetiklenir.
+        static void* g_mMatSetColorInt = NULL;   // Material.SetColor(int, Color)
+        static void* g_mMatEnableKw = NULL;      // Material.EnableKeyword(string)
+        static int g_emissionColorID = -1;        // Shader.PropertyToID("_EmissionColor") result
+        static void* g_emisKwStr = NULL;          // "_EMISSION" NSString il2cpp instance
+        if (g_emissionColorID < 0 && i_class_from_name && i_class_get_method_from_name) {
+            @try {
+                // Shader.PropertyToID(string) -> int
+                void* shaderCls = i_class_from_name(NULL, "UnityEngine", "Shader");
+                if (shaderCls) {
+                    void* propToID = i_class_get_method_from_name(shaderCls, "PropertyToID", 1);
+                    if (propToID) {
+                        void* emisNameStr = mkStr(@"_EmissionColor");
+                        if (emisNameStr) {
+                            void* pa[1]; pa[0] = emisNameStr;
+                            void* boxed = i_runtime_invoke(propToID, NULL, pa, NULL);
+                            if (boxed) {
+                                // Boxed int -> value @+0x10 (Object header)
+                                g_emissionColorID = *(int*)((uintptr_t)boxed + 0x10);
+                            }
+                        }
+                    }
+                }
+                // SetColor overload'lari - iki tanesi de dene
+                void* mc = i_class_from_name(NULL, "UnityEngine", "Material");
+                if (mc) {
+                    g_mMatSetColorInt = i_class_get_method_from_name(mc, "SetColor", 2);
+                    g_mMatEnableKw = i_class_get_method_from_name(mc, "EnableKeyword", 1);
+                }
+                g_emisKwStr = mkStr(@"_EMISSION");
+                FLog([NSString stringWithFormat:@"🔥 M6: emisID=%d SetColorInt=%p EnableKw=%p KwStr=%p", g_emissionColorID, g_mMatSetColorInt, g_mMatEnableKw, g_emisKwStr]);
+            } @catch (...) {}
+        }
+        if (g_emissionColorID > 0 && g_mMatSetColorInt && g_mMatEnableKw && g_emisKwStr && g_wheelGlowTypeObj && g_mFindObjectsPlural) {
+            Color4 hdrOrange = {3.0f, 1.2f, 0.0f, 1.0f};   // HDR glow
+            @try {
+                void* aE[1]; aE[0] = g_wheelGlowTypeObj;
+                void* arrE = i_runtime_invoke(g_mFindObjectsPlural, NULL, aE, NULL);
+                if (ptrOk(arrE)) {
+                    int ecnt = (int)(*(uintptr_t*)((uintptr_t)arrE + 0x18));
+                    if (ecnt > 0 && ecnt < 32) {
+                        void** wgsE = (void**)((uintptr_t)arrE + 0x20);
+                        for (int i = 0; i < ecnt; i++) {
+                            void* wg = wgsE[i]; if (!ptrOk(wg)) continue;
+                            void* materials = *(void**)((uintptr_t)wg + 0x18);
+                            if (!ptrOk(materials)) continue;
+                            int matCnt = (int)(*(uintptr_t*)((uintptr_t)materials + 0x18));
+                            if (matCnt <= 0 || matCnt > 16) continue;
+                            void** matArr = (void**)((uintptr_t)materials + 0x20);
+                            for (int m = 0; m < matCnt; m++) {
+                                void* bm = matArr[m]; if (!ptrOk(bm)) continue;
+                                void* renderer = *(void**)((uintptr_t)bm + 0x0);
+                                if (!ptrOk(renderer)) continue;
+                                @try {
+                                    void* mat = i_runtime_invoke(g_mRendGetMat, renderer, NULL, NULL);
+                                    if (ptrOk(mat)) {
+                                        void* args[2]; args[0] = &g_emissionColorID; args[1] = &hdrOrange;
+                                        i_runtime_invoke(g_mMatSetColorInt, mat, args, NULL);
+                                        void* kwArgs[1]; kwArgs[0] = g_emisKwStr;
+                                        i_runtime_invoke(g_mMatEnableKw, mat, kwArgs, NULL);
+                                    }
+                                } @catch (...) {}
+                            }
+                        }
+                    }
+                }
+            } @catch (...) {}
+        }
+        #if 0
+        // v113.11 ESKI CRASH kodu - referans icin
+        // v113.11 METHOD 6 KRITIK: Material.SetColor("_EmissionColor", HDR) + EnableKeyword("_EMISSION")
         // set_color sadece base color'u degistirir - GLOW icin emission property lazim!
         static void* g_mMatSetColorS = NULL;   // SetColor(string, Color) 2-arg
         static void* g_mMatEnableKw = NULL;    // EnableKeyword(string)
@@ -5999,7 +6071,8 @@ static NSString* rainbowWrap(NSString* text, int idx) {
             } @catch (...) {}
         }
 
-        // v113.9 METHOD 5: RCCP_Caliper.hlw GameObject -> child Renderer -> material
+        #endif // v113.11 Method 6 devre disi
+        // v113.11 METHOD 5: RCCP_Caliper.hlw GameObject -> child Renderer -> material
         @try {
             static void* g_caliperType = NULL;
             static int g_offCaliperGO = -1;
@@ -6046,7 +6119,7 @@ static NSString* rainbowWrap(NSString* text, int idx) {
     } @catch (...) {}
 }
 
-// v113.9: Balata tam debug - alert'te herşey
+// v113.11: Balata tam debug - alert'te herşey
 - (void)debugBrakeGlow {
     NSMutableString *r = [NSMutableString stringWithString:@"🔬 BALATA DEBUG\n\n"];
     [r appendFormat:@"g_wheelGlowTypeObj: %p\n", g_wheelGlowTypeObj];
@@ -6275,7 +6348,7 @@ static NSString* rainbowWrap(NSString* text, int idx) {
     [self present:ac];
 }
 
-// v113.9: AI cevap renklerini sec (isim + cevap ayri)
+// v113.11: AI cevap renklerini sec (isim + cevap ayri)
 - (void)pickAiColorFor:(BOOL)forName {
     NSString *title = forName ? @"🎨 İsim Rengi Seç [FEW1N AI]" : @"🎨 Cevap Rengi Seç";
     NSString *curHex = [NSString stringWithUTF8String:forName ? g_aiNameColorHex : g_aiReplyColorHex];
@@ -6458,7 +6531,7 @@ static NSString* rainbowWrap(NSString* text, int idx) {
             NSString *nick = ptrOk(ply_getNickName(p)) ? (readStr(ply_getNickName(p)) ?: @"?") : @"?";
             NSString *nickClean = stripRichTextTags(nick) ?: nick;
             NSString *uid = (ply_getUserId) ? (readStr(ply_getUserId(p)) ?: @"") : @"";
-            // v113.9: UserId yoksa (DreamRoad'da genelde yok) nickname'i fingerprint key olarak kullan
+            // v113.11: UserId yoksa (DreamRoad'da genelde yok) nickname'i fingerprint key olarak kullan
             // Bu ideal degil - nick degistirse tanimaz, ama en iyi fallback
             NSString *fpKey = (uid.length > 0) ? uid : [NSString stringWithFormat:@"NICK:%@", nickClean];
             NSNumber *key = @(actor);
@@ -6468,7 +6541,7 @@ static NSString* rainbowWrap(NSString* text, int idx) {
                 NSMutableArray *arr = [NSMutableArray array]; [arr addObject:nickClean]; g_actorNickHistory[key] = arr;
                 FLog([NSString stringWithFormat:@"🕵️ Actor %d yeni: '%@' (uid=%@)", actor, nickClean, uid.length > 0 ? uid : @"(yok)"]);
                 // v106: KALICI FINGERPRINT check - UserId onceden goruldu mu?
-                // v113.9: fpKey = UserId veya NICK:nickClean fallback
+                // v113.11: fpKey = UserId veya NICK:nickClean fallback
                 NSMutableArray *permaNicks = g_permaFingerprint[fpKey];
                 if (permaNicks && permaNicks.count > 0 && ![permaNicks containsObject:nickClean]) {
                     NSString *msg = [NSString stringWithFormat:@"⚠️ FINGERPRINT UYARISI\n\nAnahtar: %@\nŞimdi: %@\n\nÖnceki nickler:\n%@", fpKey, nickClean, [permaNicks componentsJoinedByString:@", "]];
@@ -6489,7 +6562,7 @@ static NSString* rainbowWrap(NSString* text, int idx) {
                 UIAlertController *r = [UIAlertController alertControllerWithTitle:@"🕵️ İSİM DEĞİŞİKLİĞİ" message:msg preferredStyle:UIAlertControllerStyleAlert];
                 [r addAction:[UIAlertAction actionWithTitle:@"Tamam" style:UIAlertActionStyleDefault handler:nil]];
                 [self present:r];
-                // v113.9: fpKey fallback (UserId veya NICK:nick)
+                // v113.11: fpKey fallback (UserId veya NICK:nick)
                 NSMutableArray *permaNicks = g_permaFingerprint[fpKey];
                 if (!permaNicks) { permaNicks = [NSMutableArray array]; g_permaFingerprint[fpKey] = permaNicks; }
                 if (![permaNicks containsObject:nickClean]) { [permaNicks addObject:nickClean]; fpChanged = YES; }
@@ -6499,7 +6572,7 @@ static NSString* rainbowWrap(NSString* text, int idx) {
     } @catch (...) {}
 }
 
-// v113.9: Odayi Yeniden Olustur - SUNUCUDA GERCEK isim degisikligi (herkes duser + yeni odada sen)
+// v113.11: Odayi Yeniden Olustur - SUNUCUDA GERCEK isim degisikligi (herkes duser + yeni odada sen)
 - (void)recreateRoomWithNewName {
     if (!pn_leaveRoom || !pn_createRoom || !i_object_new || !g_roomOptionsClass) {
         FLog(@"❌ recreate: pn_leaveRoom/createRoom/RoomOptions YOK");
@@ -6655,7 +6728,7 @@ static NSString* rainbowWrap(NSString* text, int idx) {
             NSString *nmCopy = [nm copy];
             [ac addAction:[UIAlertAction actionWithTitle:[NSString stringWithFormat:@"🎯 %@", nmClean]
                 style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
-                // v113.9: MANUEL METOD SECIMI - hedef secildikten sonra hangi saldirinin uygulanacagini kullanici sec
+                // v113.11: MANUEL METOD SECIMI - hedef secildikten sonra hangi saldirinin uygulanacagini kullanici sec
                 UIAlertController *pick = [UIAlertController alertControllerWithTitle:[NSString stringWithFormat:@"🎯 '%@'", nmCopy]
                     message:@"Hangi saldiri?" preferredStyle:UIAlertControllerStyleAlert];
                 // A) Sadece Bomb
@@ -7778,7 +7851,7 @@ static void few1n_startCarCloneAttempt(NSString *scene) {
                     *(void**)((uintptr_t)room + 0x40) = nameStr;
                     FLog([NSString stringWithFormat:@"✓ Metod 1 Room.Name (0x40) client-side yazildi: '%@'", newName]);
 
-                    // v113.9: Metod 2 - SUNUCU push - Room.set_Name(string) invoke
+                    // v113.11: Metod 2 - SUNUCU push - Room.set_Name(string) invoke
                     // Bu Photon internal method; sunucuya sync eder mi denemek lazim
                     if (g_mRoomSetName && i_runtime_invoke && nameStr) {
                         @try {
@@ -9316,7 +9389,7 @@ static void few1n_joinTargetRoom(NSString *nm) {
 - (void)serverHideChain:(NSArray*)targets index:(NSInteger)idx {
     if (idx >= (NSInteger)targets.count) {
         FLog([NSString stringWithFormat:@"🌐 [SUNUCU HIDE] BITTI — %lu oda islendi", (unsigned long)targets.count]);
-        // v113.9: Chain bittiginde HR_PhotonLobbyManagerDummy.roomListPanel'i aktif et
+        // v113.11: Chain bittiginde HR_PhotonLobbyManagerDummy.roomListPanel'i aktif et
         // Boylece oyun garaja atmak yerine oda listesi ekranini gosterir
         @try {
             if (g_hrLobbyMgrDummyType && g_offRoomListPanel > 0 && g_mGoSetActive && g_mFindObjectsPlural && i_runtime_invoke) {
@@ -10019,7 +10092,7 @@ static void restoreSettings(void) {
     isExhaustFlameOnEnabled = loadBool(@"exhaustflame", false);
     isVidyoNamesEnabled     = loadBool(@"vidyonames", false);
     isAiChatModeEnabled     = loadBool(@"aichat", false);
-    // v113.9: AI renkleri kalici
+    // v113.11: AI renkleri kalici
     NSString *nc = loadStr(@"aiNameCol", @"00E5FF");  strncpy(g_aiNameColorHex, nc.UTF8String, 7); g_aiNameColorHex[7]='\0';
     NSString *rc = loadStr(@"aiReplyCol", @"FF00FF"); strncpy(g_aiReplyColorHex, rc.UTF8String, 7); g_aiReplyColorHex[7]='\0';
     g_selFlashRate         = loadInt(@"selRate", 1);
@@ -10203,7 +10276,7 @@ static void few1n_poll(void) {
 }
 
 %ctor {
-    FLog(@"v113.9 basladi, UnityFramework araniyor...");
+    FLog(@"v113.11 basladi, UnityFramework araniyor...");
     restoreSettings();
 
     // ===== REKLAM BOZUCU: TUM reklam SDK'larini engelle (Obj-C runtime swizzle) =====
