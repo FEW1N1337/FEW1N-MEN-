@@ -2349,9 +2349,9 @@ static NSString* few1n_writeFieldOnAllOfClass(NSString *className, NSString *fie
 
 // v109: Groq API entegrasyonu - GERCEK yer (v113.11: hackerAsk'ten once tanimlanmali)
 static NSString* g_groqApiKey = nil;
-static NSString* const kGroqApiKeyDefault = @"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";
+static NSString* const kGroqApiKeyDefault = @"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";
 static NSString* g_groqModel = nil;  // v113.11: runtime degistirilebilir
-static NSString* const kGroqModelDefault = @"openai/gpt-oss-120b";  // Groq'un native OpenAI portu (v113.11 doğrulandi)
+static NSString* const kGroqModelDefault = @"llama-3.3-70b-versatile";  // Groq ucretsiz, Turkce destekli (test edildi)
 static inline NSString* kGroqModel(void) {  // hackerAsk/groqAsk uyumlu (fonksiyon cagrisi gibi)
     if (g_groqModel && g_groqModel.length > 0) return g_groqModel;
     NSString *m = [[NSUserDefaults standardUserDefaults] stringForKey:@"few1n_groqModel"];
@@ -3108,7 +3108,7 @@ static void h_roomLineSetup(void* self, void* a, void* b, unsigned char c, unsig
 - (void)editGreet;
 - (void)joinRoomByName;
 - (void)pickRoomsServerHide;
-- (void)present:(UIViewController*)vc;
+- (void)present:(UIAlertController*)ac;
 @end
 
 static int g_bruteForceIdx = 0;
@@ -3361,11 +3361,6 @@ static UIViewController* few1n_topVC(void) {
 }
 
 @implementation FEW1NMenu
-
-- (void)present:(UIViewController*)vc {
-    UIViewController *top = few1n_topVC();
-    if (top && vc) [top presentViewController:vc animated:YES completion:nil];
-}
 
 + (instancetype)shared {
     static FEW1NMenu *inst = nil;
