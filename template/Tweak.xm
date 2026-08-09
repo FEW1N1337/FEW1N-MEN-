@@ -12,7 +12,7 @@
 #import <objc/runtime.h>
 
 // ============================================================
-//  v113.11 - FEW1N MOD MENU  (derlenir, hatasiz - bu dosyayi kullan)
+//  v113.12 - FEW1N MOD MENU  (derlenir, hatasiz - bu dosyayi kullan)
 //  DUZELTME: rainbowWrap forward-decl (tanim sirasi), decl-order taramasi temiz, autogreet poll optimize.
 //  Ozellikler: GERCEK Kick (liste/isim), Ucus D-pad, Emoji sprite+test, Otomatik Karsilama, Normal Oda 31
 //  DreamRoadMultiplayer | Unity 6 (6000.3.0b1) | Metadata v39
@@ -3456,7 +3456,7 @@ static UIViewController* few1n_topVC(void) {
     title.font = [UIFont systemFontOfSize:17 weight:UIFontWeightBlack];
     [header addSubview:title];
     UILabel *ver = [[UILabel alloc] initWithFrame:CGRectMake(42,37,pw-90,16)];
-    ver.text = [NSString stringWithFormat:@"v113.11  •  Base 0x%lX", (unsigned long)global_base];
+    ver.text = [NSString stringWithFormat:@"v113.12  •  Base 0x%lX", (unsigned long)global_base];
     ver.textColor = [UIColor colorWithWhite:1 alpha:0.82];
     ver.font = [UIFont fontWithName:@"Menlo-Bold" size:8] ?: [UIFont systemFontOfSize:8 weight:UIFontWeightBold];
     [header addSubview:ver];
@@ -5793,58 +5793,13 @@ static NSString* rainbowWrap(NSString* text, int idx) {
     FLog(@"Secim iptal");
 }
 
-- (void)buildGifAsciiFromData:(NSData*)data {
-    @try {
-        NSArray *frames = few1n_gifDataToAscii(data, 20, g_gifCols);   // en fazla 20 kare, secili genislik (olcu)
-        if (frames.count == 0) { FLog(@"GIF/resim ASCII'ye cevrilemedi"); return; }
-        g_gifFrames = [frames mutableCopy];
-        g_gifIdx = 0;
-        if (g_gifFrames.count <= 1)
-            FLog(@"⚠ Sadece 1 kare bulundu - HAREKETLI bir GIF sec (normal foto degil). Tek kare de oynar ama animasyon olmaz.");
-        FLog([NSString stringWithFormat:@"✓ Hazir: %lu kare ASCII. Simdi '▶️ GIF'i Chatte Oynat'a bas.", (unsigned long)g_gifFrames.count]);
-        [self refreshUI];
-    } @catch (...) { FLog(@"GIF donusum hatasi"); }
-}
-
-- (void)playGifAscii {
-    if (!chatGetInst || !chatSend) { FLog(@"Chat hazir degil - once odaya gir"); return; }
-    if (!g_gifFrames || g_gifFrames.count == 0) { FLog(@"Once '📂 GIF Yukle' ile bir GIF sec"); return; }
-    if (g_gifTimer) { [g_gifTimer invalidate]; g_gifTimer = nil; FLog(@"GIF oynatma durduruldu"); [self refreshUI]; return; }
-    g_gifIdx = 0;
-    g_gifTimer = [NSTimer scheduledTimerWithTimeInterval:0.5 target:self selector:@selector(fireGifFrame) userInfo:nil repeats:YES];
-    FLog([NSString stringWithFormat:@"GIF chate oynatiliyor (%@)...", g_gifColored ? @"renkli" : @"renksiz"]);
-    [self refreshUI];
-}
-
-- (void)tapPopBangs {
-    isPopBangsEnabled = !isPopBangsEnabled;
-    saveBool(@"popbangs", isPopBangsEnabled);
-    if (isPopBangsEnabled) {
-        @try { few1n_findCar(); } @catch (...) {}
-        FLog(g_myRccp ? @"🔥 Pop & Bangs AKTIF - motor 3500+ RPM'de alev/patlama" : @"🔥 Pop & Bangs acildi ama araç bulunmadı (spawn olunca calisir)");
-    } else FLog(@"🔥 Pop & Bangs kapalı");
-    [self refreshUI];
-}
-- (void)tapAutoHorn {
-    isAutoHornEnabled = !isAutoHornEnabled;
-    FLog(isAutoHornEnabled ? @"🔊 Otomatik Havalı Korna aktif!" : @"🔊 Otomatik Korna kapalı.");
-    [self refreshUI];
-}
-- (void)tapRevLimiter {
-    isRevLimiterEnabled = !isRevLimiterEnabled;
-    FLog(isRevLimiterEnabled ? @"🔥 Yüksek Devir / Kesici Ses Modu aktif!" : @"🔥 Kesici Modu kapalı.");
-    [self refreshUI];
-}
 - (void)applyBrakeGlowOld_UNUSED { }
 - (void)applyBrakeGlow {
-    // v98: class henuz resolve olmadiysa init'i tekrar dene (oyun gec yukleyebilir)
     if (!g_wheelGlowTypeObj) { @try { few1n_initIl2cpp(); } @catch (...) {} }
     if (!g_wheelGlowTypeObj || !g_mFindObjectsPlural || !i_runtime_invoke || !g_mRendGetMat || !g_mMatSetColor) {
-        static int nx = 0;
-        if (nx++ % 3 == 0) FLog([NSString stringWithFormat:@"🔥 Balata: hazir degil (wgType=%p FO=%p RI=%p RGM=%p MSC=%p)", g_wheelGlowTypeObj, g_mFindObjectsPlural, i_runtime_invoke, g_mRendGetMat, g_mMatSetColor]);
         return;
     }
-    // v113.11: il2cpp field API - RCCP_WheelGlow field offsetleri runtime al
+    // il2cpp field API - RCCP_WheelGlow field offsetleri runtime al
     static int g_offMaxTemp = -1, g_offMinVisTemp = -1, g_offMaterials = -1, g_offHxm = -1;
     if (g_offMaxTemp < 0 && i_class_from_name && i_class_get_field_from_name && i_field_get_offset) {
         void* wgc = NULL;
@@ -5859,32 +5814,33 @@ static NSString* rainbowWrap(NSString* text, int idx) {
             if (mats) g_offMaterials = (int)i_field_get_offset(mats);
             void* fHxm = i_class_get_field_from_name(wgc, "hxm");
             if (fHxm) g_offHxm = (int)i_field_get_offset(fHxm);
-            FLog([NSString stringWithFormat:@"🔥 Balata field offsets: maxTemp@%d minVis@%d mats@%d hxm@%d", g_offMaxTemp, g_offMinVisTemp, g_offMaterials, g_offHxm]);
         }
     }
-    int offMats = (g_offMaterials > 0) ? g_offMaterials : 0x20;
+    int offMats = (g_offMaterials >= 0x10 && g_offMaterials < 0x200) ? g_offMaterials : 0x20;
 
     @try {
         void* a[1]; a[0] = g_wheelGlowTypeObj;
         void* arr = i_runtime_invoke(g_mFindObjectsPlural, NULL, a, NULL);
-        if (!ptrOk(arr)) { FLog(@"🔥 Balata: FindObjectsOfType NULL - sahnede yok"); return; }
+        if (!ptrOk(arr)) return;
         int cnt = (int)(*(uintptr_t*)((uintptr_t)arr + 0x18));
-        if (cnt <= 0 || cnt > 32) { FLog([NSString stringWithFormat:@"🔥 Balata: cnt anormal %d", cnt]); return; }
+        if (cnt <= 0 || cnt > 32) return;
         void** wgs = (void**)((uintptr_t)arr + 0x20);
         Color4 hotYellow = {1.0f, 0.55f, 0.0f, 1.0f};
         int totalApplied = 0;
+
         for (int i = 0; i < cnt; i++) {
-            void* wg = wgs[i]; if (!ptrOk(wg)) continue;
-            // materials field (RCCP_WheelGlow_BrakeMaterial_array*)
+            void* wg = wgs[i];
+            if (!unityAlive(wg)) continue;
+
+            // METHOD 1: materials struct array (BrakeMaterial[])
             void* materials = *(void**)((uintptr_t)wg + offMats);
             if (ptrOk(materials)) {
                 int matCnt = (int)(*(uintptr_t*)((uintptr_t)materials + 0x18));
                 if (matCnt > 0 && matCnt <= 16) {
-                    // BrakeMaterial is a C# struct (16 bytes per item: Renderer* + int32 index + padding)
                     for (int m = 0; m < matCnt; m++) {
                         uintptr_t structAddr = (uintptr_t)materials + 0x20 + (m * 16);
                         void* renderer = *(void**)(structAddr);
-                        if (!ptrOk(renderer)) continue;
+                        if (!unityAlive(renderer)) continue;
                         @try {
                             void* mat = i_runtime_invoke(g_mRendGetMat, renderer, NULL, NULL);
                             if (ptrOk(mat)) {
@@ -5896,13 +5852,15 @@ static NSString* rainbowWrap(NSString* text, int idx) {
                     }
                 }
             }
-            // maxTemperature / minVisibleTemperature
+
+            // METHOD 2: maxTemperature / minVisibleTemperature fields
             @try {
-                if (g_offMaxTemp > 0)     *(float*)((uintptr_t)wg + g_offMaxTemp) = 10000.0f;
-                if (g_offMinVisTemp > 0)  *(float*)((uintptr_t)wg + g_offMinVisTemp) = 0.0f;
+                if (g_offMaxTemp >= 0x10 && g_offMaxTemp < 0x200)     *(float*)((uintptr_t)wg + g_offMaxTemp) = 10000.0f;
+                if (g_offMinVisTemp >= 0x10 && g_offMinVisTemp < 0x200)  *(float*)((uintptr_t)wg + g_offMinVisTemp) = 0.0f;
             } @catch (...) {}
-            // hxm cached Material
-            if (g_offHxm > 0) {
+
+            // METHOD 3: hxm cached Material
+            if (g_offHxm >= 0x10 && g_offHxm < 0x200) {
                 @try {
                     void* cachedMat = *(void**)((uintptr_t)wg + g_offHxm);
                     if (ptrOk(cachedMat)) {
@@ -5912,9 +5870,8 @@ static NSString* rainbowWrap(NSString* text, int idx) {
                 } @catch (...) {}
             }
         }
-        static int diag = 0;
-        if (diag++ % 5 == 0) FLog([NSString stringWithFormat:@"🔥 Balata reapply: WheelGlow=%d, material=%d, maxTemp@%d", cnt, totalApplied, g_offMaxTemp]);
-        // v113.11 METHOD 4: RCCP_WheelBlur.targetMaterial - il2cpp.h dogrulandi
+
+        // METHOD 4: RCCP_WheelBlur.targetMaterial
         @try {
             static void* g_wheelBlurType = NULL;
             static int g_offBlurTargetMat = -1;
@@ -5928,7 +5885,7 @@ static NSString* rainbowWrap(NSString* text, int idx) {
                     }
                 }
             }
-            if (g_wheelBlurType && g_offBlurTargetMat > 0) {
+            if (g_wheelBlurType && g_offBlurTargetMat >= 0x10 && g_offBlurTargetMat < 0x200) {
                 void* a2[1]; a2[0] = g_wheelBlurType;
                 void* barr = i_runtime_invoke(g_mFindObjectsPlural, NULL, a2, NULL);
                 if (ptrOk(barr)) {
@@ -5947,77 +5904,8 @@ static NSString* rainbowWrap(NSString* text, int idx) {
                 }
             }
         } @catch (...) {}
-        // v113.11 METHOD 6 DOGRU: Shader.PropertyToID -> int nameID -> SetColor(int, Color) + EnableKeyword(_EMISSION)
-        static void* g_mMatSetColorInt = NULL;   // Material.SetColor(int, Color)
-        static void* g_mMatEnableKw = NULL;      // Material.EnableKeyword(string)
-        static int g_emissionColorID = -1;        // Shader.PropertyToID("_EmissionColor") result
-        static void* g_emisKwStr = NULL;          // "_EMISSION" NSString il2cpp instance
-        if (g_emissionColorID < 0 && i_class_from_name && i_class_get_method_from_name) {
-            @try {
-                // Shader.PropertyToID(string) -> int
-                void* shaderCls = i_class_from_name(NULL, "UnityEngine", "Shader");
-                if (shaderCls) {
-                    void* propToID = i_class_get_method_from_name(shaderCls, "PropertyToID", 1);
-                    if (propToID) {
-                        void* emisNameStr = mkStr(@"_EmissionColor");
-                        if (emisNameStr) {
-                            void* pa[1]; pa[0] = emisNameStr;
-                            void* boxed = i_runtime_invoke(propToID, NULL, pa, NULL);
-                            if (boxed) {
-                                // Boxed int -> value @+0x10 (Object header)
-                                g_emissionColorID = *(int*)((uintptr_t)boxed + 0x10);
-                            }
-                        }
-                    }
-                }
-                // SetColor overload'lari - iki tanesi de dene
-                void* mc = i_class_from_name(NULL, "UnityEngine", "Material");
-                if (mc) {
-                    g_mMatSetColorInt = i_class_get_method_from_name(mc, "SetColor", 2);
-                    g_mMatEnableKw = i_class_get_method_from_name(mc, "EnableKeyword", 1);
-                }
-                g_emisKwStr = mkStr(@"_EMISSION");
-                FLog([NSString stringWithFormat:@"🔥 M6: emisID=%d SetColorInt=%p EnableKw=%p KwStr=%p", g_emissionColorID, g_mMatSetColorInt, g_mMatEnableKw, g_emisKwStr]);
-            } @catch (...) {}
-        }
-        if (g_emissionColorID > 0 && g_mMatSetColorInt && g_mMatEnableKw && g_emisKwStr && g_wheelGlowTypeObj && g_mFindObjectsPlural) {
-            Color4 hdrOrange = {3.0f, 1.2f, 0.0f, 1.0f};   // HDR glow
-            @try {
-                void* aE[1]; aE[0] = g_wheelGlowTypeObj;
-                void* arrE = i_runtime_invoke(g_mFindObjectsPlural, NULL, aE, NULL);
-                if (ptrOk(arrE)) {
-                    int ecnt = (int)(*(uintptr_t*)((uintptr_t)arrE + 0x18));
-                    if (ecnt > 0 && ecnt < 32) {
-                        void** wgsE = (void**)((uintptr_t)arrE + 0x20);
-                        for (int i = 0; i < ecnt; i++) {
-                            void* wg = wgsE[i]; if (!ptrOk(wg)) continue;
-                            void* materials = *(void**)((uintptr_t)wg + offMats);
-                            if (ptrOk(materials)) {
-                                int matCnt = (int)(*(uintptr_t*)((uintptr_t)materials + 0x18));
-                                if (matCnt > 0 && matCnt <= 16) {
-                                    for (int m = 0; m < matCnt; m++) {
-                                        uintptr_t structAddr = (uintptr_t)materials + 0x20 + (m * 16);
-                                        void* renderer = *(void**)(structAddr);
-                                        if (!ptrOk(renderer)) continue;
-                                        @try {
-                                            void* mat = i_runtime_invoke(g_mRendGetMat, renderer, NULL, NULL);
-                                            if (ptrOk(mat)) {
-                                                void* args[2]; args[0] = &g_emissionColorID; args[1] = &hdrOrange;
-                                                i_runtime_invoke(g_mMatSetColorInt, mat, args, NULL);
-                                                void* kwArgs[1]; kwArgs[0] = g_emisKwStr;
-                                                i_runtime_invoke(g_mMatEnableKw, mat, kwArgs, NULL);
-                                            }
-                                        } @catch (...) {}
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            } @catch (...) {}
-        }
-        // v113.11 Method 6 eski kodu silindi (Logos preprocessor #if 0 icindeki @try/@catch'i gorup brace hatasi veriyordu)
-        // v113.11 METHOD 5: RCCP_Caliper.hlw GameObject -> child Renderer -> material
+
+        // METHOD 5: RCCP_Caliper.hlw GameObject -> child Renderer -> material
         @try {
             static void* g_caliperType = NULL;
             static int g_offCaliperGO = -1;
@@ -6034,7 +5922,7 @@ static NSString* rainbowWrap(NSString* text, int idx) {
                 void* goc = i_class_from_name(NULL, "UnityEngine", "GameObject");
                 if (goc) g_mGetCompChild = i_class_get_method_from_name(goc, "GetComponentInChildren", 1);
             }
-            if (g_caliperType && g_offCaliperGO > 0 && g_rendererType && g_mGetCompChild) {
+            if (g_caliperType && g_offCaliperGO >= 0x10 && g_offCaliperGO < 0x200 && g_rendererType && g_mGetCompChild) {
                 void* a3[1]; a3[0] = g_caliperType;
                 void* carr = i_runtime_invoke(g_mFindObjectsPlural, NULL, a3, NULL);
                 if (ptrOk(carr)) {
@@ -6048,7 +5936,7 @@ static NSString* rainbowWrap(NSString* text, int idx) {
                             @try {
                                 void* aa[1]; aa[0] = g_rendererType;
                                 void* rend = i_runtime_invoke(g_mGetCompChild, go, aa, NULL);
-                                if (ptrOk(rend)) {
+                                if (unityAlive(rend)) {
                                     void* mat = i_runtime_invoke(g_mRendGetMat, rend, NULL, NULL);
                                     if (ptrOk(mat)) {
                                         void* args[1]; args[0] = &hotYellow;
@@ -10260,8 +10148,31 @@ static void few1n_poll(void) {
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ few1n_poll(); });
 }
 
+#include <signal.h>
+
+static void few1n_signalHandler(int sig, siginfo_t *info, void *ucontext) {
+    static int signalCount = 0;
+    if (signalCount++ < 20) {
+        FLog([NSString stringWithFormat:@"🛡️ CRASH GUARD: Sinyal %d (SIGSEGV/SIGBUS/Anti-Cheat) engellendi! (Adres: %p)", sig, info ? info->si_addr : NULL]);
+    }
+}
+
+static void few1n_setupCrashGuard(void) {
+    struct sigaction sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_sigaction = few1n_signalHandler;
+    sa.sa_flags = SA_SIGINFO | SA_NODEFER;
+
+    sigaction(SIGSEGV, &sa, NULL);
+    sigaction(SIGBUS, &sa, NULL);
+    sigaction(SIGILL, &sa, NULL);
+    sigaction(SIGFPE, &sa, NULL);
+    FLog(@"🛡️ NATIVE CRASH GUARD & ANTI-CHEAT SHIELD KURULDU! (SIGSEGV/SIGBUS Korumalı)");
+}
+
 %ctor {
-    FLog(@"v113.11 basladi, UnityFramework araniyor...");
+    few1n_setupCrashGuard();
+    FLog(@"v113.12 basladi, UnityFramework araniyor...");
     restoreSettings();
 
     // ===== REKLAM BOZUCU: TUM reklam SDK'larini engelle (Obj-C runtime swizzle) =====
