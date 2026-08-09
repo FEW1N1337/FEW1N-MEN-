@@ -6021,63 +6021,7 @@ static NSString* rainbowWrap(NSString* text, int idx) {
                 }
             } @catch (...) {}
         }
-        #if 0
-        // v113.11 ESKI CRASH kodu - referans icin
-        // v113.11 METHOD 6 KRITIK: Material.SetColor("_EmissionColor", HDR) + EnableKeyword("_EMISSION")
-        // set_color sadece base color'u degistirir - GLOW icin emission property lazim!
-        static void* g_mMatSetColorS = NULL;   // SetColor(string, Color) 2-arg
-        static void* g_mMatEnableKw = NULL;    // EnableKeyword(string)
-        static void* g_emisPropStr = NULL;     // "_EmissionColor"
-        static void* g_emisKwStr = NULL;       // "_EMISSION"
-        if (!g_mMatSetColorS && i_class_from_name) {
-            void* mc = i_class_from_name(NULL, "UnityEngine", "Material");
-            if (mc) {
-                g_mMatSetColorS = i_class_get_method_from_name(mc, "SetColor", 2);
-                g_mMatEnableKw  = i_class_get_method_from_name(mc, "EnableKeyword", 1);
-            }
-            g_emisPropStr = mkStr(@"_EmissionColor");
-            g_emisKwStr   = mkStr(@"_EMISSION");
-        }
-        Color4 hdrOrange = {3.0f, 1.2f, 0.0f, 1.0f};   // HDR = >1 = glow, 3x parlak
-        if (g_mMatSetColorS && g_mMatEnableKw && g_emisPropStr && g_emisKwStr) {
-            // Yakalanan tum WheelGlow materialları icin emission set
-            @try {
-                void* aE[1]; aE[0] = g_wheelGlowTypeObj;
-                void* arrE = i_runtime_invoke(g_mFindObjectsPlural, NULL, aE, NULL);
-                if (ptrOk(arrE)) {
-                    int ecnt = (int)(*(uintptr_t*)((uintptr_t)arrE + 0x18));
-                    if (ecnt > 0 && ecnt < 32) {
-                        void** wgsE = (void**)((uintptr_t)arrE + 0x20);
-                        for (int i = 0; i < ecnt; i++) {
-                            void* wg = wgsE[i]; if (!ptrOk(wg)) continue;
-                            void* materials = *(void**)((uintptr_t)wg + 0x18);
-                            if (!ptrOk(materials)) continue;
-                            int matCnt = (int)(*(uintptr_t*)((uintptr_t)materials + 0x18));
-                            if (matCnt <= 0 || matCnt > 16) continue;
-                            void** matArr = (void**)((uintptr_t)materials + 0x20);
-                            for (int m = 0; m < matCnt; m++) {
-                                void* bm = matArr[m]; if (!ptrOk(bm)) continue;
-                                void* renderer = *(void**)((uintptr_t)bm + 0x0);
-                                if (!ptrOk(renderer)) continue;
-                                @try {
-                                    void* mat = i_runtime_invoke(g_mRendGetMat, renderer, NULL, NULL);
-                                    if (ptrOk(mat)) {
-                                        // Emission color HDR set
-                                        void* args[2]; args[0] = g_emisPropStr; args[1] = &hdrOrange;
-                                        i_runtime_invoke(g_mMatSetColorS, mat, args, NULL);
-                                        // Emission keyword aktif
-                                        void* kwArgs[1]; kwArgs[0] = g_emisKwStr;
-                                        i_runtime_invoke(g_mMatEnableKw, mat, kwArgs, NULL);
-                                    }
-                                } @catch (...) {}
-                            }
-                        }
-                    }
-                }
-            } @catch (...) {}
-        }
-
-        #endif // v113.11 Method 6 devre disi
+        // v113.11 Method 6 eski kodu silindi (Logos preprocessor #if 0 icindeki @try/@catch'i gorup brace hatasi veriyordu)
         // v113.11 METHOD 5: RCCP_Caliper.hlw GameObject -> child Renderer -> material
         @try {
             static void* g_caliperType = NULL;
