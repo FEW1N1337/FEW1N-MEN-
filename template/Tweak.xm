@@ -12,7 +12,7 @@
 #import <objc/runtime.h>
 
 // ============================================================
-//  v104.1 - FEW1N MOD MENU  (derlenir, hatasiz - bu dosyayi kullan)
+//  v107.0 - FEW1N MOD MENU  (derlenir, hatasiz - bu dosyayi kullan)
 //  DUZELTME: rainbowWrap forward-decl (tanim sirasi), decl-order taramasi temiz, autogreet poll optimize.
 //  Ozellikler: GERCEK Kick (liste/isim), Ucus D-pad, Emoji sprite+test, Otomatik Karsilama, Normal Oda 31
 //  DreamRoadMultiplayer | Unity 6 (6000.3.0b1) | Metadata v39
@@ -171,6 +171,31 @@ static bool isSpoilerRaisedEnabled = false;       // spoiler yukselt
 static bool isEmissivePaintEnabled = false;   // parlak emissive boya
 static bool isExhaustFlameOnEnabled = false;  // egzoz alev surekli
 static bool isVidyoNamesEnabled = false;      // oyuncu isimleri vidyo
+// v105: Isim degisikligi takibi
+static bool isNameTrackEnabled = false;
+static NSMutableDictionary<NSNumber*, NSString*> *g_actorNickMap = nil;   // ActorNumber -> son bilinen nick
+static NSMutableDictionary<NSNumber*, NSMutableArray<NSString*>*> *g_actorNickHistory = nil;  // ActorNumber -> nick history
+static NSTimer *nameTrackTimer = nil;
+// v106: KALICI FINGERPRINT - UserId -> tum zamanlarda gordugumuz nickList (NSUserDefaults'a kayit)
+static NSMutableDictionary<NSString*, NSMutableArray<NSString*>*> *g_permaFingerprint = nil;
+static NSString* const kPermaFingerprintKey = @"few1n_permaFingerprint";
+
+static inline void few1n_loadPermaFingerprint(void) {
+    if (g_permaFingerprint) return;
+    NSDictionary *saved = [[NSUserDefaults standardUserDefaults] dictionaryForKey:kPermaFingerprintKey];
+    g_permaFingerprint = [NSMutableDictionary dictionary];
+    if (saved) {
+        for (NSString *uid in saved.allKeys) {
+            NSArray *nicks = saved[uid];
+            if ([nicks isKindOfClass:[NSArray class]])
+                g_permaFingerprint[uid] = [nicks mutableCopy];
+        }
+    }
+}
+static inline void few1n_savePermaFingerprint(void) {
+    if (!g_permaFingerprint) return;
+    [[NSUserDefaults standardUserDefaults] setObject:g_permaFingerprint forKey:kPermaFingerprintKey];
+}
 
 // v100: RCCP + HR class type ptr'leri (il2cpp resolve)
 static void* g_rccpNosTypeObj = NULL;
@@ -184,7 +209,7 @@ static void* g_hrBombTypeObj = NULL;
 static void* g_hrTrafficCarTypeObj = NULL;
 static void* g_hrPhotonSyncTypeObj = NULL;
 static void* g_rccpDetachTypeObj = NULL;
-// v104.1: HR_PhotonLobbyManagerDummy - chain sonu oda listesi ekrani icin
+// v107.0: HR_PhotonLobbyManagerDummy - chain sonu oda listesi ekrani icin
 static void* g_hrLobbyMgrDummyType = NULL;
 static void* g_mGoSetActive = NULL;      // UnityEngine.GameObject.SetActive(bool)
 static int g_offRoomListPanel = 0;
@@ -842,7 +867,7 @@ static void few1n_initIl2cpp(void) {
                 }
             }
         }
-        // v104.1: HR_PhotonLobbyManagerDummy resolve + roomListPanel offset
+        // v107.0: HR_PhotonLobbyManagerDummy resolve + roomListPanel offset
         if (!g_hrLobbyMgrDummyType) {
             void* c = i_class_from_name(img, "", "HR_PhotonLobbyManagerDummy");
             if (!c) c = few1n_findClassByName(img, "HR_PhotonLobbyManagerDummy");
@@ -881,7 +906,7 @@ static void few1n_initIl2cpp(void) {
         if (!g_roomOptionsClass) {
             void* roc = i_class_from_name(img, "Photon.Realtime", "RoomOptions");
             if (roc) { g_roomOptionsClass = roc; FLog([NSString stringWithFormat:@"RoomOptions bulundu! %p", roc]); }
-            // v104.1: Room class + set_Name method
+            // v107.0: Room class + set_Name method
             if (!g_roomClass) {
                 void* rc = i_class_from_name(img, "Photon.Realtime", "Room");
                 if (!rc) rc = few1n_findClassByName(img, "Room");
@@ -2586,6 +2611,9 @@ static void h_roomLineSetup(void* self, void* a, void* b, unsigned char c, unsig
 - (void)nativeKickByName;
 - (void)nativeKickPick;
 - (void)targetBombCrashPick;
+- (void)showPlayerIDs;
+- (void)tapNameTrack;
+- (void)fireNameTrack;
 - (BOOL)doNativeKick:(NSString*)nm;
 - (void)emojiRain;
 - (void)emojiSpriteTest;
@@ -2939,7 +2967,7 @@ static UIViewController* few1n_topVC(void) {
     title.font = [UIFont systemFontOfSize:17 weight:UIFontWeightBlack];
     [header addSubview:title];
     UILabel *ver = [[UILabel alloc] initWithFrame:CGRectMake(42,37,pw-90,16)];
-    ver.text = [NSString stringWithFormat:@"v104.1  •  Base 0x%lX", (unsigned long)global_base];
+    ver.text = [NSString stringWithFormat:@"v107.0  •  Base 0x%lX", (unsigned long)global_base];
     ver.textColor = [UIColor colorWithWhite:1 alpha:0.82];
     ver.font = [UIFont fontWithName:@"Menlo-Bold" size:8] ?: [UIFont systemFontOfSize:8 weight:UIFontWeightBold];
     [header addSubview:ver];
@@ -3172,7 +3200,7 @@ static UIViewController* few1n_topVC(void) {
     y = [self actionRow:@"🗺️  Odadayken Harita Değiştir (v233 minimal + master zorla)" color:C_ON atY:y action:@selector(changeMapInRoom)];
     y = [self actionRow:@"🚗  Kişi Aracı Klonla (deneysel race glitch)" color:C_GOLD atY:y action:@selector(cloneCarPicker)];
     y = [self actionRow:@"🌤️  Hava Durumu & Zaman Seç (Aktarmasız Canlı)" color:C_ON atY:y action:@selector(changeWeatherOnly)];
-    // v104.1: "Odadayken Oda İsmini Değiştir" SİLİNDİ (client-side + CustomProperties + set_Name calismiyordu - mod'suzlar goremiyordu)
+    // v107.0: "Odadayken Oda İsmini Değiştir" SİLİNDİ (client-side + CustomProperties + set_Name calismiyordu - mod'suzlar goremiyordu)
     // Tek gercek yol: 🔄 Odayi Yeniden Olustur (asagida)
     y = [self actionRow:@"👥  Odadayken Max Oyuncu Değiştir (2-100)" color:C_GOLD atY:y action:@selector(changeMaxPlayersInRoom)];
     y = [self actionRow:@"🔄  Odayı YENİDEN OLUŞTUR (herkeste değişir)" color:C_RED atY:y action:@selector(recreateRoomWithNewName)];
@@ -3184,6 +3212,8 @@ static UIViewController* few1n_topVC(void) {
     y = [self actionRow:@"💥  Odadaki Herkesi At (Mass Kick)" color:C_RED atY:y action:@selector(tapRoomKickAll)];
     y = [self actionRow:@"🎯  Belirli Oyuncuyu At (Sec ve Kick)" color:C_RED atY:y action:@selector(nativeKickPick)];
     y = [self actionRow:@"💣  HEDEFLİ BOMBA + CRASH (Sec)" color:C_RED atY:y action:@selector(targetBombCrashPick)];
+    y = [self actionRow:@"🆔  Oyuncu ID Listesi (ActorNumber + UserId)" color:C_ON atY:y action:@selector(showPlayerIDs)];
+    y = [self toggle:@"🕵️  İsim Değişikliği Takibi (Auto)" sub:@"ActorNumber -> NickName eşleşmesini izler, değişirse alert" key:@"nametrack" atY:y action:@selector(tapNameTrack)];
     y = [self actionRow:@"✏️  Nickname ile At (Elle yaz)" color:C_GOLD atY:y action:@selector(nativeKickByName)];
     y = [self actionRow:@"💣  Oda Patlatma (Odadakileri Düşür)" color:C_RED atY:y action:@selector(tapRoomExplode)];
     y = [self actionRow:@"🎨  Odadaki Araç Rengini Değiştir (Tüm Araçları Boya)" color:C_GOLD atY:y action:@selector(pickCarPaintColor)];
@@ -3503,6 +3533,7 @@ static UIViewController* few1n_topVC(void) {
     [self setToggle:@"emissive"       on:isEmissivePaintEnabled];
     [self setToggle:@"exhaustflame"   on:isExhaustFlameOnEnabled];
     [self setToggle:@"vidyonames"     on:isVidyoNamesEnabled];
+    [self setToggle:@"nametrack"      on:isNameTrackEnabled];
 
     // canli durum rozeti
     if (self.statusLabel && self.statusCard) {
@@ -3977,20 +4008,30 @@ static UIViewController* few1n_topVC(void) {
         [e addAction:[UIAlertAction actionWithTitle:@"Tamam" style:UIAlertActionStyleDefault handler:nil]];
         [self present:e]; return;
     }
-    if (!pn_getPlayerListOthers || !ply_getNickName) {
-        FLog(@"Kick: Photon fonksiyonlari NULL");
-        return;
+    if (!ply_getNickName) {
+        UIAlertController *e = [UIAlertController alertControllerWithTitle:@"🎯 Kick" message:@"ply_getNickName NULL - Photon pointer hazir degil" preferredStyle:UIAlertControllerStyleAlert];
+        [e addAction:[UIAlertAction actionWithTitle:@"Tamam" style:UIAlertActionStyleDefault handler:nil]];
+        [self present:e]; return;
     }
     @try {
-        void* pa = pn_getPlayerListOthers();
-        if (!ptrOk(pa)) { FLog(@"Kick: baska oyuncu YOK"); return; }
+        // v107: pn_getPlayerListOthers NULL olabilir - fallback: pn_getPlayerList + self filter
+        void* pa = NULL;
+        if (pn_getPlayerListOthers) pa = pn_getPlayerListOthers();
+        BOOL useAllList = NO;
+        if (!ptrOk(pa) && pn_getPlayerList) { pa = pn_getPlayerList(); useAllList = YES; }
+        if (!ptrOk(pa)) {
+            UIAlertController *e = [UIAlertController alertControllerWithTitle:@"🎯 Kick" message:@"Player list NULL - pn_getPlayerList/Others ikisi de basarisiz." preferredStyle:UIAlertControllerStyleAlert];
+            [e addAction:[UIAlertAction actionWithTitle:@"Tamam" style:UIAlertActionStyleDefault handler:nil]];
+            [self present:e]; return;
+        }
         int cnt = (int)(*(uintptr_t*)((uintptr_t)pa + 0x18));
         if (cnt <= 0 || cnt > 64) {
-            UIAlertController *e = [UIAlertController alertControllerWithTitle:@"🎯 Kick" message:@"Odada baska oyuncu yok." preferredStyle:UIAlertControllerStyleAlert];
+            UIAlertController *e = [UIAlertController alertControllerWithTitle:@"🎯 Kick" message:[NSString stringWithFormat:@"Odada baska oyuncu yok. (cnt=%d)", cnt] preferredStyle:UIAlertControllerStyleAlert];
             [e addAction:[UIAlertAction actionWithTitle:@"Tamam" style:UIAlertActionStyleDefault handler:nil]];
             [self present:e]; return;
         }
         void** ps = (void**)((uintptr_t)pa + 0x20);
+        void* me = (useAllList && pn_getLocalPlayer) ? pn_getLocalPlayer() : NULL;
 
         UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"🎯 Kick — Oyuncu Sec"
             message:[NSString stringWithFormat:@"Odada %d baska oyuncu.\nSec → Master alinir + 3 kick metodu sirayla denenir:", cnt]
@@ -3998,6 +4039,7 @@ static UIViewController* few1n_topVC(void) {
 
         for (int i = 0; i < cnt && i < 32; i++) {
             void* p = ps[i]; if (!ptrOk(p)) continue;
+            if (me && p == me) continue;   // v107: kendisini skip et (useAllList mode)
             void* nsObj = ply_getNickName(p);
             NSString *nm = ptrOk(nsObj) ? (readStr(nsObj) ?: @"") : @"";
             if (nm.length == 0) nm = [NSString stringWithFormat:@"actor%d", i];
@@ -5311,9 +5353,11 @@ static NSString* rainbowWrap(NSString* text, int idx) {
         if (cnt <= 0 || cnt > 32) return;
         void** wgs = (void**)((uintptr_t)arr + 0x20);
         Color4 hotYellow = {1.0f, 0.55f, 0.0f, 1.0f};
+        int totalApplied = 0;
         for (int i = 0; i < cnt; i++) {
             void* wg = wgs[i]; if (!ptrOk(wg)) continue;
-            void* materials = *(void**)((uintptr_t)wg + 0x10);
+            // v107.0 FIX: materials offset +0x10 -> +0x18 (il2cpp.h dogrulandi, MonoBehaviour base=0x18)
+            void* materials = *(void**)((uintptr_t)wg + 0x18);
             if (!ptrOk(materials)) continue;
             int matCnt = (int)(*(uintptr_t*)((uintptr_t)materials + 0x18));
             if (matCnt <= 0 || matCnt > 16) continue;
@@ -5327,10 +5371,19 @@ static NSString* rainbowWrap(NSString* text, int idx) {
                     if (ptrOk(mat)) {
                         void* args[1]; args[0] = &hotYellow;
                         i_runtime_invoke(g_mMatSetColor, mat, args, NULL);
+                        totalApplied++;
                     }
                 } @catch (...) {}
             }
+            // v107.0 ALTERNATIF: maxTemperature @+0x28, minVisibleTemperature @+0x24
+            // RCCP kendi Gradient'iyle balatayi renklendirir - Material.SetColor gerekmez
+            @try {
+                *(float*)((uintptr_t)wg + 0x28) = 10000.0f;   // maxTemperature = cok yuksek
+                *(float*)((uintptr_t)wg + 0x24) = 0.0f;       // minVisibleTemperature = 0 (her zaman gorunur)
+            } @catch (...) {}
         }
+        static int diag = 0;
+        if (diag++ % 5 == 0) FLog([NSString stringWithFormat:@"🔥 Balata reapply: WheelGlow=%d, material=%d", cnt, totalApplied]);
     } @catch (...) {}
 }
 
@@ -5507,7 +5560,114 @@ static NSString* rainbowWrap(NSString* text, int idx) {
     [self refreshUI];
 }
 
-// v104.1: Odayi Yeniden Olustur - SUNUCUDA GERCEK isim degisikligi (herkes duser + yeni odada sen)
+// v105: Anlik oyuncu ID listesi
+- (void)showPlayerIDs {
+    if (!pn_getInRoom || !pn_getInRoom()) {
+        UIAlertController *e = [UIAlertController alertControllerWithTitle:@"🆔 Oyuncu ID" message:@"Odada olmalısın." preferredStyle:UIAlertControllerStyleAlert];
+        [e addAction:[UIAlertAction actionWithTitle:@"Tamam" style:UIAlertActionStyleDefault handler:nil]];
+        [self present:e]; return;
+    }
+    if (!pn_getPlayerList || !ply_getNickName || !ply_getActorNumber) { FLog(@"🆔 Photon getters YOK"); return; }
+    NSMutableString *out = [NSMutableString string];
+    @try {
+        void* pa = pn_getPlayerList();
+        if (!ptrOk(pa)) { FLog(@"🆔 player list yok"); return; }
+        int cnt = (int)(*(uintptr_t*)((uintptr_t)pa + 0x18));
+        if (cnt <= 0 || cnt > 64) { FLog(@"🆔 cnt anormal"); return; }
+        void** ps = (void**)((uintptr_t)pa + 0x20);
+        [out appendFormat:@"Odada %d oyuncu:\n\n", cnt];
+        for (int i = 0; i < cnt && i < 32; i++) {
+            void* p = ps[i]; if (!ptrOk(p)) continue;
+            NSString *nick = ptrOk(ply_getNickName(p)) ? (readStr(ply_getNickName(p)) ?: @"?") : @"?";
+            NSString *nickClean = stripRichTextTags(nick) ?: nick;
+            int actor = ply_getActorNumber(p);
+            NSString *uid = (ply_getUserId) ? (readStr(ply_getUserId(p)) ?: @"") : @"";
+            [out appendFormat:@"👤 %@\n   Actor: %d  UserId: %@\n\n", nickClean, actor, uid.length > 0 ? uid : @"(yok)"];
+        }
+    } @catch (...) { [out appendString:@"Exception - kismi liste"]; }
+    UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"🆔 Oyuncu ID Listesi" message:out preferredStyle:UIAlertControllerStyleAlert];
+    [ac addAction:[UIAlertAction actionWithTitle:@"📋 Panoya Kopyala" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
+        [UIPasteboard generalPasteboard].string = out; FLog(@"🆔 ID listesi panoya kopyalandi");
+    }]];
+    [ac addAction:[UIAlertAction actionWithTitle:@"Tamam" style:UIAlertActionStyleCancel handler:nil]];
+    [self present:ac];
+}
+
+// v105: Isim degisikligi takibi toggle
+- (void)tapNameTrack {
+    isNameTrackEnabled = !isNameTrackEnabled;
+    saveBool(@"nametrack", isNameTrackEnabled);
+    if (nameTrackTimer) { [nameTrackTimer invalidate]; nameTrackTimer = nil; }
+    if (isNameTrackEnabled) {
+        if (!g_actorNickMap) g_actorNickMap = [NSMutableDictionary dictionary];
+        if (!g_actorNickHistory) g_actorNickHistory = [NSMutableDictionary dictionary];
+        nameTrackTimer = [NSTimer scheduledTimerWithTimeInterval:2.0 target:self selector:@selector(fireNameTrack) userInfo:nil repeats:YES];
+        FLog(@"🕵️ İsim takibi AKTIF - her 2sn odadaki oyuncular taranir, isim degisikligi alert olur");
+    } else FLog(@"🕵️ İsim takibi kapali");
+    [self refreshUI];
+}
+
+- (void)fireNameTrack {
+    if (!isNameTrackEnabled) return;
+    if (!pn_getInRoom || !pn_getInRoom()) return;
+    if (!pn_getPlayerList || !ply_getNickName || !ply_getActorNumber) return;
+    few1n_loadPermaFingerprint();
+    @try {
+        void* pa = pn_getPlayerList();
+        if (!ptrOk(pa)) return;
+        int cnt = (int)(*(uintptr_t*)((uintptr_t)pa + 0x18));
+        if (cnt <= 0 || cnt > 64) return;
+        void** ps = (void**)((uintptr_t)pa + 0x20);
+        BOOL fpChanged = NO;
+        for (int i = 0; i < cnt && i < 32; i++) {
+            void* p = ps[i]; if (!ptrOk(p)) continue;
+            int actor = ply_getActorNumber(p);
+            NSString *nick = ptrOk(ply_getNickName(p)) ? (readStr(ply_getNickName(p)) ?: @"?") : @"?";
+            NSString *nickClean = stripRichTextTags(nick) ?: nick;
+            NSString *uid = (ply_getUserId) ? (readStr(ply_getUserId(p)) ?: @"") : @"";
+            NSNumber *key = @(actor);
+            NSString *lastNick = g_actorNickMap[key];
+            if (!lastNick) {
+                g_actorNickMap[key] = nickClean;
+                NSMutableArray *arr = [NSMutableArray array]; [arr addObject:nickClean]; g_actorNickHistory[key] = arr;
+                FLog([NSString stringWithFormat:@"🕵️ Actor %d yeni: '%@' (uid=%@)", actor, nickClean, uid.length > 0 ? uid : @"(yok)"]);
+                // v106: KALICI FINGERPRINT check - UserId onceden goruldu mu?
+                if (uid.length > 0) {
+                    NSMutableArray *permaNicks = g_permaFingerprint[uid];
+                    if (permaNicks && permaNicks.count > 0 && ![permaNicks containsObject:nickClean]) {
+                        // Bu UserId onceden farkli nick'lerle goruldu!
+                        NSString *msg = [NSString stringWithFormat:@"⚠️ KALICI FINGERPRINT UYARISI\n\nUserId: %@\nSu andaki nick: %@\n\nDaha once gordugumuz nick'ler:\n%@", uid, nickClean, [permaNicks componentsJoinedByString:@", "]];
+                        FLog([NSString stringWithFormat:@"⚠️ PERMA MATCH: uid=%@ eski=%@ yeni=%@", uid, [permaNicks componentsJoinedByString:@","], nickClean]);
+                        UIAlertController *r = [UIAlertController alertControllerWithTitle:@"⚠️ Eski Oyuncu (nick degistirmis)" message:msg preferredStyle:UIAlertControllerStyleAlert];
+                        [r addAction:[UIAlertAction actionWithTitle:@"Tamam" style:UIAlertActionStyleDefault handler:nil]];
+                        [self present:r];
+                        [permaNicks addObject:nickClean]; fpChanged = YES;
+                    } else if (!permaNicks) {
+                        g_permaFingerprint[uid] = [NSMutableArray arrayWithObject:nickClean]; fpChanged = YES;
+                    }
+                }
+            } else if (![lastNick isEqualToString:nickClean]) {
+                g_actorNickMap[key] = nickClean;
+                NSMutableArray *hist = g_actorNickHistory[key];
+                if (![hist containsObject:nickClean]) [hist addObject:nickClean];
+                NSString *msg = [NSString stringWithFormat:@"🕵️ İsim değişti! Actor %d\n\nÖnce: %@\nŞimdi: %@\n\nTüm gordugu: %@\n\nUserId: %@", actor, lastNick, nickClean, [hist componentsJoinedByString:@" → "], uid.length > 0 ? uid : @"(yok)"];
+                FLog(msg);
+                UIAlertController *r = [UIAlertController alertControllerWithTitle:@"🕵️ İSİM DEĞİŞİKLİĞİ" message:msg preferredStyle:UIAlertControllerStyleAlert];
+                [r addAction:[UIAlertAction actionWithTitle:@"Tamam" style:UIAlertActionStyleDefault handler:nil]];
+                [self present:r];
+                // v106: kalıcı fingerprint'e de ekle
+                if (uid.length > 0) {
+                    NSMutableArray *permaNicks = g_permaFingerprint[uid];
+                    if (!permaNicks) { permaNicks = [NSMutableArray array]; g_permaFingerprint[uid] = permaNicks; }
+                    if (![permaNicks containsObject:nickClean]) { [permaNicks addObject:nickClean]; fpChanged = YES; }
+                }
+            }
+        }
+        if (fpChanged) few1n_savePermaFingerprint();
+    } @catch (...) {}
+}
+
+// v107.0: Odayi Yeniden Olustur - SUNUCUDA GERCEK isim degisikligi (herkes duser + yeni odada sen)
 - (void)recreateRoomWithNewName {
     if (!pn_leaveRoom || !pn_createRoom || !i_object_new || !g_roomOptionsClass) {
         FLog(@"❌ recreate: pn_leaveRoom/createRoom/RoomOptions YOK");
@@ -5628,13 +5788,24 @@ static NSString* rainbowWrap(NSString* text, int idx) {
         [e addAction:[UIAlertAction actionWithTitle:@"Tamam" style:UIAlertActionStyleDefault handler:nil]];
         [self present:e]; return;
     }
-    if (!pn_getPlayerListOthers || !ply_getNickName) { FLog(@"💣 Photon fonksiyonlari NULL"); return; }
+    if (!ply_getNickName) {
+        UIAlertController *e = [UIAlertController alertControllerWithTitle:@"💣 Hedefli Bomba" message:@"ply_getNickName NULL - Photon hazir degil" preferredStyle:UIAlertControllerStyleAlert];
+        [e addAction:[UIAlertAction actionWithTitle:@"Tamam" style:UIAlertActionStyleDefault handler:nil]]; [self present:e]; return;
+    }
     @try {
-        void* pa = pn_getPlayerListOthers();
-        if (!ptrOk(pa)) { FLog(@"💣 baska oyuncu YOK"); return; }
+        // v107: pn_getPlayerListOthers NULL fallback -> pn_getPlayerList + self filter
+        void* pa = NULL;
+        if (pn_getPlayerListOthers) pa = pn_getPlayerListOthers();
+        BOOL useAllList = NO;
+        if (!ptrOk(pa) && pn_getPlayerList) { pa = pn_getPlayerList(); useAllList = YES; }
+        if (!ptrOk(pa)) {
+            UIAlertController *e = [UIAlertController alertControllerWithTitle:@"💣 Hedefli Bomba" message:@"Player list NULL - Photon ikisi de basarisiz" preferredStyle:UIAlertControllerStyleAlert];
+            [e addAction:[UIAlertAction actionWithTitle:@"Tamam" style:UIAlertActionStyleDefault handler:nil]]; [self present:e]; return;
+        }
         int cnt = (int)(*(uintptr_t*)((uintptr_t)pa + 0x18));
+        void* me = (useAllList && pn_getLocalPlayer) ? pn_getLocalPlayer() : NULL;
         if (cnt <= 0 || cnt > 64) {
-            UIAlertController *e = [UIAlertController alertControllerWithTitle:@"💣 Hedefli Bomba" message:@"Odada baska oyuncu yok." preferredStyle:UIAlertControllerStyleAlert];
+            UIAlertController *e = [UIAlertController alertControllerWithTitle:@"💣 Hedefli Bomba" message:[NSString stringWithFormat:@"Odada baska oyuncu yok. (cnt=%d)", cnt] preferredStyle:UIAlertControllerStyleAlert];
             [e addAction:[UIAlertAction actionWithTitle:@"Tamam" style:UIAlertActionStyleDefault handler:nil]];
             [self present:e]; return;
         }
@@ -5644,6 +5815,7 @@ static NSString* rainbowWrap(NSString* text, int idx) {
             preferredStyle:UIAlertControllerStyleActionSheet];
         for (int i = 0; i < cnt && i < 32; i++) {
             void* p = ps[i]; if (!ptrOk(p)) continue;
+            if (me && p == me) continue;   // v107: kendisini skip et
             void* nsObj = ply_getNickName(p);
             NSString *nm = ptrOk(nsObj) ? (readStr(nsObj) ?: @"") : @"";
             if (nm.length == 0) nm = [NSString stringWithFormat:@"actor%d", i];
@@ -5651,7 +5823,7 @@ static NSString* rainbowWrap(NSString* text, int idx) {
             NSString *nmCopy = [nm copy];
             [ac addAction:[UIAlertAction actionWithTitle:[NSString stringWithFormat:@"🎯 %@", nmClean]
                 style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
-                // v104.1: MANUEL METOD SECIMI - hedef secildikten sonra hangi saldirinin uygulanacagini kullanici sec
+                // v107.0: MANUEL METOD SECIMI - hedef secildikten sonra hangi saldirinin uygulanacagini kullanici sec
                 UIAlertController *pick = [UIAlertController alertControllerWithTitle:[NSString stringWithFormat:@"🎯 '%@'", nmCopy]
                     message:@"Hangi saldiri?" preferredStyle:UIAlertControllerStyleAlert];
                 // A) Sadece Bomb
@@ -6774,7 +6946,7 @@ static void few1n_startCarCloneAttempt(NSString *scene) {
                     *(void**)((uintptr_t)room + 0x40) = nameStr;
                     FLog([NSString stringWithFormat:@"✓ Metod 1 Room.Name (0x40) client-side yazildi: '%@'", newName]);
 
-                    // v104.1: Metod 2 - SUNUCU push - Room.set_Name(string) invoke
+                    // v107.0: Metod 2 - SUNUCU push - Room.set_Name(string) invoke
                     // Bu Photon internal method; sunucuya sync eder mi denemek lazim
                     if (g_mRoomSetName && i_runtime_invoke && nameStr) {
                         @try {
@@ -8312,7 +8484,7 @@ static void few1n_joinTargetRoom(NSString *nm) {
 - (void)serverHideChain:(NSArray*)targets index:(NSInteger)idx {
     if (idx >= (NSInteger)targets.count) {
         FLog([NSString stringWithFormat:@"🌐 [SUNUCU HIDE] BITTI — %lu oda islendi", (unsigned long)targets.count]);
-        // v104.1: Chain bittiginde HR_PhotonLobbyManagerDummy.roomListPanel'i aktif et
+        // v107.0: Chain bittiginde HR_PhotonLobbyManagerDummy.roomListPanel'i aktif et
         // Boylece oyun garaja atmak yerine oda listesi ekranini gosterir
         @try {
             if (g_hrLobbyMgrDummyType && g_offRoomListPanel > 0 && g_mGoSetActive && g_mFindObjectsPlural && i_runtime_invoke) {
@@ -9194,7 +9366,7 @@ static void few1n_poll(void) {
 }
 
 %ctor {
-    FLog(@"v104.1 basladi, UnityFramework araniyor...");
+    FLog(@"v107.0 basladi, UnityFramework araniyor...");
     restoreSettings();
 
     // ===== REKLAM BOZUCU: TUM reklam SDK'larini engelle (Obj-C runtime swizzle) =====
