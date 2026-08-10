@@ -12,7 +12,7 @@
 #import <objc/runtime.h>
 
 // ============================================================
-//  v114.0 - FEW1N MOD MENU  (derlenir, hatasiz - bu dosyayi kullan)
+//  v114.2 - FEW1N MOD MENU  (derlenir, hatasiz - bu dosyayi kullan)
 //  DUZELTME: rainbowWrap forward-decl (tanim sirasi), decl-order taramasi temiz, autogreet poll optimize.
 //  Ozellikler: GERCEK Kick (liste/isim), Ucus D-pad, Emoji sprite+test, Otomatik Karsilama, Normal Oda 31
 //  DreamRoadMultiplayer | Unity 6 (6000.3.0b1) | Metadata v39
@@ -209,7 +209,7 @@ static void* g_hrBombTypeObj = NULL;
 static void* g_hrTrafficCarTypeObj = NULL;
 static void* g_hrPhotonSyncTypeObj = NULL;
 static void* g_rccpDetachTypeObj = NULL;
-// v114.0: HR_PhotonLobbyManagerDummy - chain sonu oda listesi ekrani icin
+// v114.2: HR_PhotonLobbyManagerDummy - chain sonu oda listesi ekrani icin
 static void* g_hrLobbyMgrDummyType = NULL;
 static void* g_mGoSetActive = NULL;      // UnityEngine.GameObject.SetActive(bool)
 static int g_offRoomListPanel = 0;
@@ -867,7 +867,7 @@ static void few1n_initIl2cpp(void) {
                 }
             }
         }
-        // v114.0: HR_PhotonLobbyManagerDummy resolve + roomListPanel offset
+        // v114.2: HR_PhotonLobbyManagerDummy resolve + roomListPanel offset
         if (!g_hrLobbyMgrDummyType) {
             void* c = i_class_from_name(img, "", "HR_PhotonLobbyManagerDummy");
             if (!c) c = few1n_findClassByName(img, "HR_PhotonLobbyManagerDummy");
@@ -906,7 +906,7 @@ static void few1n_initIl2cpp(void) {
         if (!g_roomOptionsClass) {
             void* roc = i_class_from_name(img, "Photon.Realtime", "RoomOptions");
             if (roc) { g_roomOptionsClass = roc; FLog([NSString stringWithFormat:@"RoomOptions bulundu! %p", roc]); }
-            // v114.0: Room class + set_Name method
+            // v114.2: Room class + set_Name method
             if (!g_roomClass) {
                 void* rc = i_class_from_name(img, "Photon.Realtime", "Room");
                 if (!rc) rc = few1n_findClassByName(img, "Room");
@@ -2249,17 +2249,17 @@ static NSString* stripRichTextTags(NSString *text) {
 
 // ===== CHAT =====
 // v110: ChatManager.fup(string) - GELEN chat mesaji (baska oyuncudan geldigi zaman burada tetiklenir)
-// v114.0 BUILD FIX: gercek body AI globalleri/fonksiyonlarından SONRA tanımlı (asagida)
+// v114.2 BUILD FIX: gercek body AI globalleri/fonksiyonlarından SONRA tanımlı (asagida)
 static void (*o_chatFup)(void*, void*) = NULL;
 static void h_chatFup(void* self, void* msg);   // forward decl - body aşağıda
-// v114.0: FEW1NMenu forward decl SILINDI - @interface'i golgeleyip present: hatalari cikartiyordu.
+// v114.2: FEW1NMenu forward decl SILINDI - @interface'i golgeleyip present: hatalari cikartiyordu.
 // h_chatSend NSClassFromString+performSelector kullaniyor, forward decl'e gerek yok.
 
 static void (*o_chatSend)(void*, void*) = NULL;
 // v111: AI Sohbet Modu - /ai olmadan aktif konusma
 static bool isAiChatModeEnabled = false;
 static NSMutableArray<NSString*> *g_recentlySentByMe = nil;  // son 10 mesaj (kendi mesajlarima cevap vermemek icin)
-// v114.0: AI cevap renkleri (kullanici NSUserDefaults'tan sec)
+// v114.2: AI cevap renkleri (kullanici NSUserDefaults'tan sec)
 static char g_aiNameColorHex[8] = "00E5FF";  // cyan default
 static char g_aiReplyColorHex[8] = "FF00FF"; // magenta default
 
@@ -2347,10 +2347,10 @@ static NSString* few1n_writeFieldOnAllOfClass(NSString *className, NSString *fie
     } @catch (...) { return @"exception"; }
 }
 
-// v109: Groq API entegrasyonu - GERCEK yer (v114.0: hackerAsk'ten once tanimlanmali)
+// v109: Groq API entegrasyonu - GERCEK yer (v114.2: hackerAsk'ten once tanimlanmali)
 static NSString* g_groqApiKey = nil;
 static NSString* const kGroqApiKeyDefault = @"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";
-static NSString* g_groqModel = nil;  // v114.0: runtime degistirilebilir
+static NSString* g_groqModel = nil;  // v114.2: runtime degistirilebilir
 static NSString* const kGroqModelDefault = @"llama-3.3-70b-versatile";  // Groq ucretsiz, Turkce destekli (test edildi)
 static inline NSString* kGroqModel(void) {  // hackerAsk/groqAsk uyumlu (fonksiyon cagrisi gibi)
     if (g_groqModel && g_groqModel.length > 0) return g_groqModel;
@@ -2457,7 +2457,7 @@ static void few1n_hackerAsk(NSString *prompt, void(^completion)(NSArray*)) {
     }] resume];
 }
 
-// v114.0: Groq bloğu yukarı taşındı (hackerAsk'ten önce). Kalan few1n_groqAsk duplicate silinecek.
+// v114.2: Groq bloğu yukarı taşındı (hackerAsk'ten önce). Kalan few1n_groqAsk duplicate silinecek.
 // Duplicate function tanımı ÖNLEMEK için sadece bir tane groqAsk kalır (yukarıda).
 #if 0
 // Async Groq API cagrisi. completion(nil) = basarisiz, fallback kural  -- DUPLICATE, DEVRE DIŞI
@@ -2502,7 +2502,7 @@ static void few1n_groqAsk_DEAD(NSString *prompt, void(^completion)(NSString*)) {
         completion([content stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]]);
     }] resume];
 }
-#endif // v114.0 DUPLICATE Groq bloğu sonu
+#endif // v114.2 DUPLICATE Groq bloğu sonu
 
 // v108: Basit kural tabanli AI cevap - /ai prefix ile chat'te calisir (Groq basarisiz olursa fallback)
 static NSString* few1n_aiReply(NSString *prompt) {
@@ -2616,7 +2616,7 @@ static void h_chatSend(void* self, void* msg) {
                             BOOL toggle = [st.lowercaseString isEqualToString:@"toggle"];
                             dispatch_async(dispatch_get_main_queue(), ^{
                                 @try {
-                                    // v114.0: FEW1NMenu forward decl yerine dynamic dispatch (compile warning'i azalt)
+                                    // v114.2: FEW1NMenu forward decl yerine dynamic dispatch (compile warning'i azalt)
                                     id m = [NSClassFromString(@"FEW1NMenu") performSelector:@selector(shared)];
                                     if ([act isEqualToString:@"infinite_nos"]) { isInfiniteNosEnabled = toggle ? !isInfiniteNosEnabled : on; saveBool(@"infnos", isInfiniteNosEnabled); [m performSelector:@selector(startGizliTimerIfNeeded)]; }
                                     else if ([act isEqualToString:@"infinite_fuel"]) { isInfiniteFuelEnabled = toggle ? !isInfiniteFuelEnabled : on; saveBool(@"inffuel", isInfiniteFuelEnabled); [m performSelector:@selector(startGizliTimerIfNeeded)]; }
@@ -2661,7 +2661,7 @@ static void h_chatSend(void* self, void* msg) {
                 if (orig.length > 4) prompt = [orig substringFromIndex:4];
                 void* selfKept = self;   // async için sakla
                 FLog([NSString stringWithFormat:@"🤖 AI istek: '%@' (Groq)", prompt]);
-                // v114.0: Anında feedback - intercept çalıştığını göster
+                // v114.2: Anında feedback - intercept çalıştığını göster
                 @try {
                     NSString *loadingMsg = [NSString stringWithFormat:@"<color=#FFFF00><i>🔄 AI düşünüyor: %@</i></color>", prompt];
                     void* loadStr = mkStr(loadingMsg);
@@ -2709,7 +2709,7 @@ static void h_chatSend(void* self, void* msg) {
     if (o_chatSend) o_chatSend(self, msg);
 }
 
-// v114.0: h_chatFup GERCEK BODY (AI globalleri/fonksiyonlarindan sonra tanimli, compile hatasi bitti)
+// v114.2: h_chatFup GERCEK BODY (AI globalleri/fonksiyonlarindan sonra tanimli, compile hatasi bitti)
 static void h_chatFup(void* self, void* msg) {
     if (msg) @try {
         NSString *received = readStr(msg);
@@ -3105,7 +3105,7 @@ static void h_roomLineSetup(void* self, void* a, void* b, unsigned char c, unsig
 - (void)pickAiColorFor:(BOOL)forName;
 - (void)showHackerAiInfo;
 - (void)tapBrakeGlow;
-- (void)debugBrakeGlow;
+// v114.1: debugBrakeGlow SILINDI (crash sebep)
 - (void)tapDetachParts;
 - (void)tapTeleportAllToMe;
 - (void)tapHijackCar;
@@ -3467,7 +3467,7 @@ static UIViewController* few1n_topVC(void) {
     title.font = [UIFont systemFontOfSize:17 weight:UIFontWeightBlack];
     [header addSubview:title];
     UILabel *ver = [[UILabel alloc] initWithFrame:CGRectMake(42,37,pw-90,16)];
-    ver.text = [NSString stringWithFormat:@"v114.0  •  Base 0x%lX", (unsigned long)global_base];
+    ver.text = [NSString stringWithFormat:@"v114.2  •  Base 0x%lX", (unsigned long)global_base];
     ver.textColor = [UIColor colorWithWhite:1 alpha:0.82];
     ver.font = [UIFont fontWithName:@"Menlo-Bold" size:8] ?: [UIFont systemFontOfSize:8 weight:UIFontWeightBold];
     [header addSubview:ver];
@@ -3551,7 +3551,7 @@ static UIViewController* few1n_topVC(void) {
     y = [self toggle:@"🔊  Otomatik Havali Korna" sub:@"Ritmik havalı korna calar (herkese duyulur)" key:@"autohorn" atY:y action:@selector(tapAutoHorn)];
     // v99: Yuksek Devir Kesici (Rev Limiter) SİLİNDİ (istek)
     y = [self toggle:@"🔥  Balata Sicak Tut (Sari Glow)" sub:@"Fren yapmasan bile balata sari glow — v91'de il2cpp ile" key:@"brakeglow" atY:y action:@selector(tapBrakeGlow)];
-    y = [self actionRow:@"🔬  Balata DEBUG (class + offset + instance say)" color:C_GOLD atY:y action:@selector(debugBrakeGlow)];
+    // v114.1: Debug buton SILINDI (i_class_from_name NULL image crash sebep)
     y = [self toggle:@"🛡️  Hasar Yok" sub:@"Arac hasar almaz — v91'de RCCP_Damage.Update hook ile" key:@"nodamage" atY:y action:@selector(tapNoDamage)];
     // v99: 2. Yuksek Devir/Kesici Ses Modu (duplicate revlimiter) SİLİNDİ
 
@@ -3706,7 +3706,7 @@ static UIViewController* few1n_topVC(void) {
     y = [self actionRow:@"🗺️  Odadayken Harita Değiştir (v233 minimal + master zorla)" color:C_ON atY:y action:@selector(changeMapInRoom)];
     y = [self actionRow:@"🚗  Kişi Aracı Klonla (deneysel race glitch)" color:C_GOLD atY:y action:@selector(cloneCarPicker)];
     y = [self actionRow:@"🌤️  Hava Durumu & Zaman Seç (Aktarmasız Canlı)" color:C_ON atY:y action:@selector(changeWeatherOnly)];
-    // v114.0: "Odadayken Oda İsmini Değiştir" SİLİNDİ (client-side + CustomProperties + set_Name calismiyordu - mod'suzlar goremiyordu)
+    // v114.2: "Odadayken Oda İsmini Değiştir" SİLİNDİ (client-side + CustomProperties + set_Name calismiyordu - mod'suzlar goremiyordu)
     // Tek gercek yol: 🔄 Odayi Yeniden Olustur (asagida)
     y = [self actionRow:@"👥  Odadayken Max Oyuncu Değiştir (2-100)" color:C_GOLD atY:y action:@selector(changeMaxPlayersInRoom)];
     y = [self actionRow:@"🔄  Odayı YENİDEN OLUŞTUR (herkeste değişir)" color:C_RED atY:y action:@selector(recreateRoomWithNewName)];
@@ -5805,269 +5805,50 @@ static NSString* rainbowWrap(NSString* text, int idx) {
 }
 
 - (void)applyBrakeGlowOld_UNUSED { }
-- (void)applyBrakeGlow {
-    if (!g_wheelGlowTypeObj) { @try { few1n_initIl2cpp(); } @catch (...) {} }
-    if (!g_wheelGlowTypeObj || !g_mFindObjectsPlural || !i_runtime_invoke || !g_mRendGetMat || !g_mMatSetColor) {
-        return;
-    }
-    // il2cpp field API - RCCP_WheelGlow field offsetleri runtime al
-    static int g_offMaxTemp = -1, g_offMinVisTemp = -1, g_offMaterials = -1, g_offHxm = -1;
-    if (g_offMaxTemp < 0 && i_class_from_name && i_class_get_field_from_name && i_field_get_offset) {
-        void* wgc = NULL;
-        NSArray *cands = @[@"RCCP_WheelGlow", @"WheelGlow", @"RCCP_Caliper", @"RCCP_WheelSlipParticles"];
-        for (NSString *c in cands) { wgc = i_class_from_name(NULL, "", c.UTF8String); if (wgc) break; }
-        if (wgc) {
-            void* mt = i_class_get_field_from_name(wgc, "maxTemperature");
-            if (mt) g_offMaxTemp = (int)i_field_get_offset(mt);
-            void* mv = i_class_get_field_from_name(wgc, "minVisibleTemperature");
-            if (mv) g_offMinVisTemp = (int)i_field_get_offset(mv);
-            void* mats = i_class_get_field_from_name(wgc, "materials");
-            if (mats) g_offMaterials = (int)i_field_get_offset(mats);
-            void* fHxm = i_class_get_field_from_name(wgc, "hxm");
-            if (fHxm) g_offHxm = (int)i_field_get_offset(fHxm);
-        }
-    }
-    int offMats = (g_offMaterials >= 0x10 && g_offMaterials < 0x200) ? g_offMaterials : 0x20;
 
+// v114.2 TEMIZ: SADECE Method 6 (WheelCollider slip = MAX, senin ipucu)
+// Init'te class + field offsetleri BIR KEZ resolve, safe try/catch, ultra null check.
+- (void)applyBrakeGlow {
+    static bool g_wcInited = false;
+    static void* g_wheelColType = NULL;
+    static int g_offTotalSlip = -1, g_offSlipSide = -1, g_offSlipFwd = -1, g_offIsSkidding = -1;
+    if (!g_wcInited) {
+        g_wcInited = true;
+        @try {
+            if (i_class_from_name && i_class_get_field_from_name && i_field_get_offset) {
+                void* c = NULL;
+                // NULL image ile safe try
+                @try { c = i_class_from_name(NULL, "", "RCCP_WheelCollider"); } @catch (...) { c = NULL; }
+                if (c) {
+                    @try { void* t = few1n_typeObjOf(c); if (ptrOk(t)) g_wheelColType = t; } @catch (...) {}
+                    void* f;
+                    @try { f = i_class_get_field_from_name(c, "totalSlip");                if (f) g_offTotalSlip  = (int)i_field_get_offset(f); } @catch (...) {}
+                    @try { f = i_class_get_field_from_name(c, "wheelSlipAmountSideways"); if (f) g_offSlipSide   = (int)i_field_get_offset(f); } @catch (...) {}
+                    @try { f = i_class_get_field_from_name(c, "wheelSlipAmountForward");  if (f) g_offSlipFwd    = (int)i_field_get_offset(f); } @catch (...) {}
+                    @try { f = i_class_get_field_from_name(c, "isSkidding");              if (f) g_offIsSkidding = (int)i_field_get_offset(f); } @catch (...) {}
+                    FLog([NSString stringWithFormat:@"🔥 WheelCol: type=%p totalSlip@%d side@%d fwd@%d skid@%d", g_wheelColType, g_offTotalSlip, g_offSlipSide, g_offSlipFwd, g_offIsSkidding]);
+                }
+            }
+        } @catch (...) {}
+    }
+    if (!g_wheelColType || !g_mFindObjectsPlural || !i_runtime_invoke) return;
     @try {
-        // v114.0: METHOD 1-4 SILINDI - kullanici istegi. Sadece Method 6 (WheelCollider slip = MAX) aktif.
-        // Bu kesin yol, RCCP kendi mekanizmasi balatayi sari yapar.
-        #if 0
-        void* a[1]; a[0] = g_wheelGlowTypeObj;
+        void* a[1]; a[0] = g_wheelColType;
         void* arr = i_runtime_invoke(g_mFindObjectsPlural, NULL, a, NULL);
         if (!ptrOk(arr)) return;
         int cnt = (int)(*(uintptr_t*)((uintptr_t)arr + 0x18));
         if (cnt <= 0 || cnt > 32) return;
-        void** wgs = (void**)((uintptr_t)arr + 0x20);
-        Color4 hotYellow = {1.0f, 0.55f, 0.0f, 1.0f};
-        int totalApplied = 0;
-
+        void** wcs = (void**)((uintptr_t)arr + 0x20);
         for (int i = 0; i < cnt; i++) {
-            void* wg = wgs[i];
-            if (!unityAlive(wg)) continue;
-
-            // METHOD 1: materials struct array (BrakeMaterial[])
-            void* materials = *(void**)((uintptr_t)wg + offMats);
-            if (ptrOk(materials)) {
-                int matCnt = (int)(*(uintptr_t*)((uintptr_t)materials + 0x18));
-                if (matCnt > 0 && matCnt <= 16) {
-                    for (int m = 0; m < matCnt; m++) {
-                        uintptr_t structAddr = (uintptr_t)materials + 0x20 + (m * 16);
-                        void* renderer = *(void**)(structAddr);
-                        if (!unityAlive(renderer)) continue;
-                        @try {
-                            void* mat = i_runtime_invoke(g_mRendGetMat, renderer, NULL, NULL);
-                            if (ptrOk(mat)) {
-                                void* args[1]; args[0] = &hotYellow;
-                                i_runtime_invoke(g_mMatSetColor, mat, args, NULL);
-                                totalApplied++;
-                            }
-                        } @catch (...) {}
-                    }
-                }
-            }
-
-            // METHOD 2: maxTemperature / minVisibleTemperature fields
+            void* wc = wcs[i]; if (!ptrOk(wc) || !unityAlive(wc)) continue;
             @try {
-                if (g_offMaxTemp >= 0x10 && g_offMaxTemp < 0x200)     *(float*)((uintptr_t)wg + g_offMaxTemp) = 10000.0f;
-                if (g_offMinVisTemp >= 0x10 && g_offMinVisTemp < 0x200)  *(float*)((uintptr_t)wg + g_offMinVisTemp) = 0.0f;
+                if (g_offTotalSlip  > 0x18 && g_offTotalSlip  < 0x400) *(float*)((uintptr_t)wc + g_offTotalSlip)  = 1.0f;
+                if (g_offSlipSide   > 0x18 && g_offSlipSide   < 0x400) *(float*)((uintptr_t)wc + g_offSlipSide)   = 1.0f;
+                if (g_offSlipFwd    > 0x18 && g_offSlipFwd    < 0x400) *(float*)((uintptr_t)wc + g_offSlipFwd)    = 1.0f;
+                if (g_offIsSkidding > 0x18 && g_offIsSkidding < 0x400) *(bool*)((uintptr_t)wc + g_offIsSkidding) = true;
             } @catch (...) {}
-
-            // METHOD 3: hxm cached Material - v114.0 GERI (ultra null check ile)
-            if (g_offHxm > 0x18 && g_offHxm < 0x200 && g_mMatSetColor) {
-                @try {
-                    void* cachedMat = *(void**)((uintptr_t)wg + g_offHxm);
-                    if (ptrOk(cachedMat) && unityAlive(cachedMat)) {
-                        void* args[1]; args[0] = &hotYellow;
-                        i_runtime_invoke(g_mMatSetColor, cachedMat, args, NULL);
-                    }
-                } @catch (...) {}
-            }
         }
-
-        // METHOD 4: RCCP_WheelBlur.targetMaterial - v114.0 GERI (ultra null check)
-        @try {
-            static void* g_wheelBlurType = NULL;
-            static int g_offBlurTargetMat = -1;
-            static bool g_wheelBlurInited = false;
-            if (!g_wheelBlurInited) {
-                g_wheelBlurInited = true;  // bir kez dene, basarisiz olsa da tekrar deneme (crash sonsuz loop olmasin)
-                @try {
-                    if (i_class_from_name) {
-                        void* c = i_class_from_name(NULL, "", "RCCP_WheelBlur");
-                        if (c) {
-                            void* t = few1n_typeObjOf(c);
-                            if (ptrOk(t)) g_wheelBlurType = t;
-                            if (i_class_get_field_from_name && i_field_get_offset) {
-                                void* f = i_class_get_field_from_name(c, "targetMaterial");
-                                if (f) g_offBlurTargetMat = (int)i_field_get_offset(f);
-                            }
-                        }
-                    }
-                } @catch (...) { g_wheelBlurType = NULL; g_offBlurTargetMat = -1; }
-            }
-            if (g_wheelBlurType && g_offBlurTargetMat > 0x18 && g_offBlurTargetMat < 0x200) {
-                void* a2[1]; a2[0] = g_wheelBlurType;
-                void* barr = i_runtime_invoke(g_mFindObjectsPlural, NULL, a2, NULL);
-                if (ptrOk(barr)) {
-                    int bcnt = (int)(*(uintptr_t*)((uintptr_t)barr + 0x18));
-                    if (bcnt > 0 && bcnt < 32) {
-                        void** bl = (void**)((uintptr_t)barr + 0x20);
-                        for (int i = 0; i < bcnt; i++) {
-                            void* wb = bl[i]; if (!unityAlive(wb)) continue;
-                            void* mat = *(void**)((uintptr_t)wb + g_offBlurTargetMat);
-                            if (ptrOk(mat) && unityAlive(mat)) {
-                                void* args[1]; args[0] = &hotYellow;
-                                @try { i_runtime_invoke(g_mMatSetColor, mat, args, NULL); } @catch (...) {}
-                            }
-                        }
-                    }
-                }
-            }
-        } @catch (...) {}
-
-        #endif // v114.0: Method 1-4 devre disi bitis
-        // v114.0 METHOD 6 KESIN COZUM: RCCP_WheelCollider slip alanlarini MAX yap
-        // Kullanicinin ipucu: 'hizli git + ani fren = balata otomatik sari'
-        // Yani RCCP wheelSlip'e gore sicaklik hesapliyor. Slip=1 yapinca RCCP otomatik sari yapar.
-        @try {
-            static void* g_wheelColType = NULL;
-            static int g_offTotalSlip = -1, g_offSlipSide = -1, g_offSlipFwd = -1, g_offIsSkidding = -1;
-            static bool g_wcInited = false;
-            if (!g_wcInited) {
-                g_wcInited = true;
-                @try {
-                    if (i_class_from_name) {
-                        void* c = i_class_from_name(NULL, "", "RCCP_WheelCollider");
-                        if (c) {
-                            void* t = few1n_typeObjOf(c); if (ptrOk(t)) g_wheelColType = t;
-                            if (i_class_get_field_from_name && i_field_get_offset) {
-                                void* f;
-                                f = i_class_get_field_from_name(c, "totalSlip");                if (f) g_offTotalSlip  = (int)i_field_get_offset(f);
-                                f = i_class_get_field_from_name(c, "wheelSlipAmountSideways"); if (f) g_offSlipSide   = (int)i_field_get_offset(f);
-                                f = i_class_get_field_from_name(c, "wheelSlipAmountForward");  if (f) g_offSlipFwd    = (int)i_field_get_offset(f);
-                                f = i_class_get_field_from_name(c, "isSkidding");              if (f) g_offIsSkidding = (int)i_field_get_offset(f);
-                                FLog([NSString stringWithFormat:@"🔥 WheelCol offsets: totalSlip@%d side@%d fwd@%d skid@%d", g_offTotalSlip, g_offSlipSide, g_offSlipFwd, g_offIsSkidding]);
-                            }
-                        }
-                    }
-                } @catch (...) { g_wheelColType = NULL; }
-            }
-            if (g_wheelColType) {
-                void* aW[1]; aW[0] = g_wheelColType;
-                void* warr = i_runtime_invoke(g_mFindObjectsPlural, NULL, aW, NULL);
-                if (ptrOk(warr)) {
-                    int wcnt = (int)(*(uintptr_t*)((uintptr_t)warr + 0x18));
-                    if (wcnt > 0 && wcnt < 32) {
-                        void** wcs = (void**)((uintptr_t)warr + 0x20);
-                        for (int i = 0; i < wcnt; i++) {
-                            void* wc = wcs[i]; if (!unityAlive(wc)) continue;
-                            @try {
-                                if (g_offTotalSlip  > 0x18 && g_offTotalSlip  < 0x400) *(float*)((uintptr_t)wc + g_offTotalSlip)  = 1.0f;
-                                if (g_offSlipSide   > 0x18 && g_offSlipSide   < 0x400) *(float*)((uintptr_t)wc + g_offSlipSide)   = 1.0f;
-                                if (g_offSlipFwd    > 0x18 && g_offSlipFwd    < 0x400) *(float*)((uintptr_t)wc + g_offSlipFwd)    = 1.0f;
-                                if (g_offIsSkidding > 0x18 && g_offIsSkidding < 0x400) *(bool*)((uintptr_t)wc + g_offIsSkidding) = true;
-                            } @catch (...) {}
-                        }
-                    }
-                }
-            }
-        } @catch (...) {}
-
-        // METHOD 5: RCCP_Caliper - v114.0 DISABLED (GetComponentInChildren overload karisikligi crash)
-        #if 0
-        // METHOD 5: RCCP_Caliper.hlw GameObject -> child Renderer -> material
-        @try {
-            static void* g_caliperType = NULL;
-            static int g_offCaliperGO = -1;
-            static void* g_mGetCompChild = NULL;
-            if (!g_caliperType && i_class_from_name) {
-                void* c = i_class_from_name(NULL, "", "RCCP_Caliper");
-                if (c) {
-                    g_caliperType = few1n_typeObjOf(c);
-                    if (i_class_get_field_from_name) {
-                        void* f = i_class_get_field_from_name(c, "hlw");
-                        if (f) g_offCaliperGO = (int)i_field_get_offset(f);
-                    }
-                }
-                void* goc = i_class_from_name(NULL, "UnityEngine", "GameObject");
-                if (goc) g_mGetCompChild = i_class_get_method_from_name(goc, "GetComponentInChildren", 1);
-            }
-            if (g_caliperType && g_offCaliperGO >= 0x10 && g_offCaliperGO < 0x200 && g_rendererType && g_mGetCompChild) {
-                void* a3[1]; a3[0] = g_caliperType;
-                void* carr = i_runtime_invoke(g_mFindObjectsPlural, NULL, a3, NULL);
-                if (ptrOk(carr)) {
-                    int ccnt = (int)(*(uintptr_t*)((uintptr_t)carr + 0x18));
-                    if (ccnt > 0 && ccnt < 32) {
-                        void** cl = (void**)((uintptr_t)carr + 0x20);
-                        for (int i = 0; i < ccnt; i++) {
-                            void* cp = cl[i]; if (!unityAlive(cp)) continue;
-                            void* go = *(void**)((uintptr_t)cp + g_offCaliperGO);
-                            if (!ptrOk(go)) continue;
-                            @try {
-                                void* aa[1]; aa[0] = g_rendererType;
-                                void* rend = i_runtime_invoke(g_mGetCompChild, go, aa, NULL);
-                                if (unityAlive(rend)) {
-                                    void* mat = i_runtime_invoke(g_mRendGetMat, rend, NULL, NULL);
-                                    if (ptrOk(mat)) {
-                                        void* args[1]; args[0] = &hotYellow;
-                                        i_runtime_invoke(g_mMatSetColor, mat, args, NULL);
-                                    }
-                                }
-                            } @catch (...) {}
-                        }
-                    }
-                }
-            }
-        } @catch (...) {}
-        #endif // v114.0 METHOD 4+5 devre disi sonu
     } @catch (...) {}
-}
-
-// v114.0: Balata tam debug - alert'te herşey
-- (void)debugBrakeGlow {
-    NSMutableString *r = [NSMutableString stringWithString:@"🔬 BALATA DEBUG\n\n"];
-    [r appendFormat:@"g_wheelGlowTypeObj: %p\n", g_wheelGlowTypeObj];
-    [r appendFormat:@"g_mFindObjectsPlural: %p\n", g_mFindObjectsPlural];
-    [r appendFormat:@"g_mRendGetMat: %p\n", g_mRendGetMat];
-    [r appendFormat:@"g_mMatSetColor: %p\n", g_mMatSetColor];
-    [r appendFormat:@"i_class_from_name: %p\n\n", i_class_from_name];
-    // Class fallback zinciri dene
-    if (i_class_from_name) {
-        NSArray *cands = @[@"RCCP_WheelGlow", @"WheelGlow", @"RCCP_Caliper", @"RCCP_WheelSlipParticles", @"RCCP_WheelBlur"];
-        [r appendString:@"CLASS ARAMA:\n"];
-        for (NSString *c in cands) {
-            void* k = i_class_from_name(NULL, "", c.UTF8String);
-            [r appendFormat:@"  %@: %@\n", c, k ? [NSString stringWithFormat:@"✅ %p", k] : @"❌ yok"];
-        }
-    }
-    // Instance count
-    if (g_wheelGlowTypeObj && g_mFindObjectsPlural && i_runtime_invoke) {
-        @try {
-            void* a[1]; a[0] = g_wheelGlowTypeObj;
-            void* arr = i_runtime_invoke(g_mFindObjectsPlural, NULL, a, NULL);
-            if (ptrOk(arr)) {
-                int cnt = (int)(*(uintptr_t*)((uintptr_t)arr + 0x18));
-                [r appendFormat:@"\nSAHNE: %d WheelGlow instance\n", cnt];
-                if (cnt > 0 && cnt < 32) {
-                    void** wgs = (void**)((uintptr_t)arr + 0x20);
-                    for (int i = 0; i < cnt && i < 3; i++) {
-                        void* wg = wgs[i]; if (!ptrOk(wg)) continue;
-                        void* mats = *(void**)((uintptr_t)wg + 0x18);
-                        int matCnt = ptrOk(mats) ? (int)(*(uintptr_t*)((uintptr_t)mats + 0x18)) : -1;
-                        [r appendFormat:@"  [%d] wg=%p materials=%p count=%d\n", i, wg, mats, matCnt];
-                    }
-                }
-            } else [r appendString:@"\nSAHNE: FindObjects NULL\n"];
-        } @catch (...) { [r appendString:@"\nSAHNE: exception\n"]; }
-    } else {
-        [r appendString:@"\nSAHNE: API/type null, tarama yok\n"];
-    }
-    UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"🔬 Balata Debug" message:r preferredStyle:UIAlertControllerStyleAlert];
-    [ac addAction:[UIAlertAction actionWithTitle:@"📋 Kopyala" style:UIAlertActionStyleDefault handler:^(UIAlertAction *aa){ [UIPasteboard generalPasteboard].string = r; }]];
-    [ac addAction:[UIAlertAction actionWithTitle:@"Tamam" style:UIAlertActionStyleCancel handler:nil]];
-    [self present:ac];
-    FLog(r);
 }
 
 - (void)tapBrakeGlow {
@@ -6253,7 +6034,7 @@ static NSString* rainbowWrap(NSString* text, int idx) {
     [self present:ac];
 }
 
-// v114.0: AI cevap renklerini sec (isim + cevap ayri)
+// v114.2: AI cevap renklerini sec (isim + cevap ayri)
 - (void)pickAiColorFor:(BOOL)forName {
     NSString *title = forName ? @"🎨 İsim Rengi Seç [FEW1N AI]" : @"🎨 Cevap Rengi Seç";
     NSString *curHex = [NSString stringWithUTF8String:forName ? g_aiNameColorHex : g_aiReplyColorHex];
@@ -6505,7 +6286,7 @@ static NSString* rainbowWrap(NSString* text, int idx) {
             NSString *nick = ptrOk(ply_getNickName(p)) ? (readStr(ply_getNickName(p)) ?: @"?") : @"?";
             NSString *nickClean = stripRichTextTags(nick) ?: nick;
             NSString *uid = (ply_getUserId) ? (readStr(ply_getUserId(p)) ?: @"") : @"";
-            // v114.0: UserId yoksa (DreamRoad'da genelde yok) nickname'i fingerprint key olarak kullan
+            // v114.2: UserId yoksa (DreamRoad'da genelde yok) nickname'i fingerprint key olarak kullan
             // Bu ideal degil - nick degistirse tanimaz, ama en iyi fallback
             NSString *fpKey = (uid.length > 0) ? uid : [NSString stringWithFormat:@"NICK:%@", nickClean];
             NSNumber *key = @(actor);
@@ -6515,7 +6296,7 @@ static NSString* rainbowWrap(NSString* text, int idx) {
                 NSMutableArray *arr = [NSMutableArray array]; [arr addObject:nickClean]; g_actorNickHistory[key] = arr;
                 FLog([NSString stringWithFormat:@"🕵️ Actor %d yeni: '%@' (uid=%@)", actor, nickClean, uid.length > 0 ? uid : @"(yok)"]);
                 // v106: KALICI FINGERPRINT check - UserId onceden goruldu mu?
-                // v114.0: fpKey = UserId veya NICK:nickClean fallback
+                // v114.2: fpKey = UserId veya NICK:nickClean fallback
                 NSMutableArray *permaNicks = g_permaFingerprint[fpKey];
                 if (permaNicks && permaNicks.count > 0 && ![permaNicks containsObject:nickClean]) {
                     NSString *msg = [NSString stringWithFormat:@"⚠️ FINGERPRINT UYARISI\n\nAnahtar: %@\nŞimdi: %@\n\nÖnceki nickler:\n%@", fpKey, nickClean, [permaNicks componentsJoinedByString:@", "]];
@@ -6536,7 +6317,7 @@ static NSString* rainbowWrap(NSString* text, int idx) {
                 UIAlertController *r = [UIAlertController alertControllerWithTitle:@"🕵️ İSİM DEĞİŞİKLİĞİ" message:msg preferredStyle:UIAlertControllerStyleAlert];
                 [r addAction:[UIAlertAction actionWithTitle:@"Tamam" style:UIAlertActionStyleDefault handler:nil]];
                 [self present:r];
-                // v114.0: fpKey fallback (UserId veya NICK:nick)
+                // v114.2: fpKey fallback (UserId veya NICK:nick)
                 NSMutableArray *permaNicks = g_permaFingerprint[fpKey];
                 if (!permaNicks) { permaNicks = [NSMutableArray array]; g_permaFingerprint[fpKey] = permaNicks; }
                 if (![permaNicks containsObject:nickClean]) { [permaNicks addObject:nickClean]; fpChanged = YES; }
@@ -6546,7 +6327,7 @@ static NSString* rainbowWrap(NSString* text, int idx) {
     } @catch (...) {}
 }
 
-// v114.0: Odayi Yeniden Olustur - SUNUCUDA GERCEK isim degisikligi (herkes duser + yeni odada sen)
+// v114.2: Odayi Yeniden Olustur - SUNUCUDA GERCEK isim degisikligi (herkes duser + yeni odada sen)
 - (void)recreateRoomWithNewName {
     if (!pn_leaveRoom || !pn_createRoom || !i_object_new || !g_roomOptionsClass) {
         FLog(@"❌ recreate: pn_leaveRoom/createRoom/RoomOptions YOK");
@@ -6702,7 +6483,7 @@ static NSString* rainbowWrap(NSString* text, int idx) {
             NSString *nmCopy = [nm copy];
             [ac addAction:[UIAlertAction actionWithTitle:[NSString stringWithFormat:@"🎯 %@", nmClean]
                 style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
-                // v114.0: MANUEL METOD SECIMI - hedef secildikten sonra hangi saldirinin uygulanacagini kullanici sec
+                // v114.2: MANUEL METOD SECIMI - hedef secildikten sonra hangi saldirinin uygulanacagini kullanici sec
                 UIAlertController *pick = [UIAlertController alertControllerWithTitle:[NSString stringWithFormat:@"🎯 '%@'", nmCopy]
                     message:@"Hangi saldiri?" preferredStyle:UIAlertControllerStyleAlert];
                 // A) Sadece Bomb
@@ -7825,7 +7606,7 @@ static void few1n_startCarCloneAttempt(NSString *scene) {
                     *(void**)((uintptr_t)room + 0x40) = nameStr;
                     FLog([NSString stringWithFormat:@"✓ Metod 1 Room.Name (0x40) client-side yazildi: '%@'", newName]);
 
-                    // v114.0: Metod 2 - SUNUCU push - Room.set_Name(string) invoke
+                    // v114.2: Metod 2 - SUNUCU push - Room.set_Name(string) invoke
                     // Bu Photon internal method; sunucuya sync eder mi denemek lazim
                     if (g_mRoomSetName && i_runtime_invoke && nameStr) {
                         @try {
@@ -9281,7 +9062,7 @@ static void few1n_joinTargetRoom(NSString *nm) {
                     if (vs) ok = pn_joinRoom(vs, NULL);
                 }
             }
-            // v114.0 EK METOD 5: RoomInfo memory patch - MaxPlayers'i 100 yap (local check bypass)
+            // v114.2 EK METOD 5: RoomInfo memory patch - MaxPlayers'i 100 yap (local check bypass)
             if (!ok) {
                 @try {
                     if (g_roomLineType && g_mFindObjectsPlural && i_runtime_invoke) {
@@ -9312,7 +9093,7 @@ static void few1n_joinTargetRoom(NSString *nm) {
                     }
                 } @catch (...) {}
             }
-            // v114.0 EK METOD 6: 2 saniye bekleme + tekrar dene (belki biri düşmüş olur)
+            // v114.2 EK METOD 6: 2 saniye bekleme + tekrar dene (belki biri düşmüş olur)
             if (!ok) {
                 dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
                     @try {
@@ -9406,7 +9187,7 @@ static void few1n_joinTargetRoom(NSString *nm) {
 - (void)serverHideChain:(NSArray*)targets index:(NSInteger)idx {
     if (idx >= (NSInteger)targets.count) {
         FLog([NSString stringWithFormat:@"🌐 [SUNUCU HIDE] BITTI — %lu oda islendi", (unsigned long)targets.count]);
-        // v114.0: Chain bittiginde HR_PhotonLobbyManagerDummy.roomListPanel'i aktif et
+        // v114.2: Chain bittiginde HR_PhotonLobbyManagerDummy.roomListPanel'i aktif et
         // Boylece oyun garaja atmak yerine oda listesi ekranini gosterir
         @try {
             if (g_hrLobbyMgrDummyType && g_offRoomListPanel > 0 && g_mGoSetActive && g_mFindObjectsPlural && i_runtime_invoke) {
@@ -10109,7 +9890,7 @@ static void restoreSettings(void) {
     isExhaustFlameOnEnabled = loadBool(@"exhaustflame", false);
     isVidyoNamesEnabled     = loadBool(@"vidyonames", false);
     isAiChatModeEnabled     = loadBool(@"aichat", false);
-    // v114.0: AI renkleri kalici
+    // v114.2: AI renkleri kalici
     NSString *nc = loadStr(@"aiNameCol", @"00E5FF");  strncpy(g_aiNameColorHex, nc.UTF8String, 7); g_aiNameColorHex[7]='\0';
     NSString *rc = loadStr(@"aiReplyCol", @"FF00FF"); strncpy(g_aiReplyColorHex, rc.UTF8String, 7); g_aiReplyColorHex[7]='\0';
     g_selFlashRate         = loadInt(@"selRate", 1);
@@ -10316,7 +10097,7 @@ static void few1n_setupCrashGuard(void) {
 
 %ctor {
     few1n_setupCrashGuard();
-    FLog(@"v114.0 basladi, UnityFramework araniyor...");
+    FLog(@"v114.2 basladi, UnityFramework araniyor...");
     restoreSettings();
 
     // ===== REKLAM BOZUCU: TUM reklam SDK'larini engelle (Obj-C runtime swizzle) =====
