@@ -40,21 +40,12 @@ jobs:
           if [ ! -f Tweak.xm ] && [ -f template/Tweak.xm ]; then
             cp template/Tweak.xm ./Tweak.xm
           fi
-          ls -la Tweak.xm
+          ls -la Tweak.xm control
 
-          cat > control << 'EOF'
-          Package: com.few1n.dreamroadmod
-          Name: FEW1N Mod Menu
-          Depends: mobilesubstrate, firmware (>= 14.0)
-          Version: 114.2
-          Architecture: iphoneos-arm64
-          Description: FEW1N Mod Menu v114.2
-          Maintainer: few1n
-          Author: few1n
-          Section: Tweaks
-          EOF
-
-          cat > Makefile << 'EOF'
+          # v114.3: Repo'daki control dosyasi KULLANILIR (artik override YOK) - Package + Version tutarli
+          # Sadece Makefile ve plist eksikse olustur (control dokunulmuyor)
+          if [ ! -f Makefile ]; then
+            cat > Makefile << 'EOF'
           TARGET := iphone:clang:latest:14.0
           ARCHS = arm64
           INSTALL_TARGET_PROCESSES = DreamRoadMultiplayer
@@ -71,10 +62,16 @@ jobs:
 
           include $(THEOS_MAKE_PATH)/tweak.mk
           EOF
+          fi
 
-          cat > FEW1NMod.plist << 'EOF'
+          if [ ! -f FEW1NMod.plist ]; then
+            cat > FEW1NMod.plist << 'EOF'
           { Filter = { Bundles = ( "com.TenebryFox.DreamRoadMultiplayer" ); }; }
           EOF
+          fi
+
+          echo "==> control:"
+          cat control
 
       - name: Build Tweak
         run: |
@@ -85,7 +82,7 @@ jobs:
       - name: Prepare Output
         run: |
           mkdir -p output
-          cp packages/*.deb output/FEW1NMod_114.2_${{ github.run_number }}.deb
+          cp packages/*.deb output/FEW1NMod_114.3_${{ github.run_number }}.deb
           DYLIB=$(find .theos/obj -name "*.dylib" | head -1)
           if [ -z "$DYLIB" ]; then
             dpkg -x packages/*.deb extracted
@@ -98,13 +95,13 @@ jobs:
       - name: Upload .deb
         uses: actions/upload-artifact@v4
         with:
-          name: FEW1N-ModMenu-v114.2-deb-${{ github.run_number }}
+          name: FEW1N-ModMenu-v114.3-deb-${{ github.run_number }}
           path: output/*.deb
 
       - name: Upload .dylib
         uses: actions/upload-artifact@v4
         with:
-          name: FEW1N-ModMenu-v114.2-dylib-${{ github.run_number }}
+          name: FEW1N-ModMenu-v114.3-dylib-${{ github.run_number }}
           path: output/FEW1NMod.dylib
 
       - name: Create GitHub Release
@@ -113,12 +110,12 @@ jobs:
           files: |
             output/*.deb
             output/*.dylib
-          tag_name: v114.2-build${{ github.run_number }}
-          name: FEW1N Mod Menu v114.2 (Build #${{ github.run_number }})
+          tag_name: v114.3-build${{ github.run_number }}
+          name: FEW1N Mod Menu v114.3 (Build #${{ github.run_number }})
           body: |
             🚀 **FEW1N Mod Menu Otomatik Derleme**
             
-            - **Sürüm:** v114.2
+            - **Sürüm:** v114.3
             - **Build:** #${{ github.run_number }}
             - **Commit:** ${{ github.sha }}
             
